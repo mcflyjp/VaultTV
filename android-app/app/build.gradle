@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace         'app.vaulttv'
+    compileSdk        34
+
+    defaultConfig {
+        applicationId   'app.vaulttv'
+        minSdk          22          // Fire OS 5+ / Android 5.1+
+        targetSdk       34
+        versionCode     1
+        versionName     '1.0.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled   false
+            signingConfig   signingConfigs.debug  // swap for keystore in production
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // Nothing extra — pure WebView, no extra libs needed
+}
