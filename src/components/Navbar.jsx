@@ -30,8 +30,8 @@ export default function Navbar() {
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 1.5rem', height: 60, display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
 
         {/* Logo */}
-        <Link to="/" style={{ fontWeight: 800, fontSize: '1.2rem', letterSpacing: '-0.5px', color: 'var(--accent)', flexShrink: 0 }}>
-          VAULT<span style={{ color: 'var(--text-primary)' }}>TV</span>
+        <Link to="/" style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+          <img src="/logo.png" alt="VaultTV" style={{ height: 36, width: 'auto' }} />
         </Link>
 
         {/* Nav links */}

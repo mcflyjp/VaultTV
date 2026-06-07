@@ -182,11 +182,8 @@ export default function Sidebar() {
     }}>
       {/* Logo */}
       <div style={{ padding: '1.4rem 1.25rem 0.9rem' }}>
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <div style={{ width: 30, height: 30, borderRadius: 7, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.8rem', color: '#fff', flexShrink: 0 }}>V</div>
-          <span style={{ fontWeight: 800, fontSize: '1.05rem', letterSpacing: '-0.5px', color: 'var(--text-primary)' }}>
-            VAULT<span style={{ color: 'var(--accent)' }}>TV</span>
-          </span>
+        <Link to="/" style={{ display: 'flex', alignItems: 'center' }}>
+          <img src="/logo.png" alt="VaultTV" style={{ height: 32, width: 'auto' }} />
         </Link>
       </div>
 
