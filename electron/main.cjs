@@ -22,24 +22,13 @@ function createWindow() {
     height: 900,
     minWidth:  900,
     minHeight: 600,
-    // frame: false is intentionally omitted on Windows — combining it with
-    // titleBarStyle:'hidden' + titleBarOverlay causes mouse click events to
-    // stop reaching web content (hover still works, clicks are silently dropped).
-    // titleBarStyle:'hidden' alone hides the native title bar while keeping the
-    // frame, allowing titleBarOverlay to render native min/max/close buttons.
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color:       '#0a0a12',
-      symbolColor: '#ffffff',
-      height: 36,
-    },
     backgroundColor: '#0a0a12',
     webPreferences: {
       preload:          path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration:  false,
-      // Allow loading local companion server (http://127.0.0.1:7842)
-      webSecurity: true,
+      sandbox:          false,   // explicit — Electron 20+ defaults sandbox:true which can break require() in preload
+      webSecurity:      false,   // needed so file:// can fetch http://127.0.0.1:7842 (companion) without CORS block
     },
     icon: path.join(__dirname, '../public/icon.png'),
     show: false,  // show after ready-to-show to avoid flash
