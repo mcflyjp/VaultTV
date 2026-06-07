@@ -14,4 +14,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Platform info
   platform: process.platform,
   isElectron: true,
+
+  // Open a URL in the system default browser (not inside Electron)
+  openExternal: (url) => ipcRenderer.send('open-external', url),
+
+  // OAuth deep-link callback — fires when the custom protocol vaulttv:// is invoked
+  onAuthCallback: (cb) => ipcRenderer.on('auth-callback', (_event, url) => cb(url)),
 })
