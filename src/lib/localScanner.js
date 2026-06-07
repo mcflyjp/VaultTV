@@ -8,19 +8,36 @@ const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.fl
  * instead of the often-useless episode filename.
  */
 export async function scanDirectory(dirHandle, depth = 0, rootFolderName = null) {
-  if (depth > 5) return [] // don't go too deep
+  if (depth > 8) return [] // increased from 5 to handle deeper nesting
   const files = []
-  for await (const [name, handle] of dirHandle) {
-    if (handle.kind === 'file') {
-      const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
-      if (VIDEO_EXTS.has(ext)) files.push({ name, handle, dirHandle, rootFolderName })
-    } else if (handle.kind === 'directory') {
-      // Capture the show/movie folder name at depth 0 → depth 1 transition
-      const childRoot = depth === 0 ? name : rootFolderName
-      const sub = await scanDirectory(handle, depth + 1, childRoot)
-      files.push(...sub)
+  let entryCount = 0
+
+  try {
+    for await (const [name, handle] of dirHandle.entries()) {
+      entryCount++
+      if (handle.kind === 'file') {
+        const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
+        if (VIDEO_EXTS.has(ext)) {
+          files.push({ name, handle, dirHandle, rootFolderName })
+        }
+      } else if (handle.kind === 'directory') {
+        const childRoot = depth === 0 ? name : rootFolderName
+        try {
+          const sub = await scanDirectory(handle, depth + 1, childRoot)
+          files.push(...sub)
+        } catch (subErr) {
+          console.warn(`[scanner] Could not read subdir "${name}":`, subErr.message)
+        }
+      }
     }
+  } catch (err) {
+    console.error(`[scanner] Failed to iterate dir at depth ${depth} (root: ${rootFolderName}):`, err)
   }
+
+  if (depth === 0) {
+    console.log(`[scanner] Root scan complete: ${entryCount} entries at root, ${files.length} video files total`)
+  }
+
   return files
 }
 
