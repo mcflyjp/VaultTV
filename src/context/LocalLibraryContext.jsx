@@ -338,7 +338,10 @@ export function LocalLibraryProvider({ children }) {
     // Fallback: File System Access API blob URL (requires browser permission)
     const handle = fileHandles.current[filename]
     if (!handle) {
-      throw new Error('File handle unavailable — make sure the companion server is running, or click "Re-grant Access" in Settings → Local Library.')
+      throw new Error(
+        'Cannot play file — the companion server is offline or this library was not scanned while it was running. ' +
+        'Start the companion (companion/start.bat) then rescan in Settings → Local Library.'
+      )
     }
     const file = await handle.getFile()
     return URL.createObjectURL(file)
