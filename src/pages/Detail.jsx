@@ -6,8 +6,9 @@ import { useAddons } from '../context/AddonsContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useWatchHistory } from '../context/WatchHistoryContext'
 import { usePlayer } from '../context/PlayerContext'
+import { useLocalLibrary } from '../context/LocalLibraryContext'
 import MediaShelf from '../components/MediaShelf'
-import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark } from 'react-icons/fi'
+import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive } from 'react-icons/fi'
 
 export default function Detail() {
   const { type, id } = useParams()
@@ -15,6 +16,7 @@ export default function Detail() {
   const { isSaved, toggle: toggleSave } = useLibrary()
   const { startWatching, updateProgress } = useWatchHistory()
   const { play } = usePlayer()
+  const { getLocalFile, getFileUrl } = useLocalLibrary()
   const [streams, setStreams]         = useState(null)
   const [loadingStreams, setLoadingStreams] = useState(false)
   const [selectedSeason, setSelectedSeason] = useState(1)
@@ -204,6 +206,38 @@ export default function Detail() {
 
               {/* Watch / Find Streams */}
               <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+
+                {/* Play local file if available */}
+                {(() => {
+                  const localFile = detail && getLocalFile(Number(id), type)
+                  if (!localFile) return null
+                  return (
+                    <button
+                      className="btn-accent"
+                      autoFocus
+                      style={{ fontSize: '0.9rem', padding: '0.65rem 1.6rem', background: '#16a34a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      onClick={async () => {
+                        try {
+                          const url = await getFileUrl(localFile.filename)
+                          setMusicDismissed(true)
+                          play({
+                            url, title,
+                            year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
+                            poster: IMG(detail?.poster_path, 'w342'),
+                            subtitleTracks: [],
+                            onProgress: (t, d) => updateProgress(Number(id), type, t, d),
+                          })
+                          startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
+                        } catch (e) {
+                          alert(e.message)
+                        }
+                      }}
+                    >
+                      <FiHardDrive size={15} /> Play Local File
+                    </button>
+                  )
+                })()}
+
                 {type === 'movie' && (
                   <button
                     className="btn-accent"

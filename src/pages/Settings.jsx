@@ -3,13 +3,15 @@ import { useParental } from '../context/ParentalContext'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLayout } from '../context/LayoutContext'
 import { useTrakt } from '../context/TraktContext'
-import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink } from 'react-icons/fi'
+import { useLocalLibrary } from '../context/LocalLibraryContext'
+import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive } from 'react-icons/fi'
 
 export default function Settings() {
   const { enabled, maxRating, pin, save, RATING_ORDER } = useParental()
   const { theme, changeTheme } = useTheme()
   const { density, changeDensity } = useLayout()
   const trakt = useTrakt()
+  const local = useLocalLibrary()
 
   const [form, setForm] = useState({ enabled, maxRating, pin, confirmPin: pin })
   const [pinError, setPinError] = useState('')
@@ -169,6 +171,103 @@ export default function Settings() {
             {saved ? '✓ Saved' : 'Save Settings'}
           </button>
         </form>
+      </Card>
+
+      {/* Local Library */}
+      <Card title="Local Library" icon={<FiHardDrive />}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1rem', lineHeight: 1.6 }}>
+          Point VaultTV at a local folder (downloads, NAS, external drive) to scan for video files.
+          Metadata and posters are matched automatically via TMDB. Files play directly in the built-in player.
+        </p>
+
+        {/* Current folder */}
+        {local.dirName && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.6rem 0.85rem', marginBottom: '1rem' }}>
+            <FiFolder size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{local.dirName}</span>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', flexShrink: 0 }}>{local.files.length} files</span>
+          </div>
+        )}
+
+        {/* Scan progress */}
+        {local.scanning && (
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
+              <span>Scanning & matching metadata…</span>
+              <span>{local.progress.done} / {local.progress.total}</span>
+            </div>
+            <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', background: 'var(--accent)', borderRadius: 2,
+                width: local.progress.total > 0 ? `${(local.progress.done / local.progress.total) * 100}%` : '0%',
+                transition: 'width 0.2s',
+              }} />
+            </div>
+          </div>
+        )}
+
+        {local.error && <p style={{ color: '#f87171', fontSize: '0.85rem', margin: '0 0 1rem' }}>{local.error}</p>}
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+          <button
+            className="btn-accent"
+            onClick={local.scanFolder}
+            disabled={local.scanning}
+            style={{ fontSize: '0.85rem', padding: '0.5rem 1.1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+          >
+            <FiFolder size={14} /> {local.dirName ? 'Change Folder' : 'Choose Folder'}
+          </button>
+
+          {local.files.length > 0 && !local.hasHandles && (
+            <button
+              className="btn-ghost"
+              onClick={local.reGrantAccess}
+              style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <FiRefreshCw size={13} /> Re-grant Access
+            </button>
+          )}
+
+          {local.files.length > 0 && (
+            <button
+              onClick={local.clearLibrary}
+              style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <FiTrash2 size={13} /> Clear Library
+            </button>
+          )}
+        </div>
+
+        {/* File list preview */}
+        {local.files.length > 0 && !local.scanning && (
+          <div style={{ marginTop: '1.25rem' }}>
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>
+              Matched Files ({local.files.filter(f => f.matched).length}/{local.files.length})
+            </p>
+            <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              {local.files.map(f => (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0.6rem', background: 'var(--bg-secondary)', borderRadius: 6, border: `1px solid ${f.matched ? 'var(--border)' : 'rgba(251,191,36,0.3)'}` }}>
+                  {f.poster_path
+                    ? <img src={`https://image.tmdb.org/t/p/w45${f.poster_path}`} alt="" style={{ width: 28, height: 42, objectFit: 'cover', borderRadius: 3, flexShrink: 0 }} />
+                    : <div style={{ width: 28, height: 42, background: 'var(--border)', borderRadius: 3, flexShrink: 0 }} />
+                  }
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.title}</p>
+                    <p style={{ margin: '1px 0 0', fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.filename}</p>
+                  </div>
+                  {!f.matched && <span style={{ fontSize: '0.68rem', color: '#fbbf24', flexShrink: 0 }}>unmatched</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!window.showDirectoryPicker && (
+          <p style={{ color: '#fbbf24', fontSize: '0.82rem', margin: '1rem 0 0' }}>
+            ⚠ Your browser doesn't support folder access. Use Chrome, Edge, or the Fire TV Silk browser.
+          </p>
+        )}
       </Card>
 
       {/* Trakt */}

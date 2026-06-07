@@ -4,19 +4,22 @@ import { IMG } from '../lib/tmdb'
 import { useContextMenu } from '../context/ContextMenuContext'
 import { useArtwork } from '../context/ArtworkContext'
 import { useLibrary } from '../context/LibraryContext'
-import { FiPlay, FiStar, FiCheck } from 'react-icons/fi'
+import { useLocalLibrary } from '../context/LocalLibraryContext'
+import { FiPlay, FiStar, FiCheck, FiHardDrive } from 'react-icons/fi'
 
 export default function MediaCard({ item, width = 150, onKeyDown }) {
   const navigate = useNavigate()
   const { show: showMenu } = useContextMenu()
   const { getArtwork } = useArtwork()
   const { isSaved } = useLibrary()
+  const { hasLocal } = useLocalLibrary()
   const [hovered, setHovered] = useState(false)
   const type = item.media_type || (item.first_air_date ? 'tv' : 'movie')
   const title = item.title || item.name || 'Untitled'
   const customArt = getArtwork(item.id, type)
   const poster = customArt || IMG(item.poster_path, 'w342')
-  const saved = isSaved(item.id, type)
+  const saved   = isSaved(item.id, type)
+  const isLocal = hasLocal(item.id, type)
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)
   const rating = item.vote_average?.toFixed(1)
 
@@ -83,21 +86,19 @@ export default function MediaCard({ item, width = 150, onKeyDown }) {
         </div>
       </div>
 
-      {/* In-library badge */}
-      {saved && (
-        <div style={{
-          position: 'absolute', top: 6, left: 6,
-          background: 'var(--accent)',
-          borderRadius: 4, padding: '2px 5px',
-          display: 'flex', alignItems: 'center', gap: 3,
-          fontSize: '0.62rem', fontWeight: 700, color: '#fff',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
-          pointerEvents: 'none',
-        }}>
-          <FiCheck size={9} strokeWidth={3} />
-          Library
-        </div>
-      )}
+      {/* Badges — top-left stack */}
+      <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', flexDirection: 'column', gap: 3, pointerEvents: 'none' }}>
+        {saved && (
+          <div style={{ background: 'var(--accent)', borderRadius: 4, padding: '2px 5px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', fontWeight: 700, color: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }}>
+            <FiCheck size={9} strokeWidth={3} /> Library
+          </div>
+        )}
+        {isLocal && (
+          <div style={{ background: '#16a34a', borderRadius: 4, padding: '2px 5px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', fontWeight: 700, color: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }}>
+            <FiHardDrive size={9} /> Local
+          </div>
+        )}
+      </div>
 
       {/* Always-visible rating badge (not hovered) */}
       {rating && !hovered && (
