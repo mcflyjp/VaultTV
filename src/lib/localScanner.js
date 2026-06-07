@@ -1,6 +1,39 @@
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts', '.m2ts'])
 
 /**
+ * Parse quality metadata from a filename.
+ * Returns { resolution, source, codec, score, label }
+ * Higher score = better quality.
+ */
+export function parseQuality(filename) {
+  const f = filename.toUpperCase()
+  let score = 0, resolution = '', source = '', codec = ''
+
+  // Resolution
+  if (/2160P|4K|UHD/.test(f))  { resolution = '4K';    score += 4000 }
+  else if (/1080P/.test(f))    { resolution = '1080p'; score += 1080 }
+  else if (/720P/.test(f))     { resolution = '720p';  score += 720  }
+  else if (/480P/.test(f))     { resolution = '480p';  score += 480  }
+  else                         { resolution = 'SD';    score += 100  }
+
+  // Source (streaming platform tags imply WEB quality)
+  if (/BLURAY|BDRIP|BLU-RAY/.test(f))          { source = 'BluRay'; score += 300 }
+  else if (/WEB-DL|WEBDL/.test(f))             { source = 'WEB-DL'; score += 220 }
+  else if (/AMZN|DSNP|NF|HULU|ATVP|HBO/.test(f)){ source = 'WEB';  score += 200 }
+  else if (/WEBRIP/.test(f))                   { source = 'WEBRip'; score += 180 }
+  else if (/HDTV/.test(f))                     { source = 'HDTV';   score += 100 }
+  else if (/DVDRIP|DVD/.test(f))               { source = 'DVDRip'; score += 50  }
+
+  // Codec
+  if (/AV1/.test(f))                           { codec = 'AV1';   score += 20 }
+  else if (/X265|H\.265|HEVC/.test(f))         { codec = 'HEVC';  score += 15 }
+  else if (/X264|H\.264|AVC/.test(f))          { codec = 'H.264'; score += 5  }
+
+  const label = [resolution, source, codec].filter(Boolean).join(' ') || 'Unknown'
+  return { resolution, source, codec, score, label }
+}
+
+/**
  * Walk a FileSystemDirectoryHandle recursively, return all video FileSystemFileHandles.
  * `rootFolderName` is the immediate child-folder of the user-selected root (depth=1).
  * For a TV library structured as:  Root / Show Name / Season 1 / ep.mkv

@@ -8,7 +8,7 @@ import { useWatchHistory } from '../context/WatchHistoryContext'
 import { usePlayer } from '../context/PlayerContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import MediaShelf from '../components/MediaShelf'
-import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive } from 'react-icons/fi'
+import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers } from 'react-icons/fi'
 
 export default function Detail() {
   const { type, id } = useParams()
@@ -16,7 +16,7 @@ export default function Detail() {
   const { isSaved, toggle: toggleSave } = useLibrary()
   const { startWatching, updateProgress } = useWatchHistory()
   const { play } = usePlayer()
-  const { getLocalFile, getFileUrl } = useLocalLibrary()
+  const { getLocalFile, getLocalVersions, getFileUrl } = useLocalLibrary()
   const [streams, setStreams]         = useState(null)
   const [loadingStreams, setLoadingStreams] = useState(false)
   const [selectedSeason, setSelectedSeason] = useState(1)
@@ -210,34 +210,21 @@ export default function Detail() {
               {/* Watch / Find Streams */}
               <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
 
-                {/* Play local file if available */}
-                {(() => {
-                  const localFile = detail && getLocalFile(Number(id), type)
-                  if (!localFile) return null
+                {/* Play local file — split button with version picker */}
+                {detail && (() => {
+                  const versions = getLocalVersions(Number(id), type)
+                  if (!versions.length) return null
                   return (
-                    <button
-                      className="btn-accent"
-                      autoFocus
-                      style={{ fontSize: '0.9rem', padding: '0.65rem 1.6rem', background: '#16a34a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                      onClick={async () => {
-                        try {
-                          const url = await getFileUrl(localFile.filename)
-                          setMusicDismissed(true)
-                          play({
-                            url, title,
-                            year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
-                            poster: IMG(detail?.poster_path, 'w342'),
-                            subtitleTracks: [],
-                            onProgress: (t, d) => updateProgress(Number(id), type, t, d),
-                          })
-                          startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
-                        } catch (e) {
-                          alert(e.message)
-                        }
-                      }}
-                    >
-                      <FiHardDrive size={15} /> Play Local File
-                    </button>
+                    <LocalPlayButton
+                      versions={versions}
+                      getFileUrl={getFileUrl}
+                      play={play}
+                      title={title}
+                      detail={detail}
+                      setMusicDismissed={setMusicDismissed}
+                      onProgress={(t, d) => updateProgress(Number(id), type, t, d)}
+                      onStartWatching={() => startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })}
+                    />
                   )
                 })()}
 
@@ -304,22 +291,34 @@ export default function Detail() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {season?.episodes?.map(ep => (
-                <div
-                  key={ep.episode_number}
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter') { setSelectedSeason(selectedSeason); handleWatch(selectedSeason, ep.episode_number) } }}
-                  style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', padding: '0.75rem', background: 'rgba(255,255,255,0.06)', borderRadius: 'var(--radius)', cursor: 'pointer', border: '1px solid var(--border)', backdropFilter: 'blur(8px)' }}
-                  onClick={() => handleWatch(selectedSeason, ep.episode_number)}
-                >
-                  {ep.still_path && <img src={IMG(ep.still_path, 'w300')} alt="" style={{ width: 120, borderRadius: 4, flexShrink: 0, aspectRatio: '16/9', objectFit: 'cover' }} />}
-                  <div style={{ flex: 1 }}>
-                    <p style={{ margin: '0 0 4px', fontWeight: 600, fontSize: '0.9rem' }}>{ep.episode_number}. {ep.name}</p>
-                    <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ep.overview?.slice(0, 140)}{ep.overview?.length > 140 ? '…' : ''}</p>
-                  </div>
-                  <FiPlay size={18} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
-                </div>
-              ))}
+              {season?.episodes?.map(ep => {
+                const epVersions = getLocalVersions(Number(id), 'tv', selectedSeason, ep.episode_number)
+                const hasLocal = epVersions.length > 0
+                return (
+                  <EpisodeRow
+                    key={ep.episode_number}
+                    ep={ep}
+                    season={selectedSeason}
+                    localVersions={epVersions}
+                    hasLocal={hasLocal}
+                    onWatch={() => handleWatch(selectedSeason, ep.episode_number)}
+                    onPlayLocal={async (file) => {
+                      try {
+                        const url = await getFileUrl(file.filename)
+                        setMusicDismissed(true)
+                        play({
+                          url,
+                          title: `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`,
+                          poster: IMG(detail?.poster_path, 'w342'),
+                          subtitleTracks: [],
+                          onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d),
+                        })
+                        startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
+                      } catch (e) { alert(e.message) }
+                    }}
+                  />
+                )
+              })}
             </div>
           </div>
         )}
@@ -410,6 +409,206 @@ function LoadingState() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', color: 'var(--text-secondary)' }}>
       Loading…
+    </div>
+  )
+}
+
+/** Split-button: plays best version by default; ▼ reveals version picker */
+function LocalPlayButton({ versions, getFileUrl, play, title, detail, setMusicDismissed, onProgress, onStartWatching }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const ref = useState(null)
+
+  const best = versions[0]
+
+  async function playFile(file) {
+    setLoading(true)
+    setOpen(false)
+    try {
+      const url = await getFileUrl(file.filename)
+      setMusicDismissed(true)
+      play({
+        url, title,
+        year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
+        poster: IMG(detail?.poster_path, 'w342'),
+        subtitleTracks: [],
+        onProgress,
+      })
+      onStartWatching()
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      {/* Main play button */}
+      <button
+        className="btn-accent"
+        autoFocus
+        disabled={loading}
+        onClick={() => playFile(best)}
+        style={{
+          fontSize: '0.9rem', padding: '0.65rem 1.2rem',
+          background: '#16a34a', display: 'flex', alignItems: 'center', gap: '0.4rem',
+          borderRadius: versions.length > 1 ? 'var(--radius) 0 0 var(--radius)' : 'var(--radius)',
+          borderRight: versions.length > 1 ? '1px solid rgba(255,255,255,0.2)' : undefined,
+        }}
+      >
+        <FiHardDrive size={15} />
+        {loading ? 'Opening…' : 'Play Local'}
+        {best.qualityLabel && (
+          <span style={{ fontSize: '0.72rem', opacity: 0.8, background: 'rgba(0,0,0,0.25)', borderRadius: 3, padding: '1px 5px' }}>
+            {best.qualityLabel}
+          </span>
+        )}
+      </button>
+
+      {/* ▼ versions dropdown toggle */}
+      {versions.length > 1 && (
+        <>
+          <button
+            onClick={() => setOpen(o => !o)}
+            style={{
+              fontSize: '0.9rem', padding: '0.65rem 0.7rem',
+              background: '#16a34a', display: 'flex', alignItems: 'center',
+              borderRadius: '0 var(--radius) var(--radius) 0',
+              border: 'none', cursor: 'pointer', color: '#fff',
+            }}
+            title={`${versions.length} versions available`}
+          >
+            <FiLayers size={14} />
+          </button>
+
+          {open && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 500,
+              background: 'rgba(15,15,20,0.97)', backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.8)',
+              minWidth: 280, overflow: 'hidden',
+            }}>
+              <p style={{ margin: 0, padding: '0.5rem 0.85rem', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                {versions.length} Versions Available
+              </p>
+              {versions.map((v, i) => (
+                <VersionItem key={v.id} file={v} isBest={i === 0} onClick={() => playFile(v)} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function VersionItem({ file, isBest, onClick }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <button
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem',
+        padding: '0.55rem 0.85rem', border: 'none', cursor: 'pointer', textAlign: 'left',
+        background: hovered ? 'rgba(22,163,74,0.2)' : 'transparent',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        transition: 'background 0.1s',
+      }}
+    >
+      <FiHardDrive size={13} style={{ color: '#16a34a', flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+          {file.qualityLabel && (
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fff' }}>{file.qualityLabel}</span>
+          )}
+          {isBest && (
+            <span style={{ fontSize: '0.62rem', background: '#16a34a', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>BEST</span>
+          )}
+        </div>
+        <p style={{ margin: '2px 0 0', fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {file.filename}
+        </p>
+      </div>
+      <FiPlay size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+    </button>
+  )
+}
+
+/** TV episode row with local version awareness */
+function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal }) {
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const best = localVersions[0]
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', backdropFilter: 'blur(8px)', overflow: 'visible', position: 'relative' }}
+    >
+      <div
+        style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', padding: '0.75rem', cursor: 'pointer' }}
+        tabIndex={0}
+        onClick={() => hasLocal ? onPlayLocal(best) : onWatch()}
+        onKeyDown={e => { if (e.key === 'Enter') hasLocal ? onPlayLocal(best) : onWatch() }}
+      >
+        {ep.still_path && <img src={IMG(ep.still_path, 'w300')} alt="" style={{ width: 120, borderRadius: 4, flexShrink: 0, aspectRatio: '16/9', objectFit: 'cover' }} />}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 4, flexWrap: 'wrap' }}>
+            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{ep.episode_number}. {ep.name}</p>
+            {hasLocal && (
+              <span style={{ fontSize: '0.62rem', background: '#16a34a', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700, flexShrink: 0 }}>
+                LOCAL{best?.qualityLabel ? ` · ${best.qualityLabel}` : ''}
+              </span>
+            )}
+            {localVersions.length > 1 && (
+              <span style={{ fontSize: '0.62rem', background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.6)', borderRadius: 3, padding: '1px 5px', flexShrink: 0 }}>
+                +{localVersions.length - 1} more
+              </span>
+            )}
+          </div>
+          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ep.overview?.slice(0, 140)}{ep.overview?.length > 140 ? '…' : ''}</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+          {localVersions.length > 1 && (
+            <button
+              onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+              title="Choose version"
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '0.25rem 0.4rem', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.7rem' }}
+            >
+              <FiLayers size={11} /> Versions
+            </button>
+          )}
+          <FiPlay size={18} style={{ color: hasLocal ? '#16a34a' : 'var(--accent)' }} />
+        </div>
+      </div>
+
+      {/* Version picker dropdown */}
+      {open && localVersions.length > 1 && (
+        <div style={{
+          position: 'absolute', right: 0, top: '100%', zIndex: 400,
+          background: 'rgba(15,15,20,0.97)', backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+          boxShadow: '0 12px 40px rgba(0,0,0,0.8)', minWidth: 260, overflow: 'hidden',
+        }}>
+          <p style={{ margin: 0, padding: '0.5rem 0.85rem', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+            Choose Version
+          </p>
+          {localVersions.map((v, i) => (
+            <VersionItem key={v.id} file={v} isBest={i === 0} onClick={() => { setOpen(false); onPlayLocal(v) }} />
+          ))}
+          <button
+            onClick={() => { setOpen(false); onWatch() }}
+            style={{ width: '100%', padding: '0.55rem 0.85rem', border: 'none', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          >
+            <FiPlay size={12} /> Stream instead
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
-import { scanDirectory, parseFilename, matchTmdb } from '../lib/localScanner'
+import { scanDirectory, parseFilename, matchTmdb, parseQuality } from '../lib/localScanner'
 import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges } from '../lib/companion'
 
 /** Strip year suffixes and clean up a folder name for TMDB search, e.g. "Breaking.Bad (2008)" → "Breaking Bad" */
@@ -229,12 +229,13 @@ export function LocalLibraryProvider({ children }) {
 
         const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: forcedType === 'tv' }, TMDB_KEY, forcedType)
 
+        const quality = parseQuality(name)
         results.push({
           id:            fileId,
           filename:      name,
           sourceId:      source.id,
           sourceType:    source.type,
-          showFolder:    rootFolderName || null,  // e.g. "Breaking Bad" for TV
+          showFolder:    rootFolderName || null,
           tmdbId:        match?.tmdbId  || null,
           title:         match?.title   || titleForTmdb || parsed.title,
           media_type:    match?.media_type || forcedType,
@@ -245,6 +246,8 @@ export function LocalLibraryProvider({ children }) {
           parsedSeason:  parsed.season  || null,
           parsedEpisode: parsed.episode || null,
           matched:       !!match,
+          qualityScore:  quality.score,
+          qualityLabel:  quality.label,
         })
 
         setProgress(p => ({ ...p, done: i + 1 }))
@@ -301,8 +304,21 @@ export function LocalLibraryProvider({ children }) {
     return URL.createObjectURL(file)
   }
 
-  function getLocalFile(tmdbId, mediaType) {
-    return files.find(f => f.tmdbId === tmdbId && f.media_type === mediaType) || null
+  /**
+   * All local versions for a title, sorted best quality first.
+   * For TV: pass season + episode to narrow to a specific episode's versions.
+   */
+  function getLocalVersions(tmdbId, mediaType, season = null, episode = null) {
+    let matches = files.filter(f => f.tmdbId === Number(tmdbId) && f.media_type === mediaType)
+    if (season  !== null) matches = matches.filter(f => f.parsedSeason  === season)
+    if (episode !== null) matches = matches.filter(f => f.parsedEpisode === episode)
+    return matches.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
+  }
+
+  /** Best quality local file for a title (first result from getLocalVersions) */
+  function getLocalFile(tmdbId, mediaType, season = null, episode = null) {
+    const versions = getLocalVersions(tmdbId, mediaType, season, episode)
+    return versions[0] || null
   }
 
   function hasLocal(tmdbId, mediaType) {
@@ -327,7 +343,7 @@ export function LocalLibraryProvider({ children }) {
     <LocalLibraryContext.Provider value={{
       sources, files, scanning, progress, error, hasHandles, companionOnline,
       addSource, removeSource, rescanSource, reGrantAll,
-      getFileUrl, getLocalFile, hasLocal, getLocalEpisodeCount, clearAll,
+      getFileUrl, getLocalFile, getLocalVersions, hasLocal, getLocalEpisodeCount, clearAll,
     }}>
       {children}
     </LocalLibraryContext.Provider>

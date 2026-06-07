@@ -7,10 +7,12 @@ import { useRatings } from '../context/RatingsContext'
 import { usePlaylist } from '../context/PlaylistContext'
 import { useWatchHistory } from '../context/WatchHistoryContext'
 import { useArtwork } from '../context/ArtworkContext'
+import { useLocalLibrary } from '../context/LocalLibraryContext'
+import { usePlayer } from '../context/PlayerContext'
 import { IMG } from '../lib/tmdb'
 import {
   FiPlay, FiList, FiBookmark, FiCheck, FiStar, FiImage,
-  FiInfo, FiPlusSquare, FiX, FiPlus
+  FiInfo, FiPlusSquare, FiX, FiPlus, FiHardDrive, FiLayers, FiChevronRight
 } from 'react-icons/fi'
 import ArtworkPicker from './ArtworkPicker'
 import RatingPicker from './RatingPicker'
@@ -22,10 +24,13 @@ export default function ContextMenu() {
   const { isQueued, addToQueue, removeFromQueue } = useQueue()
   const { getRating } = useRatings()
   const { inProgress, startWatching } = useWatchHistory()
+  const { getLocalVersions, getFileUrl } = useLocalLibrary()
+  const { play } = usePlayer()
   const navigate = useNavigate()
   const ref = useRef(null)
 
   const [subModal, setSubModal] = useState(null) // 'artwork' | 'rating' | 'playlist'
+  const [versionsOpen, setVersionsOpen] = useState(false)
 
   // Click outside to close
   useEffect(() => {
@@ -55,6 +60,20 @@ export default function ContextMenu() {
   function action(fn) { fn(); hide() }
 
   const libraryItem = { id: item.id, type, title, poster }
+
+  // Local versions (movies only in context menu — TV needs episode selection)
+  const localVersions = type === 'movie' ? getLocalVersions(item.id, 'movie') : []
+
+  async function playLocalVersion(file) {
+    try {
+      const url = await getFileUrl(file.filename)
+      play({ url, title, poster, subtitleTracks: [] })
+      startWatching(libraryItem)
+      hide()
+    } catch (e) {
+      alert(e.message)
+    }
+  }
 
   if (subModal === 'artwork') return (
     <ArtworkPicker item={item} type={type} onClose={() => { setSubModal(null); hide() }} />
@@ -101,6 +120,53 @@ export default function ContextMenu() {
 
         <MenuSection label="Playback" />
         <MenuItem icon={<FiPlay />} label="Play Now" accent onClick={() => action(() => navigate(`/detail/${type}/${item.id}`))} />
+
+        {/* Local versions — movie cards only */}
+        {localVersions.length > 0 && (
+          <>
+            <MenuItem
+              icon={<FiHardDrive />}
+              label={`Play Local (${localVersions[0].qualityLabel || 'Local'})`}
+              onClick={() => playLocalVersion(localVersions[0])}
+            />
+            {localVersions.length > 1 && (
+              <>
+                <MenuItem
+                  icon={<FiLayers />}
+                  label={`Play Version… (${localVersions.length})`}
+                  onClick={() => setVersionsOpen(o => !o)}
+                  suffix={<FiChevronRight size={12} style={{ marginLeft: 'auto', opacity: 0.5, transform: versionsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />}
+                />
+                {versionsOpen && (
+                  <div style={{ background: 'rgba(255,255,255,0.03)', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    {localVersions.map((v, i) => (
+                      <button
+                        key={v.id}
+                        onClick={() => playLocalVersion(v)}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          padding: '0.45rem 0.85rem 0.45rem 2rem',
+                          border: 'none', cursor: 'pointer', textAlign: 'left',
+                          background: 'transparent', color: 'rgba(255,255,255,0.75)',
+                          fontSize: '0.8rem', transition: 'background 0.1s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(22,163,74,0.15)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <FiHardDrive size={11} style={{ color: '#16a34a', flexShrink: 0 }} />
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {v.qualityLabel || v.filename}
+                        </span>
+                        {i === 0 && <span style={{ fontSize: '0.6rem', background: '#16a34a', color: '#fff', borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>BEST</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+
         <MenuItem
           icon={<FiList />}
           label={queued ? 'Remove from Queue' : 'Add to Queue'}
@@ -149,7 +215,7 @@ function Divider() {
   return <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0.3rem 0' }} />
 }
 
-function MenuItem({ icon, label, onClick, accent, active, muted }) {
+function MenuItem({ icon, label, onClick, accent, active, muted, suffix }) {
   const [hovered, setHovered] = useState(false)
   return (
     <button
@@ -167,7 +233,8 @@ function MenuItem({ icon, label, onClick, accent, active, muted }) {
     >
       <span style={{ flexShrink: 0, opacity: muted ? 0.5 : 1 }}>{icon}</span>
       {label}
-      {active && !accent && <FiCheck size={12} style={{ marginLeft: 'auto', color: 'var(--accent)', flexShrink: 0 }} />}
+      {active && !accent && !suffix && <FiCheck size={12} style={{ marginLeft: 'auto', color: 'var(--accent)', flexShrink: 0 }} />}
+      {suffix}
     </button>
   )
 }
