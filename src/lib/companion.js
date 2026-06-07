@@ -12,7 +12,11 @@
 // accessed from another device on the LAN (e.g. http://192.168.1.232:5174
 // will talk to the companion at http://192.168.1.232:7842 automatically).
 const COMPANION_PORT = 7842
-const BASE = `http://${window.location.hostname}:${COMPANION_PORT}`
+// In Electron (file:// protocol) hostname is "" — fall back to localhost.
+// In browser on LAN (e.g. http://192.168.1.232:5174) use the same host so
+// the companion is reachable from any device on the network.
+const _host = window.location.hostname || 'localhost'
+const BASE = `http://${_host}:${COMPANION_PORT}`
 
 /** Check if companion is reachable. Resolves to true/false. */
 export async function pingCompanion() {
@@ -93,6 +97,37 @@ export async function saveLibrary(data) {
  */
 export function streamUrl(filePath) {
   return `${BASE}/stream?path=${encodeURIComponent(filePath)}`
+}
+
+/**
+ * Probe a stream URL via the companion's ffprobe endpoint.
+ * Returns the audio codec name (e.g. "ac3", "eac3", "dts", "aac") or null
+ * if the probe fails or companion is offline.
+ * @param {string} sourceUrl
+ */
+export async function probeAudioCodec(sourceUrl) {
+  try {
+    const r = await fetch(
+      `${BASE}/probe?url=${encodeURIComponent(sourceUrl)}`,
+      { signal: AbortSignal.timeout(6000) }
+    )
+    if (!r.ok) return null
+    const data = await r.json()
+    return data.audioCodec || null
+  } catch {
+    return null
+  }
+}
+
+/** Codecs that browsers cannot decode — need companion transcode */
+const UNSUPPORTED_AUDIO = new Set(['ac3', 'eac3', 'dts', 'truehd', 'mlp'])
+
+/**
+ * Returns true if the given codec name requires transcoding.
+ * @param {string|null} codec
+ */
+export function needsTranscode(codec) {
+  return codec ? UNSUPPORTED_AUDIO.has(codec.toLowerCase()) : false
 }
 
 /**

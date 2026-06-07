@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
 import Hls from 'hls.js'
-import { transcodeUrl } from '../lib/companion'
+import { transcodeUrl, probeAudioCodec, needsTranscode } from '../lib/companion'
 import {
   FiPlay, FiPause, FiVolume2, FiVolumeX, FiVolume1,
   FiMaximize, FiMinimize, FiX, FiSettings, FiChevronLeft,
@@ -130,6 +130,18 @@ export default function VideoPlayer() {
       }
 
       if (!src) { setError('No stream URL provided.'); return }
+
+      // Auto-probe remote streams for unsupported audio codecs (AC3/DTS/EAC3).
+      // If detected, transparently swap to the companion transcode URL.
+      // Skips probe for local companion streams (already served from disk).
+      if (src.startsWith('http') && !src.includes(':7842/')) {
+        const codec = await probeAudioCodec(src)
+        if (needsTranscode(codec)) {
+          console.log(`[player] Auto-transcoding — detected unsupported audio: ${codec}`)
+          src = transcodeUrl(src)
+          setTranscoding(true)
+        }
+      }
 
       // Companion URLs (port 7842) are cross-origin — need crossOrigin for Web Audio.
       if (src.includes(':7842/')) {

@@ -305,6 +305,57 @@ app.get('/stream', (req, res) => {
   }
 })
 
+// ── Stream probe endpoint ──────────────────────────────────────────────
+// Runs ffprobe on a remote URL and returns the audio codec name.
+// Used by VaultTV to auto-detect AC3/DTS before playback starts.
+//
+// Usage: GET /probe?url=<encoded_source_url>
+
+app.get('/probe', (req, res) => {
+  const sourceUrl = req.query.url
+  if (!sourceUrl) return res.status(400).json({ error: 'url required' })
+
+  let parsed
+  try { parsed = new URL(sourceUrl) } catch { return res.status(400).json({ error: 'Invalid URL' }) }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return res.status(400).json({ error: 'Only http/https sources supported' })
+  }
+
+  // ffprobe: read just stream headers (no decoding), output JSON
+  const args = [
+    '-v', 'quiet',
+    '-print_format', 'json',
+    '-show_streams',
+    '-select_streams', 'a:0',  // first audio stream only
+    '-read_intervals', '%+#3', // read first 3 packets then stop
+    sourceUrl,
+  ]
+
+  const ff = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+  let stdout = ''
+  ff.stdout.on('data', d => { stdout += d.toString() })
+
+  ff.on('close', code => {
+    try {
+      const info = JSON.parse(stdout)
+      const audioStream = info.streams?.[0]
+      const audioCodec  = audioStream?.codec_name || null
+      console.log(`[probe] ${sourceUrl.slice(0, 60)}… → audio: ${audioCodec}`)
+      res.json({ audioCodec, profile: audioStream?.profile || null })
+    } catch {
+      res.json({ audioCodec: null })
+    }
+  })
+
+  ff.on('error', err => {
+    if (err.code === 'ENOENT') {
+      res.status(500).json({ error: 'ffprobe not found — install ffmpeg' })
+    } else {
+      res.status(500).json({ error: err.message })
+    }
+  })
+})
+
 // ── Audio transcode endpoint ───────────────────────────────────────────
 // Pipes any HTTP(S) video stream through ffmpeg, re-encoding audio to AAC
 // while copying video as-is. Fixes AC3/DTS/EAC3 audio which browsers can't
