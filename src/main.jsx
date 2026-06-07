@@ -17,6 +17,7 @@ import { ContextMenuProvider } from './context/ContextMenuContext'
 import { TraktProvider } from './context/TraktContext'
 import { PlayerProvider } from './context/PlayerContext'
 import { LocalLibraryProvider } from './context/LocalLibraryContext'
+import { AuthProvider } from './context/AuthContext'
 import './index.css'
 import App from './App.jsx'
 
@@ -27,6 +28,7 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
+      <AuthProvider>
       <ThemeProvider>
         <LayoutProvider>
           <DashboardProvider>
@@ -60,6 +62,7 @@ createRoot(document.getElementById('root')).render(
           </DashboardProvider>
         </LayoutProvider>
       </ThemeProvider>
+      </AuthProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

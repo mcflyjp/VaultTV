@@ -4,7 +4,9 @@ import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLayout } from '../context/LayoutContext'
 import { useTrakt } from '../context/TraktContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
-import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff } from 'react-icons/fi'
+import { useAuth } from '../context/AuthContext'
+import { useAddons } from '../context/AddonsContext'
+import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff, FiUser, FiLogOut, FiLogIn, FiCloud } from 'react-icons/fi'
 
 export default function Settings() {
   const { enabled, maxRating, pin, save, RATING_ORDER } = useParental()
@@ -12,6 +14,8 @@ export default function Settings() {
   const { density, changeDensity } = useLayout()
   const trakt = useTrakt()
   const local = useLocalLibrary()
+  const auth  = useAuth()
+  const { syncing, syncError } = useAddons()
 
   const [form, setForm] = useState({ enabled, maxRating, pin, confirmPin: pin })
   const [pinError, setPinError] = useState('')
@@ -437,6 +441,17 @@ export default function Settings() {
         )}
       </Card>
 
+      {/* Account / Cloud Sync */}
+      <Card title="Account & Cloud Sync" icon={<FiCloud />}>
+        {auth.loading ? (
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0 }}>Loading…</p>
+        ) : auth.user ? (
+          <AccountPanel user={auth.user} signOut={auth.signOut} syncing={syncing} syncError={syncError} />
+        ) : (
+          <LoginPanel signInWithEmail={auth.signInWithEmail} signUpWithEmail={auth.signUpWithEmail} signInWithGoogle={auth.signInWithGoogle} />
+        )}
+      </Card>
+
       {/* About */}
       <Card title="About" icon={null}>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0, lineHeight: 1.7 }}>
@@ -444,6 +459,121 @@ export default function Settings() {
           Metadata provided by <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>The Movie Database (TMDB)</a>.
         </p>
       </Card>
+    </div>
+  )
+}
+
+function LoginPanel({ signInWithEmail, signUpWithEmail, signInWithGoogle }) {
+  const [mode,     setMode]     = useState('signin') // 'signin' | 'signup'
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [error,    setError]    = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [sent,     setSent]     = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      if (mode === 'signin') {
+        await signInWithEmail(email, password)
+      } else {
+        await signUpWithEmail(email, password)
+        setSent(true)
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (sent) return (
+    <p style={{ color: '#4ade80', fontSize: '0.9rem', margin: 0 }}>
+      ✓ Check your email to confirm your account, then sign in.
+    </p>
+  )
+
+  return (
+    <div>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1.25rem', lineHeight: 1.6 }}>
+        Sign in to sync your add-ons across every device and browser automatically.
+      </p>
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', maxWidth: 340 }}>
+        <input
+          type="email" required value={email} onChange={e => setEmail(e.target.value)}
+          placeholder="Email"
+          style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', padding: '0.55rem 0.75rem', fontSize: '0.88rem' }}
+        />
+        <input
+          type="password" required value={password} onChange={e => setPassword(e.target.value)}
+          placeholder="Password"
+          style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', padding: '0.55rem 0.75rem', fontSize: '0.88rem' }}
+        />
+        {error && <p style={{ color: '#f87171', fontSize: '0.82rem', margin: 0 }}>{error}</p>}
+        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="submit" className="btn-accent" disabled={loading} style={{ fontSize: '0.88rem', padding: '0.5rem 1.2rem' }}>
+            <FiLogIn size={13} /> {loading ? '…' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+          </button>
+          <button type="button" onClick={() => { setMode(m => m === 'signin' ? 'signup' : 'signin'); setError('') }}
+            style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.85rem', padding: 0 }}>
+            {mode === 'signin' ? 'Create account' : 'Already have an account?'}
+          </button>
+        </div>
+      </form>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', margin: '1rem 0', maxWidth: 340 }}>
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>or</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+      </div>
+
+      <button
+        onClick={signInWithGoogle}
+        style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', background: '#fff', color: '#111', border: 'none', borderRadius: 'var(--radius)', padding: '0.55rem 1.2rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.88rem' }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Continue with Google
+      </button>
+    </div>
+  )
+}
+
+function AccountPanel({ user, signOut, syncing, syncError }) {
+  const [signingOut, setSigningOut] = useState(false)
+
+  async function handleSignOut() {
+    setSigningOut(true)
+    await signOut()
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', marginBottom: '1.25rem' }}>
+        <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <FiUser size={18} color="#fff" />
+        </div>
+        <div>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>{user.user_metadata?.full_name || user.email}</p>
+          <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{user.email}</p>
+        </div>
+        <button
+          onClick={handleSignOut}
+          disabled={signingOut}
+          style={{ marginLeft: 'auto', background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', padding: '0.35rem 0.8rem', cursor: 'pointer', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+        >
+          <FiLogOut size={13} /> {signingOut ? '…' : 'Sign Out'}
+        </button>
+      </div>
+
+      <div style={{ padding: '0.65rem 0.85rem', background: 'var(--bg-secondary)', border: `1px solid ${syncError ? 'rgba(248,113,113,0.4)' : 'rgba(74,222,128,0.3)'}`, borderRadius: 'var(--radius)', display: 'flex', alignItems: 'center', gap: '0.65rem', fontSize: '0.84rem' }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: syncError ? '#f87171' : syncing ? '#fbbf24' : '#4ade80', flexShrink: 0 }} />
+        <span style={{ color: syncError ? '#f87171' : 'var(--text-secondary)' }}>
+          {syncError || (syncing ? 'Syncing add-ons…' : 'Add-ons synced to cloud ✓')}
+        </span>
+      </div>
     </div>
   )
 }
