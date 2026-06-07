@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { scanDirectory, parseFilename, matchTmdb, parseQuality } from '../lib/localScanner'
-import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges, scanFolder, streamUrl } from '../lib/companion'
+import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges, scanFolder, streamUrl, fetchLibrary, saveLibrary } from '../lib/companion'
 
 /** Strip year suffixes and clean up a folder name for TMDB search, e.g. "Breaking.Bad (2008)" → "Breaking Bad" */
 function cleanFolderName(folderName) {
@@ -63,6 +63,23 @@ export function LocalLibraryProvider({ children }) {
       if (cancelled) return
       setCompanionOnline(online)
       if (!online) return
+
+      // Load the shared library from the companion so LAN devices get the
+      // same file list as the host without needing their own scan
+      try {
+        const lib = await fetchLibrary()
+        if (lib?.files?.length) {
+          // Only replace local data if companion has more files (host wins)
+          const local = JSON.parse(localStorage.getItem(LS_FILES) || '[]')
+          if (lib.files.length >= local.length) {
+            saveSources(lib.sources || [])
+            saveFiles(lib.files)
+            console.log(`[companion] Loaded library: ${lib.sources?.length} sources, ${lib.files.length} files`)
+          }
+        }
+      } catch (e) {
+        console.warn('[companion] Could not load shared library:', e.message)
+      }
 
       companionUnsub.current = subscribeToChanges(ev => {
         console.log('[companion] folder-changed:', ev.sourceName, ev.action, ev.filename)
@@ -294,6 +311,13 @@ export function LocalLibraryProvider({ children }) {
         s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s
       )
       saveSources(nextSources)
+
+      // Persist library to companion so LAN devices can load it
+      if (companionOnline) {
+        saveLibrary({ sources: nextSources, files: allFiles }).catch(e =>
+          console.warn('[companion] Could not save library to companion:', e.message)
+        )
+      }
 
     } catch (e) {
       setError('Scan failed: ' + e.message)

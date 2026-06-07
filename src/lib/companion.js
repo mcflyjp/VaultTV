@@ -8,7 +8,11 @@
  * All requests go to 127.0.0.1 only — nothing leaves your machine.
  */
 
-const BASE = 'http://127.0.0.1:7842'
+// Use the same hostname as the page so this works both on localhost and when
+// accessed from another device on the LAN (e.g. http://192.168.1.232:5174
+// will talk to the companion at http://192.168.1.232:7842 automatically).
+const COMPANION_PORT = 7842
+const BASE = `http://${window.location.hostname}:${COMPANION_PORT}`
 
 /** Check if companion is reachable. Resolves to true/false. */
 export async function pingCompanion() {
@@ -57,6 +61,29 @@ export async function scanFolder(id) {
   const r = await fetch(`${BASE}/folders/${id}/scan`, { signal: AbortSignal.timeout(30_000) })
   if (!r.ok) throw new Error(`Companion scan failed: ${r.status}`)
   return r.json() // { id, count, files: [{ name, path, rootFolder }] }
+}
+
+/**
+ * Fetch the shared library (sources + files) saved by the host machine.
+ * Returns { sources, files } or null if not yet saved.
+ */
+export async function fetchLibrary() {
+  const r = await fetch(`${BASE}/library`, { signal: AbortSignal.timeout(5000) })
+  if (!r.ok) throw new Error(`Library fetch failed: ${r.status}`)
+  return r.json()
+}
+
+/**
+ * Persist the library to the companion so other devices can read it.
+ * @param {{ sources: any[], files: any[] }} data
+ */
+export async function saveLibrary(data) {
+  await fetch(`${BASE}/library`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    signal: AbortSignal.timeout(10_000),
+  })
 }
 
 /**

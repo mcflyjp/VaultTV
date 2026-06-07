@@ -19,6 +19,7 @@ const fs       = require('fs')
 // ── Config ────────────────────────────────────────────────────────────
 const USER_CONFIG_FILE   = path.join(__dirname, 'config.json')
 const STATE_FILE         = path.join(__dirname, 'watched-folders.json')
+const LIBRARY_FILE       = path.join(__dirname, 'library.json')
 
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts'])
 
@@ -303,6 +304,37 @@ app.get('/stream', (req, res) => {
   }
 })
 
+// ── Library data endpoints ─────────────────────────────────────────────
+// Stores the scanned library (sources + files) so any browser on the LAN
+// can read the same data without needing its own File System Access scan.
+
+app.get('/library', (req, res) => {
+  try {
+    if (fs.existsSync(LIBRARY_FILE)) {
+      const data = JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8'))
+      res.json(data)
+    } else {
+      res.json({ sources: [], files: [] })
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/library', (req, res) => {
+  try {
+    const { sources, files } = req.body || {}
+    if (!Array.isArray(sources) || !Array.isArray(files)) {
+      return res.status(400).json({ error: 'body must be { sources: [], files: [] }' })
+    }
+    fs.writeFileSync(LIBRARY_FILE, JSON.stringify({ sources, files }, null, 2), 'utf8')
+    console.log(`[library] Saved ${sources.length} sources, ${files.length} files`)
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ── State persistence (runtime additions via API) ──────────────────────
 function loadState() {
   try {
@@ -339,8 +371,13 @@ for (const folder of watchedFolders) {
   }
 }
 
-const server = app.listen(PORT, '127.0.0.1', () => {
-  console.log(`\n🎬 VaultTV Companion running at http://127.0.0.1:${PORT}`)
+const server = app.listen(PORT, '0.0.0.0', () => {
+  const { networkInterfaces } = require('os')
+  const nets = networkInterfaces()
+  const lanIp = Object.values(nets).flat().find(n => n.family === 'IPv4' && !n.internal)?.address || 'unknown'
+  console.log(`\n🎬 VaultTV Companion running`)
+  console.log(`   Local:   http://127.0.0.1:${PORT}`)
+  console.log(`   Network: http://${lanIp}:${PORT}`)
   console.log(`   Watching ${watchedFolders.length} folder(s)`)
   console.log('   Press Ctrl+C to stop\n')
 })
