@@ -36,14 +36,16 @@ export function AddonsProvider({ children }) {
 
   // Query addons for streams given type (movie/series) and imdbId
   async function getStreams(type, imdbId, season, episode) {
+    // TMDB uses 'tv'; Stremio addons declare 'series' — map before querying
+    const stremioType = type === 'tv' ? 'series' : type
     const results = []
     for (const addon of addons) {
       if (!addon.resources?.includes('stream')) continue
-      if (!addon.types?.includes(type)) continue
+      if (!addon.types?.includes(stremioType)) continue
       try {
         const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
         const base = addon.manifestUrl.replace('/manifest.json', '')
-        const res = await fetch(`${base}/stream/${type}/${id}.json`)
+        const res = await fetch(`${base}/stream/${stremioType}/${id}.json`)
         if (!res.ok) continue
         const data = await res.json()
         if (data.streams?.length) results.push(...data.streams.map(s => ({ ...s, addonName: addon.name })))
@@ -54,6 +56,7 @@ export function AddonsProvider({ children }) {
 
   // Query addons for subtitles — Stremio subtitle endpoint: /subtitles/{type}/{id}.json
   async function getSubtitles(type, imdbId, season, episode) {
+    const stremioType = type === 'tv' ? 'series' : type
     const results = []
     for (const addon of addons) {
       // Check if addon declares subtitle resource (string or object form)
@@ -64,7 +67,7 @@ export function AddonsProvider({ children }) {
       try {
         const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
         const base = addon.manifestUrl.replace('/manifest.json', '')
-        const res = await fetch(`${base}/subtitles/${type}/${id}.json`)
+        const res = await fetch(`${base}/subtitles/${stremioType}/${id}.json`)
         if (!res.ok) continue
         const data = await res.json()
         if (data.subtitles?.length) {
