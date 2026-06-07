@@ -8,24 +8,27 @@ module.exports = {
   productName: 'VaultTV',
   copyright:   'Copyright © 2025 VaultTV',
 
-  // Use the already-installed Electron from node_modules — avoids re-downloading
-  // and sidesteps the Windows Defender EBUSY lock on freshly-extracted .asar files.
+  // Use the already-installed Electron from node_modules — avoids re-downloading.
   electronDist: 'node_modules/electron/dist',
 
+  // Package app as loose files instead of .asar archive.
+  // Avoids the Windows Defender EBUSY lock on .asar files during build.
+  asar: false,
+
   directories: {
-    output: 'dist-electron',
+    output: 'C:\\VaultTVBuild',
     buildResources: 'public',
   },
 
   files: [
-    'dist/**/*',         // built React app
-    'electron/**/*',     // main + preload
+    'dist/**/*',          // built React app
+    'electron/**/*.cjs',  // main + preload (CommonJS, avoids ESM conflict)
     'package.json',
   ],
 
   // Point Electron at the built React app
   extraMetadata: {
-    main: 'electron/main.js',
+    main: 'electron/main.cjs',
   },
 
   win: {

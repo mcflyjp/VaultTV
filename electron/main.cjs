@@ -26,7 +26,7 @@ function createWindow() {
     },
     backgroundColor: '#0a0a12',
     webPreferences: {
-      preload:          path.join(__dirname, 'preload.js'),
+      preload:          path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration:  false,
       // Allow loading local companion server (http://127.0.0.1:7842)
