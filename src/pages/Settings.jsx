@@ -4,7 +4,7 @@ import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLayout } from '../context/LayoutContext'
 import { useTrakt } from '../context/TraktContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
-import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus } from 'react-icons/fi'
+import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff } from 'react-icons/fi'
 
 export default function Settings() {
   const { enabled, maxRating, pin, save, RATING_ORDER } = useParental()
@@ -308,6 +308,26 @@ export default function Settings() {
             </details>
           )
         })}
+
+        {/* Companion server status */}
+        <div style={{ marginTop: '1.25rem', padding: '0.75rem 1rem', background: 'var(--bg-secondary)', border: `1px solid ${local.companionOnline ? 'rgba(74,222,128,0.3)' : 'var(--border)'}`, borderRadius: 'var(--radius)', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+          <div style={{ marginTop: 2, color: local.companionOnline ? '#4ade80' : 'var(--text-secondary)', flexShrink: 0 }}>
+            {local.companionOnline ? <FiWifi size={16} /> : <FiWifiOff size={16} />}
+          </div>
+          <div>
+            <p style={{ margin: '0 0 0.25rem', fontWeight: 600, fontSize: '0.85rem', color: local.companionOnline ? '#4ade80' : 'var(--text-secondary)' }}>
+              Companion Server — {local.companionOnline ? 'Online' : 'Offline'}
+            </p>
+            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              {local.companionOnline
+                ? 'Auto-sync is active. VaultTV will prompt you to rescan when new files are detected in your folders.'
+                : <>
+                    Auto-sync is unavailable. Run <code style={{ background: 'var(--bg-card)', padding: '1px 5px', borderRadius: 4 }}>cd companion &amp;&amp; npm install &amp;&amp; node server.js</code> in the VaultTV folder to enable it. Stop it any time — the library keeps working.
+                  </>
+              }
+            </p>
+          </div>
+        </div>
 
         {!window.showDirectoryPicker && (
           <p style={{ color: '#fbbf24', fontSize: '0.82rem', margin: '1rem 0 0' }}>

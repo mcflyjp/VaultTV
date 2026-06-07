@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { scanDirectory, parseFilename, matchTmdb } from '../lib/localScanner'
+import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges } from '../lib/companion'
 
 /**
  * sources (localStorage: vt-local-sources)
@@ -32,8 +33,59 @@ export function LocalLibraryProvider({ children }) {
   // In-memory: filename → FileSystemFileHandle (across all sources)
   const fileHandles = useRef({})
 
+  // Companion server state
+  const [companionOnline, setCompanionOnline] = useState(false)
+  const companionUnsub = useRef(null)
+  // Keep a ref to rescanSource so the SSE handler always has the latest version
+  const rescanSourceRef = useRef(null)
+
   function saveSources(next) { setSources(next); localStorage.setItem(LS_SOURCES, JSON.stringify(next)) }
   function saveFiles(next)   { setFiles(next);   localStorage.setItem(LS_FILES,   JSON.stringify(next)) }
+
+  // ── Companion server integration ──────────────────────────────────────
+  // On mount: ping companion, if online subscribe to change events
+  useEffect(() => {
+    let cancelled = false
+    async function init() {
+      const online = await pingCompanion()
+      if (cancelled) return
+      setCompanionOnline(online)
+      if (!online) return
+
+      companionUnsub.current = subscribeToChanges(ev => {
+        console.log('[companion] folder-changed:', ev.sourceName, ev.action, ev.filename)
+        // Auto-trigger rescan for the affected source
+        rescanSourceRef.current?.(ev.sourceId)
+      })
+    }
+    init()
+    return () => {
+      cancelled = true
+      companionUnsub.current?.()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When sources change, sync them to the companion (add new, remove deleted)
+  useEffect(() => {
+    if (!companionOnline) return
+    // We don't have the folderPath stored (File System Access API gives handle,
+    // not a string path — browsers don't expose full path). So we can only
+    // tell the companion to remove stale entries; adding is done in addSource().
+    listCompanionFolders()
+  }, [sources, companionOnline]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function listCompanionFolders() {
+    try {
+      const { listWatchedFolders } = await import('../lib/companion')
+      const watched = await listWatchedFolders()
+      const sourceIds = new Set(sources.map(s => s.id))
+      for (const w of watched) {
+        if (!sourceIds.has(w.id)) {
+          await removeWatchedFolder(w.id).catch(() => {})
+        }
+      }
+    } catch { /* companion may have gone offline */ }
+  }
 
   // ── Add a new folder source ───────────────────────────────────
   const addSource = useCallback(async (mediaType) => {
@@ -167,6 +219,9 @@ export function LocalLibraryProvider({ children }) {
     await scanSource(source, sources)
   }, [sources, files]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep ref updated so the SSE handler can call the latest version
+  rescanSourceRef.current = rescanSource
+
   // ── Re-grant access for all sources that lost their handle ──
   const reGrantAll = useCallback(async () => {
     for (const source of sources) {
@@ -198,6 +253,11 @@ export function LocalLibraryProvider({ children }) {
     return files.some(f => f.tmdbId === tmdbId && f.media_type === mediaType)
   }
 
+  /** How many local episodes exist for a given TV show tmdbId */
+  function getLocalEpisodeCount(tmdbId) {
+    return files.filter(f => f.tmdbId === tmdbId && f.media_type === 'tv').length
+  }
+
   function clearAll() {
     dirHandles.current = {}
     fileHandles.current = {}
@@ -209,9 +269,9 @@ export function LocalLibraryProvider({ children }) {
 
   return (
     <LocalLibraryContext.Provider value={{
-      sources, files, scanning, progress, error, hasHandles,
+      sources, files, scanning, progress, error, hasHandles, companionOnline,
       addSource, removeSource, rescanSource, reGrantAll,
-      getFileUrl, getLocalFile, hasLocal, clearAll,
+      getFileUrl, getLocalFile, hasLocal, getLocalEpisodeCount, clearAll,
     }}>
       {children}
     </LocalLibraryContext.Provider>

@@ -1,0 +1,98 @@
+/**
+ * VaultTV Companion Server client
+ *
+ * The companion server runs locally (node companion/server.js) and watches
+ * your media folders for new/removed files. When it detects a change it
+ * emits an SSE event that VaultTV picks up to auto-trigger a rescan.
+ *
+ * All requests go to 127.0.0.1 only — nothing leaves your machine.
+ */
+
+const BASE = 'http://127.0.0.1:7842'
+
+/** Check if companion is reachable. Resolves to true/false. */
+export async function pingCompanion() {
+  try {
+    const r = await fetch(`${BASE}/`, { signal: AbortSignal.timeout(1500) })
+    return r.ok
+  } catch {
+    return false
+  }
+}
+
+/** List folders the companion is watching */
+export async function listWatchedFolders() {
+  const r = await fetch(`${BASE}/folders`)
+  if (!r.ok) throw new Error('Companion request failed')
+  return r.json()
+}
+
+/**
+ * Tell the companion to start watching a folder.
+ * @param {{ id: string, folderPath: string, type: 'movie'|'tv', name: string }} opts
+ */
+export async function addWatchedFolder({ id, folderPath, type, name }) {
+  const r = await fetch(`${BASE}/folders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, folderPath, type, name }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || 'Failed to add folder to companion')
+  }
+  return r.json()
+}
+
+/** Tell the companion to stop watching a folder */
+export async function removeWatchedFolder(id) {
+  await fetch(`${BASE}/folders/${id}`, { method: 'DELETE' })
+}
+
+/**
+ * Subscribe to file-system change events from the companion.
+ *
+ * @param {(event: { sourceId, sourceName, type, action, filename, timestamp }) => void} onChanged
+ * @returns {() => void} unsubscribe function
+ *
+ * Usage:
+ *   const unsub = subscribeToChanges(ev => rescanSource(ev.sourceId))
+ *   // call unsub() to disconnect
+ */
+export function subscribeToChanges(onChanged) {
+  let es
+  let stopped = false
+  let retryTimeout
+
+  function connect() {
+    if (stopped) return
+    es = new EventSource(`${BASE}/events`)
+
+    es.addEventListener('connected', () => {
+      console.log('[companion] SSE connected')
+    })
+
+    es.addEventListener('folder-changed', e => {
+      try {
+        const data = JSON.parse(e.data)
+        onChanged(data)
+      } catch { /* ignore */ }
+    })
+
+    es.onerror = () => {
+      es.close()
+      if (!stopped) {
+        // Retry after 10s (companion might have been stopped temporarily)
+        retryTimeout = setTimeout(connect, 10_000)
+      }
+    }
+  }
+
+  connect()
+
+  return function unsubscribe() {
+    stopped = true
+    clearTimeout(retryTimeout)
+    es?.close()
+  }
+}
