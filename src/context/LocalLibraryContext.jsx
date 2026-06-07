@@ -166,6 +166,22 @@ export function LocalLibraryProvider({ children }) {
     }
 
     try {
+      // Explicitly verify/request read permission — Chrome sometimes requires
+      // this even on a freshly-picked handle, especially after re-grant
+      try {
+        const perm = await dirHandle.queryPermission({ mode: 'read' })
+        if (perm !== 'granted') {
+          const req = await dirHandle.requestPermission({ mode: 'read' })
+          if (req !== 'granted') {
+            setError(`Permission denied for "${source.dirName}". Please try again.`)
+            setScanning(false)
+            return
+          }
+        }
+      } catch (permErr) {
+        console.warn('[scanner] queryPermission failed (may be fine):', permErr.message)
+      }
+
       const found = await scanDirectory(dirHandle)
 
       // Register file handles

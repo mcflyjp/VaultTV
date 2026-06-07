@@ -13,17 +13,23 @@ export async function scanDirectory(dirHandle, depth = 0, rootFolderName = null)
   let entryCount = 0
 
   try {
-    for await (const [name, handle] of dirHandle.entries()) {
+    // Use .values() + handle.name — most reliable across Chrome versions
+    for await (const handle of dirHandle.values()) {
+      const name = handle.name
       entryCount++
       if (handle.kind === 'file') {
         const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
         if (VIDEO_EXTS.has(ext)) {
           files.push({ name, handle, dirHandle, rootFolderName })
+        } else if (depth === 0) {
+          console.log(`[scanner] Skipping non-video at root: ${name}`)
         }
       } else if (handle.kind === 'directory') {
         const childRoot = depth === 0 ? name : rootFolderName
+        console.log(`[scanner] Entering subdir: ${name} (depth ${depth + 1}, rootFolder: ${childRoot})`)
         try {
           const sub = await scanDirectory(handle, depth + 1, childRoot)
+          console.log(`[scanner] Subdir "${name}" → ${sub.length} files`)
           files.push(...sub)
         } catch (subErr) {
           console.warn(`[scanner] Could not read subdir "${name}":`, subErr.message)
