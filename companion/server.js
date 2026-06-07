@@ -34,7 +34,10 @@ try {
 }
 
 const PORT    = userConfig.port || 7842
-const ORIGINS = ['http://localhost:5173', 'http://localhost:4173', 'http://127.0.0.1:5173']
+// Allow all origins — this server only ever binds to 127.0.0.1 so it is
+// inaccessible from the network. Any local page (localhost, 127.0.0.1,
+// file://, Electron, etc.) should be able to reach it.
+const CORS_OPTS = { origin: true, credentials: false }
 
 // ── State ─────────────────────────────────────────────────────────────
 /** @type {{ id: string, folderPath: string, type: 'movie'|'tv', name: string }[]} */
@@ -62,7 +65,7 @@ const pendingChanges = {}
 
 // ── Express app ───────────────────────────────────────────────────────
 const app = express()
-app.use(cors({ origin: ORIGINS, credentials: false }))
+app.use(cors(CORS_OPTS))
 app.use(express.json())
 
 // Health check
