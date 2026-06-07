@@ -64,8 +64,20 @@ export function LocalLibraryProvider({ children }) {
 
       companionUnsub.current = subscribeToChanges(ev => {
         console.log('[companion] folder-changed:', ev.sourceName, ev.action, ev.filename)
-        // Auto-trigger rescan for the affected source
-        rescanSourceRef.current?.(ev.sourceId)
+        // Match by sourceId first; fall back to matching by folder name
+        // (companion config uses fixed ids like "movies"/"tvshows" while
+        //  VaultTV uses generated ids like "src_1234" — name match bridges the gap)
+        const sourcesNow = JSON.parse(localStorage.getItem('vt-local-sources') || '[]')
+        const match =
+          sourcesNow.find(s => s.id === ev.sourceId) ||
+          sourcesNow.find(s => s.name?.toLowerCase() === ev.sourceName?.toLowerCase()) ||
+          sourcesNow.find(s => s.dirName?.toLowerCase() === ev.sourceName?.toLowerCase())
+        if (match) {
+          console.log('[companion] → rescanning source:', match.name)
+          rescanSourceRef.current?.(match.id)
+        } else {
+          console.log('[companion] → no matching source found for', ev.sourceName)
+        }
       })
     }
     init()

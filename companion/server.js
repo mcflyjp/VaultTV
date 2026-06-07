@@ -4,9 +4,7 @@
  * Watches local media folders for new/removed files and notifies VaultTV
  * via a simple REST + SSE (Server-Sent Events) interface.
  *
- * Usage:
- *   node server.js [--port 7842] [--origins http://localhost:5173]
- *
+ * Configuration: edit config.json in this folder to set your media paths.
  * Stop at any time with Ctrl+C — VaultTV works fine without it,
  * you just won't get automatic rescan prompts.
  * ──────────────────────────────────────────────────────────────────────
@@ -19,17 +17,42 @@ const path     = require('path')
 const fs       = require('fs')
 
 // ── Config ────────────────────────────────────────────────────────────
-const args     = process.argv.slice(2)
-const PORT     = parseInt(getArg(args, '--port') || '7842', 10)
-const ORIGINS  = (getArg(args, '--origins') || 'http://localhost:5173,http://localhost:4173').split(',').map(s => s.trim())
-
-const CONFIG_FILE = path.join(__dirname, 'watched-folders.json')
+const USER_CONFIG_FILE   = path.join(__dirname, 'config.json')
+const STATE_FILE         = path.join(__dirname, 'watched-folders.json')
 
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts', '.m2ts'])
 
+// Load user config (config.json) — defines port + folder paths
+let userConfig = { port: 7842, folders: [] }
+try {
+  if (fs.existsSync(USER_CONFIG_FILE)) {
+    userConfig = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'))
+    console.log(`[config] Loaded config.json — ${userConfig.folders?.length || 0} folder(s) configured`)
+  }
+} catch (e) {
+  console.warn('[config] Could not parse config.json:', e.message)
+}
+
+const PORT    = userConfig.port || 7842
+const ORIGINS = ['http://localhost:5173', 'http://localhost:4173', 'http://127.0.0.1:5173']
+
 // ── State ─────────────────────────────────────────────────────────────
 /** @type {{ id: string, folderPath: string, type: 'movie'|'tv', name: string }[]} */
-let watchedFolders = loadConfig()
+let watchedFolders = loadState()
+
+// Merge config.json folders into the watched list (config always wins on path/type/name)
+for (const cf of (userConfig.folders || [])) {
+  if (!cf.id || !cf.path) continue
+  const existing = watchedFolders.find(w => w.id === cf.id)
+  if (existing) {
+    existing.folderPath = cf.path
+    existing.type       = cf.type || existing.type
+    existing.name       = cf.name || existing.name
+  } else {
+    watchedFolders.push({ id: cf.id, folderPath: cf.path, type: cf.type || 'movie', name: cf.name || path.basename(cf.path) })
+  }
+}
+saveState()
 /** chokidar FSWatcher instances keyed by folder id */
 const watchers = {}
 /** SSE clients waiting for events */
@@ -114,7 +137,7 @@ app.post('/folders', (req, res) => {
 
   const entry = { id, folderPath, type, name: name || path.basename(folderPath) }
   watchedFolders.push(entry)
-  saveConfig()
+  saveState()
   startWatcher(entry)
 
   console.log(`[watch] Added: ${folderPath} (${type})`)
@@ -126,7 +149,7 @@ app.delete('/folders/:id', (req, res) => {
   const { id } = req.params
   stopWatcher(id)
   watchedFolders = watchedFolders.filter(f => f.id !== id)
-  saveConfig()
+  saveState()
   console.log(`[watch] Removed: ${id}`)
   res.json({ ok: true })
 })
@@ -213,23 +236,23 @@ function scanDir(dir, depth = 0, results = []) {
   return results
 }
 
-// ── Config persistence ─────────────────────────────────────────────────
-function loadConfig() {
+// ── State persistence (runtime additions via API) ──────────────────────
+function loadState() {
   try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
+    if (fs.existsSync(STATE_FILE)) {
+      return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
     }
   } catch (e) {
-    console.warn('[config] Could not load watched-folders.json:', e.message)
+    console.warn('[state] Could not load watched-folders.json:', e.message)
   }
   return []
 }
 
-function saveConfig() {
+function saveState() {
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(watchedFolders, null, 2), 'utf8')
+    fs.writeFileSync(STATE_FILE, JSON.stringify(watchedFolders, null, 2), 'utf8')
   } catch (e) {
-    console.warn('[config] Could not save watched-folders.json:', e.message)
+    console.warn('[state] Could not save watched-folders.json:', e.message)
   }
 }
 

@@ -1,0 +1,17 @@
+{
+  "port": 7842,
+  "folders": [
+    {
+      "id": "movies",
+      "path": "D:\\Movies",
+      "type": "movie",
+      "name": "Movies"
+    },
+    {
+      "id": "tvshows",
+      "path": "D:\\TV Shows",
+      "type": "tv",
+      "name": "TV Shows"
+    }
+  ]
+}
