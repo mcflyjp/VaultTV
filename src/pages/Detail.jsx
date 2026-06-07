@@ -64,14 +64,17 @@ export default function Detail() {
   const trailerKey  = pickTrailer(allVideos)
   const themeKey    = pickTheme(allVideos)
 
-  // Background video URL — muted, autoplay, loop, no controls
-  const bgVideoUrl = trailerKey
+  // Movies: show trailer as muted background video
+  // TV shows: no background video — theme audio only
+  const bgVideoUrl = type === 'movie' && trailerKey
     ? `${YT_EMBED}/${trailerKey}?autoplay=1&mute=1&loop=1&playlist=${trailerKey}&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0&playsinline=1`
     : null
 
-  // Theme audio URL — with sound, autoplay
-  const themeAudioUrl = themeKey
-    ? `${YT_EMBED}/${themeKey}?autoplay=1&loop=1&playlist=${themeKey}&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0`
+  // TV shows: use trailer as theme audio source if no dedicated theme exists
+  // Movies: no theme audio (trailer already plays as background)
+  const audioKey = type === 'tv' ? (themeKey || trailerKey) : null
+  const themeAudioUrl = audioKey
+    ? `${YT_EMBED}/${audioKey}?autoplay=1&loop=1&playlist=${audioKey}&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0`
     : null
 
   async function handleWatch(season, episode) {

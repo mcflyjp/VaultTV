@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useTheme } from './context/ThemeContext'
 import { useLayout } from './context/LayoutContext'
 import Sidebar from './components/Sidebar'
@@ -12,6 +12,7 @@ import Addons from './pages/Addons'
 import Library from './pages/Library'
 import Queue from './pages/Queue'
 import Playlists from './pages/Playlists'
+import { FiChevronLeft } from 'react-icons/fi'
 
 export default function App() {
   const { theme } = useTheme()
@@ -20,7 +21,8 @@ export default function App() {
   return (
     <div data-theme={theme} data-density={density} style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)' }}>
       <Sidebar />
-      <main style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
+      <main style={{ flex: 1, overflowY: 'auto', minWidth: 0, position: 'relative' }}>
+        <BackButton />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/search" element={<Search />} />
@@ -37,5 +39,45 @@ export default function App() {
       <ContextMenu />
       <VideoPlayer />
     </div>
+  )
+}
+
+function BackButton() {
+  const location = useLocation()
+  const navigate  = useNavigate()
+
+  // Don't show on Home
+  if (location.pathname === '/') return null
+
+  // On detail pages the backdrop sits behind everything — float the button
+  // above it using a high z-index so it's always visible
+  const isDetail = location.pathname.startsWith('/detail/')
+
+  return (
+    <button
+      onClick={() => navigate(-1)}
+      title="Go back"
+      style={{
+        position: isDetail ? 'fixed' : 'sticky',
+        top: isDetail ? '1.1rem' : 0,
+        left: isDetail ? 'calc(220px + 1.1rem)' : 0,
+        zIndex: isDetail ? 200 : 10,
+        display: 'flex', alignItems: 'center', gap: '0.35rem',
+        background: isDetail ? 'rgba(0,0,0,0.65)' : 'var(--bg-secondary)',
+        backdropFilter: 'blur(10px)',
+        border: '1px solid var(--border)',
+        borderRadius: isDetail ? 'var(--radius)' : '0 0 var(--radius) 0',
+        color: 'var(--text-secondary)',
+        cursor: 'pointer',
+        padding: isDetail ? '0.45rem 0.85rem' : '0.5rem 1rem',
+        fontSize: '0.82rem',
+        fontWeight: 500,
+        transition: 'color 0.15s, background 0.15s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = isDetail ? 'rgba(0,0,0,0.85)' : 'var(--bg-card)' }}
+      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = isDetail ? 'rgba(0,0,0,0.65)' : 'var(--bg-secondary)' }}
+    >
+      <FiChevronLeft size={16} /> Back
+    </button>
   )
 }
