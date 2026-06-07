@@ -1,25 +1,21 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { scanDirectory, parseFilename, matchTmdb, parseQuality } from '../lib/localScanner'
-import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges, scanFolder, streamUrl, fetchLibrary, saveLibrary } from '../lib/companion'
+import {
+  pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges,
+  scanFolder, streamUrl, fetchLibrary, saveLibrary, listWatchedFolders,
+} from '../lib/companion'
 
-/** Strip year suffixes and clean up a folder name for TMDB search, e.g. "Breaking.Bad (2008)" → "Breaking Bad" */
-function cleanFolderName(folderName) {
-  return folderName
-    .replace(/\s*\(\d{4}\)\s*$/, '')   // strip trailing (year)
-    .replace(/\s*\[\d{4}\]\s*$/, '')   // strip trailing [year]
-    .replace(/[._]/g, ' ')             // dots/underscores → spaces
+const IS_ELECTRON = !!window.electronAPI?.isElectron
+
+/** Strip year suffixes and normalize a folder name for TMDB search */
+function cleanFolderName(name) {
+  return name
+    .replace(/\s*\(\d{4}\)\s*$/, '')
+    .replace(/\s*\[\d{4}\]\s*$/, '')
+    .replace(/[._]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
-
-/**
- * sources (localStorage: vt-local-sources)
- *   [{ id, name, type: 'movie'|'tv', dirName, fileCount, scannedAt }]
- *
- * files (localStorage: vt-local-library)
- *   [{ id, filename, sourceId, tmdbId, title, media_type, poster_path,
- *      year, overview, vote_average, parsedSeason, parsedEpisode, matched }]
- */
 
 const LS_SOURCES = 'vt-local-sources'
 const LS_FILES   = 'vt-local-library'
@@ -38,24 +34,20 @@ export function LocalLibraryProvider({ children }) {
   const [progress, setProgress] = useState({ done: 0, total: 0, label: '' })
   const [error,    setError]    = useState('')
 
-  // In-memory: sourceId → FileSystemDirectoryHandle
-  const dirHandles = useRef({})
-  // In-memory: filename → FileSystemFileHandle (across all sources)
+  // Browser-only: in-memory FileSystem handles (not used in Electron)
+  const dirHandles  = useRef({})
   const fileHandles = useRef({})
-  // Mirror of files state in a ref so async functions always see latest list
+
   const filesRef = useRef(files)
 
-  // Companion server state
   const [companionOnline, setCompanionOnline] = useState(false)
-  const companionUnsub = useRef(null)
-  // Keep a ref to rescanSource so the SSE handler always has the latest version
-  const rescanSourceRef = useRef(null)
+  const companionUnsub    = useRef(null)
+  const rescanSourceRef   = useRef(null)
 
   function saveSources(next) { setSources(next); localStorage.setItem(LS_SOURCES, JSON.stringify(next)) }
   function saveFiles(next)   { setFiles(next); filesRef.current = next; localStorage.setItem(LS_FILES, JSON.stringify(next)) }
 
-  // ── Companion server integration ──────────────────────────────────────
-  // On mount: ping companion, if online subscribe to change events
+  // ── Companion ping + SSE subscription ─────────────────────────────────
   useEffect(() => {
     let cancelled = false
     async function init() {
@@ -64,17 +56,14 @@ export function LocalLibraryProvider({ children }) {
       setCompanionOnline(online)
       if (!online) return
 
-      // Load the shared library from the companion so LAN devices get the
-      // same file list as the host without needing their own scan
+      // Load shared library from companion (LAN devices get same file list)
       try {
         const lib = await fetchLibrary()
         if (lib?.files?.length) {
-          // Only replace local data if companion has more files (host wins)
           const local = JSON.parse(localStorage.getItem(LS_FILES) || '[]')
           if (lib.files.length >= local.length) {
             saveSources(lib.sources || [])
             saveFiles(lib.files)
-            console.log(`[companion] Loaded library: ${lib.sources?.length} sources, ${lib.files.length} files`)
           }
         }
       } catch (e) {
@@ -82,55 +71,173 @@ export function LocalLibraryProvider({ children }) {
       }
 
       companionUnsub.current = subscribeToChanges(ev => {
-        console.log('[companion] folder-changed:', ev.sourceName, ev.action, ev.filename)
-        // Match by sourceId first; fall back to matching by folder name
-        // (companion config uses fixed ids like "movies"/"tvshows" while
-        //  VaultTV uses generated ids like "src_1234" — name match bridges the gap)
         const sourcesNow = JSON.parse(localStorage.getItem('vt-local-sources') || '[]')
         const match =
           sourcesNow.find(s => s.id === ev.sourceId) ||
           sourcesNow.find(s => s.name?.toLowerCase() === ev.sourceName?.toLowerCase()) ||
           sourcesNow.find(s => s.dirName?.toLowerCase() === ev.sourceName?.toLowerCase())
-        if (match) {
-          console.log('[companion] → rescanning source:', match.name)
-          rescanSourceRef.current?.(match.id)
-        } else {
-          console.log('[companion] → no matching source found for', ev.sourceName)
-        }
+        if (match) rescanSourceRef.current?.(match.id)
       })
     }
     init()
+    // In Electron, retry companion ping every 3s on startup until it's ready
+    let retryTimer
+    if (IS_ELECTRON) {
+      retryTimer = setInterval(async () => {
+        if (cancelled) { clearInterval(retryTimer); return }
+        const online = await pingCompanion()
+        if (online) {
+          setCompanionOnline(true)
+          clearInterval(retryTimer)
+        }
+      }, 3000)
+    }
     return () => {
       cancelled = true
+      clearInterval(retryTimer)
       companionUnsub.current?.()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When sources change, sync them to the companion (add new, remove deleted)
+  // Sync companion watched folders when sources change
   useEffect(() => {
     if (!companionOnline) return
-    // We don't have the folderPath stored (File System Access API gives handle,
-    // not a string path — browsers don't expose full path). So we can only
-    // tell the companion to remove stale entries; adding is done in addSource().
     listCompanionFolders()
   }, [sources, companionOnline]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function listCompanionFolders() {
     try {
-      const { listWatchedFolders } = await import('../lib/companion')
       const watched = await listWatchedFolders()
       const sourceIds = new Set(sources.map(s => s.id))
       for (const w of watched) {
-        if (!sourceIds.has(w.id)) {
-          await removeWatchedFolder(w.id).catch(() => {})
-        }
+        if (!sourceIds.has(w.id)) await removeWatchedFolder(w.id).catch(() => {})
       }
-    } catch { /* companion may have gone offline */ }
+    } catch { /* companion may be offline */ }
   }
 
-  // ── Add a new folder source ───────────────────────────────────
+  // ── Scan via companion (Electron + companion-enriched browser scan) ────
+  // Used exclusively in Electron where we have a real filesystem path.
+  // Also called from the browser scan as an enrichment step.
+  async function scanSourceViaCompanion(source, currentSources) {
+    setScanning(true)
+    setError('')
+    try {
+      const result = await scanFolder(source.id)
+      const companionFiles = result.files || []
+      setProgress({ done: 0, total: companionFiles.length, label: source.dirName })
+
+      const otherFiles = filesRef.current.filter(f => f.sourceId !== source.id)
+      const existingByKey = Object.fromEntries(
+        filesRef.current
+          .filter(f => f.sourceId === source.id)
+          .map(f => [`${f.showFolder || ''}::${f.filename}`, f])
+      )
+
+      const results = []
+      const seenKeys = new Set()
+
+      for (let i = 0; i < companionFiles.length; i++) {
+        const { name, path: filePath, rootFolder } = companionFiles[i]
+        const fileKey = `${rootFolder || ''}::${name}`
+        if (seenKeys.has(fileKey)) { setProgress(p => ({ ...p, done: i + 1 })); continue }
+        seenKeys.add(fileKey)
+
+        // Reuse cached TMDB match if file hasn't changed
+        if (existingByKey[fileKey]) {
+          results.push({ ...existingByKey[fileKey], companionPath: filePath })
+          setProgress(p => ({ ...p, done: i + 1 }))
+          continue
+        }
+
+        const parsed = parseFilename(name)
+        const forcedType = source.type
+        const titleForTmdb = forcedType === 'tv' && rootFolder
+          ? cleanFolderName(rootFolder)
+          : parsed.title
+
+        const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: forcedType === 'tv' }, TMDB_KEY, forcedType)
+        const quality = parseQuality(name)
+
+        results.push({
+          id:           `${source.id}::${fileKey}`,
+          filename:     name,
+          sourceId:     source.id,
+          sourceType:   source.type,
+          showFolder:   rootFolder || null,
+          tmdbId:       match?.tmdbId  || null,
+          title:        match?.title   || titleForTmdb || parsed.title,
+          media_type:   match?.media_type || forcedType,
+          poster_path:  match?.poster_path || null,
+          year:         match?.year    || parsed.year || '',
+          overview:     match?.overview || '',
+          vote_average: match?.vote_average || 0,
+          parsedSeason:  parsed.season  || null,
+          parsedEpisode: parsed.episode || null,
+          matched:      !!match,
+          qualityScore: quality.score,
+          qualityLabel: quality.label,
+          companionPath: filePath,
+        })
+
+        setProgress(p => ({ ...p, done: i + 1 }))
+        if (i % 5 === 4) await new Promise(r => setTimeout(r, 300))
+      }
+
+      const allFiles = [...otherFiles, ...results]
+      saveFiles(allFiles)
+
+      const nextSources = (currentSources || sources).map(s =>
+        s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s
+      )
+      saveSources(nextSources)
+
+      if (companionOnline) {
+        saveLibrary({ sources: nextSources, files: allFiles }).catch(() => {})
+      }
+    } catch (e) {
+      setError('Scan failed: ' + e.message)
+    } finally {
+      setScanning(false)
+      setProgress({ done: 0, total: 0, label: '' })
+    }
+  }
+
+  // ── Add a new folder source ────────────────────────────────────────────
   const addSource = useCallback(async (mediaType) => {
     setError('')
+
+    // ── Electron path: native file dialog + companion scanning ────────────
+    if (IS_ELECTRON) {
+      if (!companionOnline) {
+        setError('Companion server is still starting. Please wait a moment and try again.')
+        return
+      }
+      const folderInfo = await window.electronAPI.selectFolder()
+      if (!folderInfo) return // user cancelled
+
+      const id = `src_${Date.now()}`
+      const newSource = {
+        id, name: folderInfo.name, type: mediaType,
+        dirName: folderInfo.name, folderPath: folderInfo.path,
+        fileCount: 0, scannedAt: null,
+      }
+      const nextSources = [...sources, newSource]
+      saveSources(nextSources)
+
+      // Register folder with companion so it can scan + watch it
+      try {
+        await addWatchedFolder({ id, folderPath: folderInfo.path, type: mediaType, name: folderInfo.name })
+      } catch (e) {
+        setError('Could not register folder with companion server: ' + e.message)
+        saveSources(sources) // roll back
+        return
+      }
+
+      await scanSourceViaCompanion(newSource, nextSources)
+      return
+    }
+
+    // ── Browser path: File System Access API ──────────────────────────────
     let dirHandle
     try {
       dirHandle = await window.showDirectoryPicker({ mode: 'read' })
@@ -146,37 +253,23 @@ export function LocalLibraryProvider({ children }) {
     const nextSources = [...sources, newSource]
     saveSources(nextSources)
 
-    // Immediately scan this new source
-    await scanSource(newSource, nextSources)
-  }, [sources, files]) // eslint-disable-line react-hooks/exhaustive-deps
+    await scanSourceBrowser(newSource, nextSources)
+  }, [sources, files, companionOnline]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Remove a source and its files ───────────────────────────
-  function removeSource(id) {
-    delete dirHandles.current[id]
-    const nextFiles = files.filter(f => f.sourceId !== id)
-    saveFiles(nextFiles)
-    // Remove file handles for this source's files
-    files.filter(f => f.sourceId === id).forEach(f => { delete fileHandles.current[f.filename] })
-    saveSources(sources.filter(s => s.id !== id))
-  }
-
-  // ── Scan a single source (internal) ─────────────────────────
-  async function scanSource(source, currentSources) {
+  // ── Browser scan (File System Access API) ─────────────────────────────
+  async function scanSourceBrowser(source, currentSources) {
     setScanning(true)
     setError('')
 
     let dirHandle = dirHandles.current[source.id]
-
-    // If no handle in memory, ask user to re-grant
     if (!dirHandle) {
       try {
         dirHandle = await window.showDirectoryPicker({ mode: 'read' })
         dirHandles.current[source.id] = dirHandle
-        // Update dirName in case folder was moved
-        const nextSources = (currentSources || sources).map(s =>
+        const next = (currentSources || sources).map(s =>
           s.id === source.id ? { ...s, dirName: dirHandle.name } : s
         )
-        saveSources(nextSources)
+        saveSources(next)
       } catch {
         setError(`Re-grant access for "${source.dirName}" to rescan.`)
         setScanning(false)
@@ -185,8 +278,6 @@ export function LocalLibraryProvider({ children }) {
     }
 
     try {
-      // Explicitly verify/request read permission — Chrome sometimes requires
-      // this even on a freshly-picked handle, especially after re-grant
       try {
         const perm = await dirHandle.queryPermission({ mode: 'read' })
         if (perm !== 'granted') {
@@ -202,35 +293,24 @@ export function LocalLibraryProvider({ children }) {
       }
 
       const found = await scanDirectory(dirHandle)
-
-      // Register file handles
       found.forEach(f => { fileHandles.current[f.name] = f.handle })
-
       setProgress({ done: 0, total: found.length, label: source.name })
 
-      // Load existing files for OTHER sources (keep them)
       const otherFiles = files.filter(f => f.sourceId !== source.id)
-      // Existing cached files for THIS source
-      // Key = "rootFolder::filename" so same filename in different show folders gets a unique id
       const existingByKey = Object.fromEntries(
         files.filter(f => f.sourceId === source.id).map(f => [`${f.showFolder || ''}::${f.filename}`, f])
       )
 
       const results = []
-      const seenIds = new Set() // deduplicate in case scanner visits same file twice (symlinks etc.)
+      const seenIds = new Set()
+
       for (let i = 0; i < found.length; i++) {
         const { name, rootFolderName } = found[i]
         const fileKey = `${rootFolderName || ''}::${name}`
         const fileId  = `${source.id}::${fileKey}`
-
-        // Skip duplicates (e.g. from Windows junctions / symlinks)
-        if (seenIds.has(fileId)) {
-          setProgress(p => ({ ...p, done: i + 1 }))
-          continue
-        }
+        if (seenIds.has(fileId)) { setProgress(p => ({ ...p, done: i + 1 })); continue }
         seenIds.add(fileId)
 
-        // Reuse cached match if this exact file was matched before
         if (existingByKey[fileKey]) {
           results.push(existingByKey[fileKey])
           setProgress(p => ({ ...p, done: i + 1 }))
@@ -238,56 +318,47 @@ export function LocalLibraryProvider({ children }) {
         }
 
         const parsed = parseFilename(name)
-        const forcedType = source.type // 'movie' | 'tv'
-
-        // For TV shows, use the show folder name for TMDB matching
-        const titleForTmdb =
-          forcedType === 'tv' && rootFolderName
-            ? cleanFolderName(rootFolderName)
-            : parsed.title
+        const forcedType = source.type
+        const titleForTmdb = forcedType === 'tv' && rootFolderName
+          ? cleanFolderName(rootFolderName)
+          : parsed.title
 
         const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: forcedType === 'tv' }, TMDB_KEY, forcedType)
-
         const quality = parseQuality(name)
+
         results.push({
-          id:            fileId,
-          filename:      name,
-          sourceId:      source.id,
-          sourceType:    source.type,
-          showFolder:    rootFolderName || null,
-          tmdbId:        match?.tmdbId  || null,
-          title:         match?.title   || titleForTmdb || parsed.title,
-          media_type:    match?.media_type || forcedType,
-          poster_path:   match?.poster_path || null,
-          year:          match?.year    || parsed.year || '',
-          overview:      match?.overview || '',
-          vote_average:  match?.vote_average || 0,
+          id:           fileId,
+          filename:     name,
+          sourceId:     source.id,
+          sourceType:   source.type,
+          showFolder:   rootFolderName || null,
+          tmdbId:       match?.tmdbId  || null,
+          title:        match?.title   || titleForTmdb || parsed.title,
+          media_type:   match?.media_type || forcedType,
+          poster_path:  match?.poster_path || null,
+          year:         match?.year    || parsed.year || '',
+          overview:     match?.overview || '',
+          vote_average: match?.vote_average || 0,
           parsedSeason:  parsed.season  || null,
           parsedEpisode: parsed.episode || null,
-          matched:       !!match,
-          qualityScore:  quality.score,
-          qualityLabel:  quality.label,
+          matched:      !!match,
+          qualityScore: quality.score,
+          qualityLabel: quality.label,
         })
 
         setProgress(p => ({ ...p, done: i + 1 }))
         if (i % 5 === 4) await new Promise(r => setTimeout(r, 300))
       }
 
-      // ── Enrich with companion paths (enables permission-free streaming) ──
-      // Ask the companion to scan the same folder and build a name→path map.
-      // We match by filename; rootFolder is used as a tiebreaker for TV shows
-      // where multiple episodes share the same episode filename across seasons.
+      // Enrich with companion paths (enables permission-free streaming)
       if (companionOnline) {
         try {
-          const { listWatchedFolders: lwf } = await import('../lib/companion')
-          const watched = await lwf()
-          const companionFolder =
+          const watched = await listWatchedFolders()
+          const cf =
             watched.find(w => w.id === source.id) ||
             watched.find(w => w.name?.toLowerCase() === source.dirName?.toLowerCase())
-
-          if (companionFolder) {
-            const scan = await scanFolder(companionFolder.id)
-            // Map "rootFolder::filename" → full OS path for precise matching
+          if (cf) {
+            const scan = await scanFolder(cf.id)
             const pathMap = new Map(
               scan.files.map(f => [`${f.rootFolder || ''}::${f.name}`, f.path])
             )
@@ -296,29 +367,23 @@ export function LocalLibraryProvider({ children }) {
               const p = pathMap.get(key) || pathMap.get(`::${r.filename}`)
               if (p) r.companionPath = p
             })
-            console.log(`[scanner] Companion enriched ${results.filter(r => r.companionPath).length}/${results.length} files with stream paths`)
           }
         } catch (e) {
-          console.warn('[scanner] Companion path enrichment failed (non-fatal):', e.message)
+          console.warn('[scanner] Companion enrichment failed:', e.message)
         }
       }
 
       const allFiles = [...otherFiles, ...results]
       saveFiles(allFiles)
 
-      // Update source metadata
       const nextSources = (currentSources || sources).map(s =>
         s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s
       )
       saveSources(nextSources)
 
-      // Persist library to companion so LAN devices can load it
       if (companionOnline) {
-        saveLibrary({ sources: nextSources, files: allFiles }).catch(e =>
-          console.warn('[companion] Could not save library to companion:', e.message)
-        )
+        saveLibrary({ sources: nextSources, files: allFiles }).catch(() => {})
       }
-
     } catch (e) {
       setError('Scan failed: ' + e.message)
     } finally {
@@ -327,18 +392,43 @@ export function LocalLibraryProvider({ children }) {
     }
   }
 
-  // ── Re-scan a specific source by id ─────────────────────────
+  // ── Remove source ──────────────────────────────────────────────────────
+  function removeSource(id) {
+    delete dirHandles.current[id]
+    const nextFiles = files.filter(f => f.sourceId !== id)
+    saveFiles(nextFiles)
+    files.filter(f => f.sourceId === id).forEach(f => { delete fileHandles.current[f.filename] })
+    saveSources(sources.filter(s => s.id !== id))
+    if (companionOnline) removeWatchedFolder(id).catch(() => {})
+  }
+
+  // ── Rescan a source ───────────────────────────────────────────────────
   const rescanSource = useCallback(async (id) => {
     const source = sources.find(s => s.id === id)
     if (!source) return
-    await scanSource(source, sources)
-  }, [sources, files]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep ref updated so the SSE handler can call the latest version
+    if (IS_ELECTRON) {
+      // Re-register folder (in case companion restarted and lost state)
+      if (source.folderPath && companionOnline) {
+        try {
+          await addWatchedFolder({ id: source.id, folderPath: source.folderPath, type: source.type, name: source.name })
+        } catch { /* already registered is fine */ }
+      }
+      await scanSourceViaCompanion(source, sources)
+    } else {
+      await scanSourceBrowser(source, sources)
+    }
+  }, [sources, files, companionOnline]) // eslint-disable-line react-hooks/exhaustive-deps
+
   rescanSourceRef.current = rescanSource
 
-  // ── Re-grant access for all sources that lost their handle ──
+  // ── Re-grant access (browser only) ────────────────────────────────────
   const reGrantAll = useCallback(async () => {
+    if (IS_ELECTRON) {
+      // In Electron, companion handles access — just rescan all sources
+      for (const source of sources) await rescanSource(source.id)
+      return
+    }
     for (const source of sources) {
       if (dirHandles.current[source.id]) continue
       try {
@@ -346,35 +436,28 @@ export function LocalLibraryProvider({ children }) {
         dirHandles.current[source.id] = dh
         const found = await scanDirectory(dh)
         found.forEach(f => { fileHandles.current[f.name] = f.handle })
-      } catch { break } // user cancelled
+      } catch { break }
     }
   }, [sources])
 
-  // ── Get playable URL for a local file ───────────────────────
+  // ── Get playable URL ───────────────────────────────────────────────────
   async function getFileUrl(filename) {
-    // Prefer companion streaming URL — no browser permission required, supports
-    // seeking via HTTP range requests, and never expires mid-movie.
     const record = filesRef.current.find(f => f.filename === filename)
-    if (record?.companionPath) {
-      return streamUrl(record.companionPath)
-    }
+    if (record?.companionPath) return streamUrl(record.companionPath)
 
-    // Fallback: File System Access API blob URL (requires browser permission)
+    // Fallback: File System Access API blob URL (browser only)
     const handle = fileHandles.current[filename]
     if (!handle) {
       throw new Error(
-        'Cannot play file — the companion server is offline or this library was not scanned while it was running. ' +
-        'Start the companion (companion/start.bat) then rescan in Settings → Local Library.'
+        IS_ELECTRON
+          ? 'Cannot play file — companion server is offline. It should start automatically; check the system tray.'
+          : 'Cannot play file — companion is offline or not scanned while it was running. Start companion/start.bat then rescan.'
       )
     }
     const file = await handle.getFile()
     return URL.createObjectURL(file)
   }
 
-  /**
-   * All local versions for a title, sorted best quality first.
-   * For TV: pass season + episode to narrow to a specific episode's versions.
-   */
   function getLocalVersions(tmdbId, mediaType, season = null, episode = null) {
     let matches = files.filter(f => f.tmdbId === Number(tmdbId) && f.media_type === mediaType)
     if (season  !== null) matches = matches.filter(f => f.parsedSeason  === season)
@@ -382,29 +465,26 @@ export function LocalLibraryProvider({ children }) {
     return matches.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
   }
 
-  /** Best quality local file for a title (first result from getLocalVersions) */
   function getLocalFile(tmdbId, mediaType, season = null, episode = null) {
-    const versions = getLocalVersions(tmdbId, mediaType, season, episode)
-    return versions[0] || null
+    return getLocalVersions(tmdbId, mediaType, season, episode)[0] || null
   }
 
   function hasLocal(tmdbId, mediaType) {
     return files.some(f => f.tmdbId === tmdbId && f.media_type === mediaType)
   }
 
-  /** How many local episodes exist for a given TV show tmdbId */
   function getLocalEpisodeCount(tmdbId) {
     return files.filter(f => f.tmdbId === tmdbId && f.media_type === 'tv').length
   }
 
   function clearAll() {
-    dirHandles.current = {}
+    dirHandles.current  = {}
     fileHandles.current = {}
     saveSources([])
     saveFiles([])
   }
 
-  const hasHandles = Object.keys(dirHandles.current).length > 0
+  const hasHandles = !IS_ELECTRON && Object.keys(dirHandles.current).length > 0
 
   return (
     <LocalLibraryContext.Provider value={{

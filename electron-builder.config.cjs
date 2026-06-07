@@ -21,8 +21,10 @@ module.exports = {
   },
 
   files: [
-    'dist/**/*',          // built React app
-    'electron/**/*.cjs',  // main + preload (CommonJS, avoids ESM conflict)
+    'dist/**/*',            // built React app
+    'electron/**/*.cjs',    // main + preload (CommonJS, avoids ESM conflict)
+    'companion/**/*',       // companion server + its own node_modules (auto-started in Electron)
+    '!companion/start.bat', // exclude Windows helper (not needed inside packaged app)
     'package.json',
   ],
 

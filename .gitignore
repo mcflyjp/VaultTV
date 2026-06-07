@@ -11,6 +11,13 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Electron build output — never commit these
+C:/VaultTVBuild/
+VaultTV/
+dist-electron/
+*.asar
+release/
 .env
 
 # Editor directories and files

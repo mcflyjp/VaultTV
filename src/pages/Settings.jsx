@@ -1,4 +1,12 @@
 import { useState } from 'react'
+
+const IS_ELECTRON = !!window.electronAPI?.isElectron
+
+/** Open a link in the system browser. Works in both Electron and web. */
+function openLink(url) {
+  if (IS_ELECTRON) { window.electronAPI.openExternal(url) }
+  else { window.open(url, '_blank', 'noopener,noreferrer') }
+}
 import { useParental } from '../context/ParentalContext'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLayout } from '../context/LayoutContext'
@@ -266,7 +274,7 @@ export default function Settings() {
           >
             <FiPlus size={14} /><FiTv size={14} /> Add TV Shows Folder
           </button>
-          {local.sources.length > 0 && !local.hasHandles && (
+          {!IS_ELECTRON && local.sources.length > 0 && !local.hasHandles && (
             <button
               className="btn-ghost"
               onClick={local.reGrantAll}
@@ -325,15 +333,17 @@ export default function Settings() {
             <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
               {local.companionOnline
                 ? 'Auto-sync is active. VaultTV will prompt you to rescan when new files are detected in your folders.'
-                : <>
-                    Auto-sync is unavailable. Run <code style={{ background: 'var(--bg-card)', padding: '1px 5px', borderRadius: 4 }}>cd companion &amp;&amp; npm install &amp;&amp; node server.js</code> in the VaultTV folder to enable it. Stop it any time — the library keeps working.
-                  </>
+                : IS_ELECTRON
+                  ? 'The companion server starts automatically with the app. If it stays offline, try restarting VaultTV.'
+                  : <>
+                      Auto-sync is unavailable. Run <code style={{ background: 'var(--bg-card)', padding: '1px 5px', borderRadius: 4 }}>cd companion &amp;&amp; npm install &amp;&amp; node server.js</code> in the VaultTV folder to enable it. Stop it any time — the library keeps working.
+                    </>
               }
             </p>
           </div>
         </div>
 
-        {!window.showDirectoryPicker && (
+        {!IS_ELECTRON && !window.showDirectoryPicker && (
           <p style={{ color: '#fbbf24', fontSize: '0.82rem', margin: '1rem 0 0' }}>
             ⚠ Your browser doesn't support folder access. Use Chrome, Edge, or the Fire TV Silk browser.
           </p>
@@ -345,7 +355,11 @@ export default function Settings() {
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1rem', lineHeight: 1.6 }}>
           Connect your Trakt account to add your watchlists and custom lists as shelves on the home dashboard.
           You need a free Trakt API app — create one at{' '}
-          <a href="https://trakt.tv/oauth/applications/new" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
+          <a
+            href="https://trakt.tv/oauth/applications/new"
+            onClick={e => { e.preventDefault(); openLink('https://trakt.tv/oauth/applications/new') }}
+            style={{ color: 'var(--accent)', cursor: 'pointer' }}
+          >
             trakt.tv/oauth/applications/new <FiExternalLink size={11} style={{ verticalAlign: 'middle' }} />
           </a>{' '}
           with redirect URI <code style={{ background: 'var(--bg-secondary)', padding: '1px 5px', borderRadius: 4, fontSize: '0.82rem' }}>urn:ietf:wg:oauth:2.0:oob</code>.
@@ -387,7 +401,15 @@ export default function Settings() {
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '1rem', marginBottom: '1rem' }}>
             <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '0.9rem' }}>Activate on Trakt</p>
             <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Go to <a href={trakt.deviceFlow.verificationUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{trakt.deviceFlow.verificationUrl}</a> and enter this code:
+              Go to{' '}
+              <a
+                href={trakt.deviceFlow.verificationUrl}
+                onClick={e => { e.preventDefault(); openLink(trakt.deviceFlow.verificationUrl) }}
+                style={{ color: 'var(--accent)', cursor: 'pointer' }}
+              >
+                {trakt.deviceFlow.verificationUrl}
+              </a>{' '}
+              and enter this code:
             </p>
             <div style={{ fontSize: '2rem', fontWeight: 900, letterSpacing: '0.15em', fontFamily: 'monospace', color: 'var(--accent)', marginBottom: '0.75rem' }}>
               {trakt.deviceFlow.userCode}
@@ -456,7 +478,14 @@ export default function Settings() {
       <Card title="About" icon={null}>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0, lineHeight: 1.7 }}>
           <strong style={{ color: 'var(--text-primary)' }}>VaultTV</strong> — a personal streaming frontend powered by your Stremio add-ons and Real-Debrid.<br />
-          Metadata provided by <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>The Movie Database (TMDB)</a>.
+          Metadata provided by{' '}
+          <a
+            href="https://www.themoviedb.org"
+            onClick={e => { e.preventDefault(); openLink('https://www.themoviedb.org') }}
+            style={{ color: 'var(--accent)', cursor: 'pointer' }}
+          >
+            The Movie Database (TMDB)
+          </a>.
         </p>
       </Card>
     </div>

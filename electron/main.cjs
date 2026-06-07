@@ -1,84 +1,108 @@
 /**
  * VaultTV Electron main process
- * Wraps the React app in a native desktop window.
  */
 
-const { app, BrowserWindow, shell, Menu, Tray, nativeImage, ipcMain } = require('electron')
-const path  = require('path')
+const {
+  app, BrowserWindow, shell, Menu, Tray, nativeImage,
+  ipcMain, dialog, utilityProcess,
+} = require('electron')
+const path = require('path')
+const fs   = require('fs')
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
-// Enable platform HEVC decoder on Windows (uses Windows Media Foundation).
+// Enable platform HEVC decoder on Windows (Windows Media Foundation).
 // Must be called before app 'ready' event.
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport')
 
 // ── Single instance + deep-link (custom protocol) ────────────────────
-// Register vaulttv:// as this app's URL scheme so the OS can redirect
-// the Supabase Google OAuth callback back into this Electron window.
-//
-// On Windows, deep links arrive as a new process launch (argv[1] = the URL).
-// requestSingleInstanceLock() ensures only one instance runs; the second
-// instance (triggered by the OS for the deep link) quits immediately and
-// hands its argv to the running instance via the second-instance event.
+// vaulttv:// is registered so the OS can redirect the Supabase Google
+// OAuth callback back into this window after the user approves in the
+// system browser.  On Windows, a deep link triggers a second instance;
+// requestSingleInstanceLock() quits that instance immediately and hands
+// the URL to the already-running one via second-instance.
 app.setAsDefaultProtocolClient('vaulttv')
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
-  app.quit()
-}
+if (!gotSingleInstanceLock) app.quit()
 
-let mainWindow = null
-let tray       = null
+let mainWindow      = null
+let tray            = null
+let companionProc   = null   // UtilityProcess for the companion server
 
-// Windows deep-link: second-instance carries the vaulttv:// URL in argv
+// Windows deep-link: second instance carries vaulttv:// URL in argv
 app.on('second-instance', (_event, argv) => {
-  const deepLink = argv.find(arg => arg.startsWith('vaulttv://'))
+  const deepLink = argv.find(a => a.startsWith('vaulttv://'))
   if (deepLink) handleDeepLink(deepLink)
-  // Bring the existing window to front
   if (mainWindow) { mainWindow.show(); mainWindow.focus() }
 })
 
-// macOS deep-link: open-url event
+// macOS deep-link
 app.on('open-url', (event, url) => {
   event.preventDefault()
   handleDeepLink(url)
 })
 
-/**
- * Parse a vaulttv://auth/callback#... URL and forward the hash/query
- * params to the renderer so Supabase can hydrate the session.
- */
 function handleDeepLink(url) {
-  if (!url) return
-  if (mainWindow) {
-    mainWindow.webContents.send('auth-callback', url)
-    mainWindow.show()
-    mainWindow.focus()
+  if (!url || !mainWindow) return
+  mainWindow.webContents.send('auth-callback', url)
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+// ── Companion server auto-start ────────────────────────────────────────
+// Only runs in the packaged app (not dev — user starts companion manually
+// during development).  Uses Electron's utilityProcess so it inherits the
+// bundled Node.js runtime — no separate Node install required.
+function startCompanion() {
+  if (!app.isPackaged) return
+
+  const companionScript = path.join(app.getAppPath(), 'companion', 'server.js')
+  if (!fs.existsSync(companionScript)) {
+    console.log('[companion] server.js not found in packaged app — skipping auto-start')
+    return
+  }
+
+  try {
+    companionProc = utilityProcess.fork(companionScript, [], {
+      cwd: path.join(app.getAppPath(), 'companion'),
+    })
+    companionProc.on('exit', code => {
+      console.log(`[companion] exited (code ${code})`)
+      companionProc = null
+    })
+    console.log('[companion] Auto-started successfully')
+  } catch (e) {
+    console.error('[companion] Failed to auto-start:', e.message)
   }
 }
+
+app.on('quit', () => {
+  try { companionProc?.kill() } catch {}
+})
 
 // ── Window ────────────────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width:  1400,
-    height: 900,
-    minWidth:  900,
+    width:    1400,
+    height:   900,
+    minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0a0a12',
     webPreferences: {
       preload:          path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration:  false,
-      // sandbox:false — Electron 20+ defaults sandbox:true which breaks
-      // require('electron') in some preload contexts
+      // sandbox:false — Electron 20+ enables sandbox by default which can
+      // break require('electron') in some preload contexts.
       sandbox:     false,
       // webSecurity:false — allows file:// origin to fetch
-      // http://127.0.0.1:7842 (companion server) without CORS/mixed-content block
+      // http://127.0.0.1:7842 (companion) without Chromium blocking it as
+      // mixed content, and lets Stremio add-on fetches bypass CORS.
       webSecurity: false,
     },
     icon: path.join(__dirname, '../public/icon.png'),
-    show: false,  // show after ready-to-show to avoid flash
+    show: false,
   })
 
-  // Load the app
   if (isDev) {
     mainWindow.loadURL('http://localhost:5174')
     mainWindow.webContents.openDevTools({ mode: 'detach' })
@@ -91,8 +115,7 @@ function createWindow() {
     mainWindow.focus()
   })
 
-  // Prevent OAuth or any external link from opening INSIDE Electron —
-  // send everything external to the system browser.
+  // Route external HTTPS links to system browser, not Electron
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
       shell.openExternal(url)
@@ -101,8 +124,7 @@ function createWindow() {
     return { action: 'allow' }
   })
 
-  // Also intercept top-level navigations away from the app (e.g. OAuth redirects
-  // that call window.location.href instead of opening a new tab).
+  // Intercept top-level navigations (e.g. OAuth redirect via window.location.href)
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const isLocal = url.startsWith('file://') || url.includes('localhost') || url.includes('127.0.0.1')
     if (!isLocal) {
@@ -114,7 +136,7 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
-// ── Tray icon ─────────────────────────────────────────────────────────
+// ── Tray ────────────────────────────────────────────────────────────
 function createTray() {
   const iconPath = path.join(__dirname, '../public/icon.png')
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16 })
@@ -122,43 +144,54 @@ function createTray() {
   const menu = Menu.buildFromTemplate([
     { label: 'Open VaultTV', click: () => { mainWindow?.show(); mainWindow?.focus() } },
     { type: 'separator' },
-    { label: 'Quit',        click: () => app.quit() },
+    { label: 'Quit', click: () => app.quit() },
   ])
   tray.setToolTip('VaultTV')
   tray.setContextMenu(menu)
   tray.on('click', () => { mainWindow?.show(); mainWindow?.focus() })
 }
 
-// ── App lifecycle ─────────────────────────────────────────────────────
+// ── App lifecycle ────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  startCompanion()
   createWindow()
   createTray()
-
-  // macOS: re-open window when dock icon is clicked
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// Minimise to tray instead of quitting on window close (Windows/Linux)
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    // Keep the tray icon alive; don't quit
-    // app.quit()
-  }
+  // macOS: keep process alive; Windows/Linux: keep tray alive
+  // app.quit() would be here to exit on last window close
 })
 
-// ── IPC handlers ─────────────────────────────────────────────────────
+// ── IPC: window controls ─────────────────────────────────────────────
 ipcMain.on('window-minimize', () => mainWindow?.minimize())
 ipcMain.on('window-maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
-ipcMain.on('window-close', () => mainWindow?.hide())  // hide to tray
+ipcMain.on('window-close', () => mainWindow?.hide())
 
-// Open a URL in the system browser (called by renderer for OAuth)
+// Open a URL in the system default browser (called by renderer for OAuth
+// and for Settings external links)
 ipcMain.on('open-external', (_event, url) => {
   if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
     shell.openExternal(url)
   }
+})
+
+// ── IPC: native folder picker ────────────────────────────────────────
+// Used by LocalLibraryContext in Electron instead of File System Access API.
+// Returns { path: string, name: string } or null if user cancelled.
+ipcMain.handle('select-folder', async () => {
+  if (!mainWindow) return null
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Select Media Folder',
+    buttonLabel: 'Add Folder',
+  })
+  if (canceled || !filePaths.length) return null
+  return { path: filePaths[0], name: path.basename(filePaths[0]) }
 })
