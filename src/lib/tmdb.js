@@ -35,11 +35,23 @@ export function pickTrailer(videos = []) {
   return videos.find(v => v.site === 'YouTube')?.key || null
 }
 
-/** Pick an ambient theme/score clip */
+/** Pick an ambient theme/score clip for a TV show */
 export function pickTheme(videos = []) {
-  const keywords = ['theme', 'score', 'soundtrack', 'main title', 'opening', 'music']
+  const keywords = [
+    'theme', 'score', 'soundtrack', 'main title', 'opening',
+    'title sequence', 'opening credits', 'title card', 'intro',
+    'opening theme', 'main theme', 'theme song',
+  ]
+  // Prefer videos explicitly typed as 'Opening Credits' by TMDB
+  const openingCredits = videos.find(v =>
+    v.site === 'YouTube' && v.type === 'Opening Credits'
+  )
+  if (openingCredits) return openingCredits.key
+
   return videos.find(v =>
     v.site === 'YouTube' &&
+    v.type !== 'Trailer' &&   // never pick a trailer as a theme
+    v.type !== 'Teaser'  &&   // never pick a teaser as a theme
     keywords.some(kw => v.name?.toLowerCase().includes(kw))
   )?.key || null
 }

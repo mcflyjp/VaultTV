@@ -76,9 +76,10 @@ export default function Detail() {
     ? `${YT_EMBED}/${trailerKey}?autoplay=1&mute=1&loop=1&playlist=${trailerKey}&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0&playsinline=1`
     : null
 
-  // TV shows: use trailer as theme audio source if no dedicated theme exists
-  // Movies: no theme audio (trailer already plays as background)
-  const audioKey = type === 'tv' ? (themeKey || trailerKey) : null
+  // TV shows: only play audio if a dedicated theme/score was found — never fall back
+  // to the trailer (that would play the preview, not a theme song).
+  // Movies: no theme audio (trailer already plays as muted background video).
+  const audioKey = type === 'tv' ? themeKey : null
   const themeAudioUrl = audioKey
     ? `${YT_EMBED}/${audioKey}?autoplay=1&loop=1&playlist=${audioKey}&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0`
     : null
@@ -135,7 +136,7 @@ export default function Detail() {
       {/* ── Hidden theme audio iframe ── */}
       {themeAudioUrl && !musicDismissed && musicPlaying && (
         <iframe
-          key={themeKey}
+          key={audioKey}
           src={themeAudioUrl}
           title="theme audio"
           allow="autoplay; encrypted-media"
