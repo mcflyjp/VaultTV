@@ -242,26 +242,15 @@ export default function VideoPlayer() {
   function onLoadedMetadata(e) {
     const v = e.currentTarget
     setDuration(v.duration)
-
-    // Detect missing audio tracks — common with AC3/DTS/TrueHD in MKV files
-    // which browsers cannot decode. audioTracks is undefined on some browsers.
-    if (!transcoding && v.audioTracks !== undefined && v.audioTracks.length === 0) {
-      setAudioWarning('no-audio')
-    } else {
-      setAudioWarning('')
-    }
+    setAudioWarning('')
   }
 
   function onError(e)  {
     const v = e.currentTarget
     const code = v.error?.code
     // MediaError codes: 1=aborted, 2=network, 3=decode, 4=not supported
-    if (code === 3 && !transcoding) {
-      // Decode error is almost always AC3/DTS — offer one-click fix
-      setAudioWarning('decode-error')
-      setError('')
-    } else if (code === 4) {
-      setError('Format not supported. The video codec (HEVC/H.265) or audio codec (AC3/DTS) may not be supported by this browser. Try Chrome or Edge.')
+    if (code === 4) {
+      setError('Format not supported. The video codec (HEVC/H.265) or audio codec (AC3/DTS) may not be supported by this browser.')
     } else if (code === 3) {
       setError('Decode error — the file may be corrupted or use an unsupported codec.')
     } else if (code) {
@@ -471,32 +460,6 @@ export default function VideoPlayer() {
       {/* ── External subtitle track (VTT) ── */}
       {manualSubUrl && (
         <track key={manualSubUrl} kind="subtitles" src={manualSubUrl} default label="Subtitles" />
-      )}
-
-      {/* ── Audio codec warning — actionable "Fix Audio" button ── */}
-      {audioWarning && !error && (
-        <div style={{
-          position: 'absolute', top: '5rem', left: '50%', transform: 'translateX(-50%)',
-          zIndex: 10, background: 'rgba(20,10,0,0.93)', border: '1px solid rgba(251,146,60,0.6)',
-          borderRadius: 10, padding: '0.85rem 1.25rem', maxWidth: 460,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem',
-        }}>
-          <p style={{ color: '#fed7aa', fontSize: '0.84rem', margin: 0, textAlign: 'center', lineHeight: 1.5 }}>
-            🔇 <strong>No audio</strong> — this stream uses AC3/DTS audio which browsers can't decode natively.
-          </p>
-          <button
-            onClick={fixAudio}
-            style={{
-              background: '#f97316', border: 'none', borderRadius: 7, color: '#fff',
-              padding: '0.45rem 1.2rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
-            }}
-          >
-            🔧 Fix Audio via Companion
-          </button>
-          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.72rem', margin: 0, textAlign: 'center' }}>
-            Streams audio through ffmpeg on your PC — companion must be running
-          </p>
-        </div>
       )}
 
       {/* ── Transcoding indicator ── */}
@@ -712,6 +675,26 @@ export default function VideoPlayer() {
                     ))}
                   </div>
                 )}
+
+                {/* Fix Audio — always visible, click if stream has no sound */}
+                <div style={{ marginBottom: '1rem', padding: '0.65rem 0.75rem', background: transcoding ? 'rgba(74,222,128,0.08)' : 'rgba(249,115,22,0.08)', border: `1px solid ${transcoding ? 'rgba(74,222,128,0.3)' : 'rgba(249,115,22,0.3)'}`, borderRadius: 8 }}>
+                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', fontWeight: 700, color: transcoding ? '#4ade80' : '#fb923c' }}>
+                    {transcoding ? '✓ AAC Transcode Active' : '🔇 No Sound? Fix It'}
+                  </p>
+                  <p style={{ margin: '0 0 0.6rem', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.4 }}>
+                    {transcoding
+                      ? 'Audio is being re-encoded to AAC via companion.'
+                      : 'Streams with AC3/DTS/EAC3 audio play silently in browsers. Click to re-encode audio through your companion server.'}
+                  </p>
+                  <button
+                    onClick={fixAudio}
+                    disabled={transcoding}
+                    style={{ width: '100%', background: transcoding ? 'rgba(74,222,128,0.2)' : '#f97316', border: 'none', borderRadius: 6, color: '#fff', padding: '0.45rem', fontWeight: 700, fontSize: '0.8rem', cursor: transcoding ? 'default' : 'pointer' }}
+                  >
+                    {transcoding ? '✓ Transcoding via Companion' : '🔧 Fix Audio via Companion'}
+                  </button>
+                </div>
+
                 <Label>Audio Delay: {audioDelay > 0 ? `+${audioDelay}ms` : `${audioDelay}ms`}</Label>
                 <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.4 }}>
                   Positive = audio comes later. Use when audio is ahead of video (lips move, sound follows).
