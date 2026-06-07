@@ -87,9 +87,22 @@ export default function VideoPlayer() {
     setPlaying(false); setCurrentTime(0); setDuration(0)
     setBuffered(0); setError(''); setAudioWarning(''); setQualities([]); setQuality(-1)
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
-    setSubTracks(session.subtitleTracks || []); setActiveSub(-1)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
     setSettingsOpen(false)
+
+    // Auto-select subtitle: prefer English, fallback to first available
+    const tracks = session.subtitleTracks || []
+    setSubTracks(tracks)
+    if (tracks.length > 0) {
+      const engIdx = tracks.findIndex(t =>
+        /^en/i.test(t.lang || '') || /english/i.test(t.label || '')
+      )
+      const autoIdx = engIdx >= 0 ? engIdx : 0
+      setActiveSub(autoIdx)
+      setManualSubUrl(tracks[autoIdx]?.url || '')
+    } else {
+      setActiveSub(-1)
+    }
 
     // Destroy previous HLS instance
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }

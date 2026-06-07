@@ -19,6 +19,7 @@ export default function Detail() {
   const { getLocalFile, getLocalVersions, getFileUrl } = useLocalLibrary()
   const [streams, setStreams]         = useState(null)
   const [loadingStreams, setLoadingStreams] = useState(false)
+  const [autoSubs, setAutoSubs]       = useState([])
   const [selectedSeason, setSelectedSeason] = useState(1)
   const [musicPlaying, setMusicPlaying] = useState(true)
   const [musicDismissed, setMusicDismissed] = useState(false)
@@ -45,12 +46,17 @@ export default function Detail() {
     queryFn: () => getSimilar(type, id),
   })
 
-  // Reset music state on navigation
+  // Reset music state on navigation; pre-fetch subtitles for local playback
   useEffect(() => {
     setMusicPlaying(true)
     setMusicDismissed(false)
     setStreams(null)
-  }, [id])
+    setAutoSubs([])
+    // Pre-fetch subtitles so local-file play button can auto-load them
+    if (imdbId) {
+      getSubtitles(type, imdbId, null, null).then(setAutoSubs).catch(() => {})
+    }
+  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) return <LoadingState />
 
@@ -221,6 +227,7 @@ export default function Detail() {
                       play={play}
                       title={title}
                       detail={detail}
+                      subtitleTracks={autoSubs}
                       setMusicDismissed={setMusicDismissed}
                       onProgress={(t, d) => updateProgress(Number(id), type, t, d)}
                       onStartWatching={() => startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })}
@@ -310,7 +317,7 @@ export default function Detail() {
                           url,
                           title: `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`,
                           poster: IMG(detail?.poster_path, 'w342'),
-                          subtitleTracks: [],
+                          subtitleTracks: autoSubs,
                           onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d),
                         })
                         startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
@@ -414,7 +421,7 @@ function LoadingState() {
 }
 
 /** Split-button: plays best version by default; ▼ reveals version picker */
-function LocalPlayButton({ versions, getFileUrl, play, title, detail, setMusicDismissed, onProgress, onStartWatching }) {
+function LocalPlayButton({ versions, getFileUrl, play, title, detail, subtitleTracks = [], setMusicDismissed, onProgress, onStartWatching }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const ref = useState(null)
@@ -431,7 +438,7 @@ function LocalPlayButton({ versions, getFileUrl, play, title, detail, setMusicDi
         url, title,
         year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
         poster: IMG(detail?.poster_path, 'w342'),
-        subtitleTracks: [],
+        subtitleTracks,
         onProgress,
       })
       onStartWatching()
