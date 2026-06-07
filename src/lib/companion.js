@@ -96,6 +96,20 @@ export function streamUrl(filePath) {
 }
 
 /**
+ * Return a URL that transcodes a remote stream through the companion's
+ * ffmpeg pipeline — re-encodes audio to AAC while copying video.
+ * Fixes AC3/DTS/EAC3 audio that browsers cannot decode natively.
+ *
+ * @param {string} sourceUrl  Original stream URL (http/https)
+ * @param {number} [startSec] Optional seek offset in seconds
+ */
+export function transcodeUrl(sourceUrl, startSec = 0) {
+  const params = new URLSearchParams({ url: sourceUrl })
+  if (startSec > 0) params.set('t', String(Math.floor(startSec)))
+  return `${BASE}/transcode?${params}`
+}
+
+/**
  * Subscribe to file-system change events from the companion.
  *
  * @param {(event: { sourceId, sourceName, type, action, filename, timestamp }) => void} onChanged

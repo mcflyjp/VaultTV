@@ -15,6 +15,7 @@ const cors     = require('cors')
 const chokidar = require('chokidar')
 const path     = require('path')
 const fs       = require('fs')
+const { spawn } = require('child_process')
 
 // ── Config ────────────────────────────────────────────────────────────
 const USER_CONFIG_FILE   = path.join(__dirname, 'config.json')
@@ -302,6 +303,85 @@ app.get('/stream', (req, res) => {
     })
     fs.createReadStream(filePath).pipe(res)
   }
+})
+
+// ── Audio transcode endpoint ───────────────────────────────────────────
+// Pipes any HTTP(S) video stream through ffmpeg, re-encoding audio to AAC
+// while copying video as-is. Fixes AC3/DTS/EAC3 audio which browsers can't
+// decode. Output is fragmented MP4 so it can be streamed without seeking.
+//
+// Usage: GET /transcode?url=<encoded_source_url>
+// Optional: ?t=<start_seconds>  — seek before transcoding (faster than player seek)
+
+app.get('/transcode', (req, res) => {
+  const sourceUrl = req.query.url
+  if (!sourceUrl) return res.status(400).json({ error: 'url query parameter required' })
+
+  // Only allow http/https sources (no file:// etc.)
+  let parsed
+  try { parsed = new URL(sourceUrl) } catch { return res.status(400).json({ error: 'Invalid URL' }) }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return res.status(400).json({ error: 'Only http/https sources are supported' })
+  }
+
+  const startSec = parseFloat(req.query.t) || 0
+
+  // Build ffmpeg args
+  // -c:v copy        — no video re-encode (fast)
+  // -c:a aac         — re-encode audio to AAC (browser-compatible)
+  // -b:a 192k        — good quality audio bitrate
+  // -movflags ...    — fragmented MP4 suitable for streaming to pipe
+  // -f mp4           — output format
+  // pipe:1           — write to stdout
+  const args = []
+  if (startSec > 0) args.push('-ss', String(startSec))
+  args.push(
+    '-i', sourceUrl,
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-movflags', 'frag_keyframe+empty_moov',
+    '-f', 'mp4',
+    'pipe:1',
+  )
+
+  console.log(`[transcode] ${sourceUrl.slice(0, 80)}…`)
+
+  res.setHeader('Content-Type', 'video/mp4')
+  res.setHeader('Cache-Control', 'no-cache')
+  // No Content-Length — we're streaming
+
+  const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+
+  ff.stdout.pipe(res)
+
+  ff.stderr.on('data', data => {
+    // ffmpeg writes progress to stderr — only log errors (lines with 'Error' or non-progress)
+    const line = data.toString()
+    if (line.includes('Error') || line.includes('Invalid')) {
+      console.error('[transcode] ffmpeg:', line.trim())
+    }
+  })
+
+  ff.on('close', code => {
+    if (code !== 0) console.warn(`[transcode] ffmpeg exited with code ${code}`)
+    if (!res.writableEnded) res.end()
+  })
+
+  ff.on('error', err => {
+    if (err.code === 'ENOENT') {
+      console.error('[transcode] ffmpeg not found — install ffmpeg and add it to PATH')
+      if (!res.headersSent) res.status(500).json({ error: 'ffmpeg not installed on this machine' })
+    } else {
+      console.error('[transcode] spawn error:', err.message)
+      if (!res.writableEnded) res.end()
+    }
+  })
+
+  // If client disconnects, kill ffmpeg immediately (saves CPU)
+  req.on('close', () => {
+    if (!ff.killed) ff.kill('SIGKILL')
+  })
 })
 
 // ── Library data endpoints ─────────────────────────────────────────────

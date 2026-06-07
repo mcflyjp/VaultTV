@@ -221,4 +221,5 @@ a:not(.no-pop):hover,
 .shelf-scroll::-webkit-scrollbar { height: 4px; }
 .shelf-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin  { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }

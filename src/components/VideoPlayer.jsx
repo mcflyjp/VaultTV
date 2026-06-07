@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
 import Hls from 'hls.js'
+import { transcodeUrl } from '../lib/companion'
 import {
   FiPlay, FiPause, FiVolume2, FiVolumeX, FiVolume1,
   FiMaximize, FiMinimize, FiX, FiSettings, FiChevronLeft,
@@ -75,6 +76,8 @@ export default function VideoPlayer() {
   const [settingsTab,  setSettingsTab]  = useState('quality')
   const [error,        setError]        = useState('')
   const [audioWarning, setAudioWarning] = useState('')   // codec/no-audio warning
+  const [transcoding,  setTranscoding]  = useState(false) // currently using companion transcode
+  const rawUrlRef = useRef('')                             // original URL before transcoding
   const [hoverTime,    setHoverTime]    = useState(null)  // for progress tooltip
   const [hoverX,       setHoverX]       = useState(0)
 
@@ -88,7 +91,8 @@ export default function VideoPlayer() {
     setBuffered(0); setError(''); setAudioWarning(''); setQualities([]); setQuality(-1)
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
-    setSettingsOpen(false)
+    setSettingsOpen(false); setTranscoding(false)
+    rawUrlRef.current = session.url || ''
 
     // Auto-select subtitle: prefer English, fallback to first available
     const tracks = session.subtitleTracks || []
@@ -127,10 +131,8 @@ export default function VideoPlayer() {
 
       if (!src) { setError('No stream URL provided.'); return }
 
-      // Companion stream URLs are cross-origin (port 7842 vs 5174/5175).
-      // Setting crossOrigin="anonymous" lets Web Audio API access the stream.
-      // The companion already sends Access-Control-Allow-Origin on all responses.
-      if (src.includes('/stream?')) {
+      // Companion URLs (port 7842) are cross-origin — need crossOrigin for Web Audio.
+      if (src.includes(':7842/')) {
         video.crossOrigin = 'anonymous'
       } else {
         video.removeAttribute('crossOrigin')
@@ -243,8 +245,8 @@ export default function VideoPlayer() {
 
     // Detect missing audio tracks — common with AC3/DTS/TrueHD in MKV files
     // which browsers cannot decode. audioTracks is undefined on some browsers.
-    if (v.audioTracks !== undefined && v.audioTracks.length === 0) {
-      setAudioWarning('No audio track detected. The file may use AC3/DTS audio which browsers cannot decode. Try a file with AAC or MP3 audio.')
+    if (!transcoding && v.audioTracks !== undefined && v.audioTracks.length === 0) {
+      setAudioWarning('no-audio')
     } else {
       setAudioWarning('')
     }
@@ -254,13 +256,34 @@ export default function VideoPlayer() {
     const v = e.currentTarget
     const code = v.error?.code
     // MediaError codes: 1=aborted, 2=network, 3=decode, 4=not supported
-    if (code === 4) {
+    if (code === 3 && !transcoding) {
+      // Decode error is almost always AC3/DTS — offer one-click fix
+      setAudioWarning('decode-error')
+      setError('')
+    } else if (code === 4) {
       setError('Format not supported. The video codec (HEVC/H.265) or audio codec (AC3/DTS) may not be supported by this browser. Try Chrome or Edge.')
     } else if (code === 3) {
-      setError('Decode error — the file may be corrupted or use an unsupported codec (AC3/DTS audio is common in BluRay MKV files).')
-    } else {
+      setError('Decode error — the file may be corrupted or use an unsupported codec.')
+    } else if (code) {
       setError('Could not play this stream. The format may be unsupported.')
     }
+  }
+
+  /** Re-load the stream through the companion's ffmpeg transcoder (AAC audio fix) */
+  function fixAudio() {
+    const video = videoRef.current
+    if (!video) return
+    const src = rawUrlRef.current || session?.url
+    if (!src) return
+    const tUrl = transcodeUrl(src, Math.floor(video.currentTime || 0))
+    setTranscoding(true)
+    setAudioWarning('')
+    setError('')
+    video.crossOrigin = 'anonymous'
+    // Destroy HLS if active — transcoded stream is plain MP4
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+    video.src = tUrl
+    video.play().catch(() => {})
   }
 
   // ── Controls ─────────────────────────────────────────────────
@@ -450,10 +473,37 @@ export default function VideoPlayer() {
         <track key={manualSubUrl} kind="subtitles" src={manualSubUrl} default label="Subtitles" />
       )}
 
-      {/* ── Audio codec warning (no AC3/DTS support in browser) ── */}
+      {/* ── Audio codec warning — actionable "Fix Audio" button ── */}
       {audioWarning && !error && (
-        <div style={{ position: 'absolute', top: '5rem', left: '50%', transform: 'translateX(-50%)', zIndex: 10, background: 'rgba(180,90,0,0.92)', borderRadius: 8, padding: '0.6rem 1.1rem', maxWidth: 480, pointerEvents: 'none' }}>
-          <p style={{ color: '#fff', fontSize: '0.82rem', margin: 0, textAlign: 'center', lineHeight: 1.5 }}>⚠️ {audioWarning}</p>
+        <div style={{
+          position: 'absolute', top: '5rem', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 10, background: 'rgba(20,10,0,0.93)', border: '1px solid rgba(251,146,60,0.6)',
+          borderRadius: 10, padding: '0.85rem 1.25rem', maxWidth: 460,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem',
+        }}>
+          <p style={{ color: '#fed7aa', fontSize: '0.84rem', margin: 0, textAlign: 'center', lineHeight: 1.5 }}>
+            🔇 <strong>No audio</strong> — this stream uses AC3/DTS audio which browsers can't decode natively.
+          </p>
+          <button
+            onClick={fixAudio}
+            style={{
+              background: '#f97316', border: 'none', borderRadius: 7, color: '#fff',
+              padding: '0.45rem 1.2rem', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+            }}
+          >
+            🔧 Fix Audio via Companion
+          </button>
+          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.72rem', margin: 0, textAlign: 'center' }}>
+            Streams audio through ffmpeg on your PC — companion must be running
+          </p>
+        </div>
+      )}
+
+      {/* ── Transcoding indicator ── */}
+      {transcoding && (
+        <div style={{ position: 'absolute', top: '1rem', right: '4rem', zIndex: 10, background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(74,222,128,0.4)', borderRadius: 6, padding: '0.3rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', animation: 'pulse 1.5s ease-in-out infinite' }} />
+          <span style={{ color: '#4ade80', fontSize: '0.72rem', fontWeight: 600 }}>AAC transcode</span>
         </div>
       )}
 
