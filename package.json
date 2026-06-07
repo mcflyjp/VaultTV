@@ -2,6 +2,8 @@
   "name": "vaulttv",
   "private": true,
   "version": "1.0.0",
+  "description": "Personal streaming frontend powered by your Stremio add-ons and local library",
+  "author": "VaultTV",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
