@@ -22,7 +22,11 @@ function createWindow() {
     height: 900,
     minWidth:  900,
     minHeight: 600,
-    frame: false,          // custom title bar via CSS
+    // frame: false is intentionally omitted on Windows — combining it with
+    // titleBarStyle:'hidden' + titleBarOverlay causes mouse click events to
+    // stop reaching web content (hover still works, clicks are silently dropped).
+    // titleBarStyle:'hidden' alone hides the native title bar while keeping the
+    // frame, allowing titleBarOverlay to render native min/max/close buttons.
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color:       '#0a0a12',
