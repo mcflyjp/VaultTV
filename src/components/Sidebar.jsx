@@ -181,9 +181,9 @@ export default function Sidebar() {
       overflow: 'hidden', flexShrink: 0,
     }}>
       {/* Logo */}
-      <div style={{ padding: '1.4rem 1.25rem 0.9rem' }}>
+      <div style={{ padding: '0.75rem 1rem' }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center' }}>
-          <img src="/logo.png" alt="VaultTV" style={{ height: 48, width: 'auto' }} />
+          <img src="/logo.png" alt="VaultTV" style={{ width: '100%', height: 'auto', maxHeight: 80, objectFit: 'contain', objectPosition: 'left center' }} />
         </Link>
       </div>
 
@@ -307,7 +307,7 @@ export default function Sidebar() {
           onClick={() => setThemeOpen(o => !o)}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.5rem 0.75rem', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.82rem' }}
         >
-          <span style={{ width: 10, height: 10, borderRadius: '50%', background: current?.color, flexShrink: 0 }} />
+          <img src="/logo.png" alt="VaultTV" style={{ height: '0.82rem', width: 'auto', flexShrink: 0 }} />
           <span style={{ flex: 1, textAlign: 'left' }}>{current?.label}</span>
           <FiChevronRight size={13} style={{ color: 'var(--text-secondary)', transform: themeOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
         </button>
