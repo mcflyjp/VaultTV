@@ -12,6 +12,24 @@ import {
 const HIDE_DELAY = 3000
 const SKIP_SECS  = 10
 
+/** Shift all VTT timestamps by `offsetSec` seconds */
+function shiftVtt(vtt, offsetSec) {
+  return vtt.replace(
+    /(\d{2}:)?\d{2}:\d{2}\.\d{3}/g,
+    ts => {
+      const parts = ts.split(':')
+      let h = 0, m = 0, s = 0
+      if (parts.length === 3) { [h, m, s] = parts.map(Number) }
+      else { [m, s] = parts.map(Number) }
+      const total = Math.max(0, h * 3600 + m * 60 + s + offsetSec)
+      const nh = Math.floor(total / 3600)
+      const nm = Math.floor((total % 3600) / 60)
+      const ns = (total % 60).toFixed(3).padStart(6, '0')
+      return `${String(nh).padStart(2,'0')}:${String(nm).padStart(2,'0')}:${ns}`
+    }
+  )
+}
+
 function fmt(s) {
   if (!s || isNaN(s)) return '0:00'
   const h = Math.floor(s / 3600)
@@ -47,10 +65,12 @@ export default function VideoPlayer() {
   const [quality,      setQuality]      = useState(-1)
   const [audioTracks,  setAudioTracks]  = useState([])
   const [audioTrack,   setAudioTrack]   = useState(0)
-  const [audioDelay,   setAudioDelay]   = useState(0)     // ms, 0–5000
-  const [subUrl,       setSubUrl]       = useState('')
-  const [subOffset,    setSubOffset]    = useState(0)     // seconds
-  const [playbackRate, setPlaybackRate] = useState(1)
+  const [audioDelay,    setAudioDelay]    = useState(0)    // ms
+  const [subTracks,     setSubTracks]     = useState([])   // [{id,label,url,lang}]
+  const [activeSub,     setActiveSub]     = useState(-1)   // index into subTracks, -1=off
+  const [subOffset,     setSubOffset]     = useState(0)    // seconds
+  const [manualSubUrl,  setManualSubUrl]  = useState('')
+  const [playbackRate,  setPlaybackRate]  = useState(1)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab,  setSettingsTab]  = useState('quality')
   const [error,        setError]        = useState('')
@@ -66,7 +86,8 @@ export default function VideoPlayer() {
     setPlaying(false); setCurrentTime(0); setDuration(0)
     setBuffered(0); setError(''); setQualities([]); setQuality(-1)
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
-    setSubUrl(''); setSubOffset(0); setPlaybackRate(1)
+    setSubTracks(session.subtitleTracks || []); setActiveSub(-1)
+    setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
     setSettingsOpen(false)
 
     // Destroy previous HLS instance
@@ -112,6 +133,21 @@ export default function VideoPlayer() {
 
         hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
           setAudioTracks(data.audioTracks.map(t => ({ id: t.id, name: t.name || t.lang || `Track ${t.id + 1}` })))
+        })
+
+        hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
+          if (!data.subtitleTracks?.length) return
+          const hlsSubs = data.subtitleTracks.map((t, i) => ({
+            id:    `hls_${i}`,
+            label: t.name || t.lang || `Subtitle ${i + 1}`,
+            lang:  t.lang || '',
+            hlsIdx: i,   // use hls.subtitleTrack = hlsIdx
+          }))
+          setSubTracks(prev => {
+            // Merge: HLS embedded tracks + addon-fetched tracks (no dupes by id)
+            const existing = prev.filter(s => !s.hlsIdx && s.url)
+            return [...hlsSubs, ...existing]
+          })
         })
 
         hls.on(Hls.Events.ERROR, (_, data) => {
@@ -209,6 +245,49 @@ export default function VideoPlayer() {
     setAudioDelay(ms)
     if (delayRef.current) delayRef.current.delayTime.value = ms / 1000
   }
+
+  function changeSubtitle(idx) {
+    setActiveSub(idx)
+    const track = subTracks[idx]
+    if (!track) {
+      // Turn off
+      if (hlsRef.current) hlsRef.current.subtitleTrack = -1
+      setManualSubUrl('')
+      return
+    }
+    if (track.hlsIdx !== undefined) {
+      // HLS embedded track — let hls.js handle it
+      if (hlsRef.current) hlsRef.current.subtitleTrack = track.hlsIdx
+    } else if (track.url) {
+      // External VTT — load via <track> element (handled in render via manualSubUrl)
+      if (hlsRef.current) hlsRef.current.subtitleTrack = -1
+      setManualSubUrl(track.url)
+    }
+  }
+
+  // Apply subtitle offset by rewriting VTT blob when offset or active sub changes
+  const activeSubUrl = useRef(null)
+  useEffect(() => {
+    const track = activeSub >= 0 ? subTracks[activeSub] : null
+    if (!track?.url || track.hlsIdx !== undefined) return
+    if (subOffset === 0) { setManualSubUrl(track.url); return }
+
+    // Fetch VTT and shift all timestamps
+    fetch(track.url)
+      .then(r => r.text())
+      .then(vtt => {
+        const shifted = shiftVtt(vtt, subOffset)
+        const blob = new Blob([shifted], { type: 'text/vtt' })
+        if (activeSubUrl.current) URL.revokeObjectURL(activeSubUrl.current)
+        activeSubUrl.current = URL.createObjectURL(blob)
+        setManualSubUrl(activeSubUrl.current)
+      })
+      .catch(() => {})
+
+    return () => {
+      if (activeSubUrl.current) { URL.revokeObjectURL(activeSubUrl.current); activeSubUrl.current = null }
+    }
+  }, [activeSub, subOffset, subTracks]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function changeRate(r) {
     const v = videoRef.current; if (!v) return
@@ -313,9 +392,9 @@ export default function VideoPlayer() {
         playsInline
       />
 
-      {/* ── External subtitle track ── */}
-      {subUrl && (
-        <track kind="subtitles" src={subUrl} default label="Subtitles" />
+      {/* ── External subtitle track (VTT) ── */}
+      {manualSubUrl && (
+        <track key={manualSubUrl} kind="subtitles" src={manualSubUrl} default label="Subtitles" />
       )}
 
       {/* ── Error overlay ── */}
@@ -542,16 +621,40 @@ export default function VideoPlayer() {
             {/* Subtitles tab */}
             {settingsTab === 'subtitles' && (
               <div>
-                <Label>Subtitle URL (.vtt)</Label>
+                {/* Track list */}
+                <Label>Subtitle Track</Label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1rem' }}>
+                  <SettingRow active={activeSub === -1} onClick={() => changeSubtitle(-1)}>
+                    <MdSubtitles size={14} /> Off
+                  </SettingRow>
+                  {subTracks.map((t, i) => (
+                    <SettingRow key={t.id || i} active={activeSub === i} onClick={() => changeSubtitle(i)}>
+                      <MdSubtitles size={14} />
+                      <span style={{ flex: 1 }}>{t.label || t.lang || `Track ${i + 1}`}</span>
+                      {t.hlsIdx !== undefined && <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>embedded</span>}
+                      {t.url && !t.hlsIdx && <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>vtt</span>}
+                    </SettingRow>
+                  ))}
+                  {subTracks.length === 0 && (
+                    <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.8rem', margin: '0.25rem 0' }}>
+                      No subtitle tracks found for this stream.
+                    </p>
+                  )}
+                </div>
+
+                {/* Manual VTT URL fallback */}
+                <Label>Manual URL (.vtt fallback)</Label>
                 <input
-                  value={subUrl}
-                  onChange={e => setSubUrl(e.target.value)}
+                  value={manualSubUrl.startsWith('blob:') ? '' : manualSubUrl}
+                  onChange={e => { setManualSubUrl(e.target.value); setActiveSub(-1) }}
                   placeholder="https://example.com/subs.vtt"
                   style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, color: '#fff', padding: '0.45rem 0.6rem', fontSize: '0.82rem', marginBottom: '1rem' }}
                 />
+
+                {/* Offset slider — only relevant when a VTT track is active */}
                 <Label>Subtitle Offset: {subOffset > 0 ? `+${subOffset}s` : `${subOffset}s`}</Label>
                 <input
-                  type="range" min={-10} max={10} step={0.5}
+                  type="range" min={-10} max={10} step={0.25}
                   value={subOffset}
                   onChange={e => setSubOffset(Number(e.target.value))}
                   style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}

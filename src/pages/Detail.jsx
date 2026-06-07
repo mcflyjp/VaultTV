@@ -11,7 +11,7 @@ import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolume
 
 export default function Detail() {
   const { type, id } = useParams()
-  const { getStreams } = useAddons()
+  const { getStreams, getSubtitles } = useAddons()
   const { isSaved, toggle: toggleSave } = useLibrary()
   const { startWatching, updateProgress } = useWatchHistory()
   const { play } = usePlayer()
@@ -75,10 +75,13 @@ export default function Detail() {
   async function handleWatch(season, episode) {
     setLoadingStreams(true)
     setStreams(null)
-    setPlayUrl(null)
     try {
-      const results = await getStreams(type, imdbId, season, episode)
-      setStreams(results)
+      // Fetch streams and subtitles in parallel
+      const [streamResults, subResults] = await Promise.all([
+        getStreams(type, imdbId, season, episode),
+        getSubtitles(type, imdbId, season, episode).catch(() => []),
+      ])
+      setStreams(streamResults.map(s => ({ ...s, _subtitles: subResults })))
     } finally {
       setLoadingStreams(false)
     }
@@ -290,13 +293,14 @@ export default function Detail() {
             <StreamPanel
             loading={loadingStreams}
             streams={streams}
-            onSelect={url => {
+            onSelect={(url, stream) => {
               setMusicDismissed(true)
               play({
                 url,
                 title,
                 year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
                 poster: IMG(detail?.poster_path, 'w342'),
+                subtitleTracks: stream?._subtitles || [],
                 onProgress: (t, d) => updateProgress(Number(id), type, t, d),
               })
               startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
@@ -350,8 +354,8 @@ function StreamPanel({ loading, streams, onSelect }) {
         <div
           key={i}
           tabIndex={s.url ? 0 : -1}
-          onClick={() => s.url && onSelect(s.url)}
-          onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url) }}
+          onClick={() => s.url && onSelect(s.url, s)}
+          onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
           style={{ padding: '0.65rem 0.75rem', marginBottom: '0.4rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
         >
           <div>

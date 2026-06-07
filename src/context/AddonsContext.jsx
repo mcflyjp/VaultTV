@@ -34,7 +34,7 @@ export function AddonsProvider({ children }) {
     return manifest
   }
 
-  // Query an addon for streams given type (movie/series) and imdbId
+  // Query addons for streams given type (movie/series) and imdbId
   async function getStreams(type, imdbId, season, episode) {
     const results = []
     for (const addon of addons) {
@@ -52,8 +52,37 @@ export function AddonsProvider({ children }) {
     return results
   }
 
+  // Query addons for subtitles — Stremio subtitle endpoint: /subtitles/{type}/{id}.json
+  async function getSubtitles(type, imdbId, season, episode) {
+    const results = []
+    for (const addon of addons) {
+      // Check if addon declares subtitle resource (string or object form)
+      const hasSubtitles = (addon.resources || []).some(r =>
+        r === 'subtitles' || r?.name === 'subtitles'
+      )
+      if (!hasSubtitles) continue
+      try {
+        const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
+        const base = addon.manifestUrl.replace('/manifest.json', '')
+        const res = await fetch(`${base}/subtitles/${type}/${id}.json`)
+        if (!res.ok) continue
+        const data = await res.json()
+        if (data.subtitles?.length) {
+          results.push(...data.subtitles.map(s => ({
+            id:   s.id   || s.url,
+            url:  s.url,
+            lang: s.lang || s.id || 'Unknown',
+            label: s.lang || s.id || 'Unknown',
+            addonName: addon.name,
+          })))
+        }
+      } catch { /* skip */ }
+    }
+    return results
+  }
+
   return (
-    <AddonsContext.Provider value={{ addons, addAddon, removeAddon, importFromUrl, getStreams, saveAddons }}>
+    <AddonsContext.Provider value={{ addons, addAddon, removeAddon, importFromUrl, getStreams, getSubtitles, saveAddons }}>
       {children}
     </AddonsContext.Provider>
   )
