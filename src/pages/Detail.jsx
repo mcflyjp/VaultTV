@@ -21,6 +21,7 @@ export default function Detail() {
   const [loadingStreams, setLoadingStreams] = useState(false)
   const [autoSubs, setAutoSubs]       = useState([])
   const [selectedSeason, setSelectedSeason] = useState(1)
+  const [streamEp, setStreamEp]       = useState(null) // { season, episode } currently expanded
   const [musicPlaying, setMusicPlaying] = useState(true)
   const [musicDismissed, setMusicDismissed] = useState(false)
 
@@ -87,10 +88,14 @@ export default function Detail() {
     : null
 
   async function handleWatch(season, episode) {
+    // Toggle: clicking same episode closes the stream tray
+    if (streamEp?.season === season && streamEp?.episode === episode) {
+      setStreamEp(null); setStreams(null); return
+    }
+    setStreamEp({ season, episode })
     setLoadingStreams(true)
     setStreams(null)
     try {
-      // Fetch streams and subtitles in parallel
       const [streamResults, subResults] = await Promise.all([
         getStreams(type, imdbId, season, episode),
         getSubtitles(type, imdbId, season, episode).catch(() => []),
@@ -289,7 +294,7 @@ export default function Detail() {
               <div style={{ position: 'relative' }}>
                 <select
                   value={selectedSeason}
-                  onChange={e => setSelectedSeason(Number(e.target.value))}
+                  onChange={e => { setSelectedSeason(Number(e.target.value)); setStreamEp(null); setStreams(null) }}
                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', padding: '0.4rem 2rem 0.4rem 0.75rem', cursor: 'pointer', appearance: 'none', fontSize: '0.88rem' }}
                 >
                   {Array.from({ length: detail.number_of_seasons }, (_, i) => (
@@ -304,54 +309,77 @@ export default function Detail() {
               {season?.episodes?.map(ep => {
                 const epVersions = getLocalVersions(Number(id), 'tv', selectedSeason, ep.episode_number)
                 const hasLocal = epVersions.length > 0
+                const isExpanded = streamEp?.season === selectedSeason && streamEp?.episode === ep.episode_number
                 return (
-                  <EpisodeRow
-                    key={ep.episode_number}
-                    ep={ep}
-                    season={selectedSeason}
-                    localVersions={epVersions}
-                    hasLocal={hasLocal}
-                    onWatch={() => handleWatch(selectedSeason, ep.episode_number)}
-                    onPlayLocal={async (file) => {
-                      try {
-                        const url = await getFileUrl(file.filename)
-                        setMusicDismissed(true)
-                        play({
-                          url,
-                          title: `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`,
-                          poster: IMG(detail?.poster_path, 'w342'),
-                          subtitleTracks: autoSubs,
-                          onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
-                        })
-                        startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
-                      } catch (e) { alert(e.message) }
-                    }}
-                  />
+                  <div key={ep.episode_number}>
+                    <EpisodeRow
+                      ep={ep}
+                      season={selectedSeason}
+                      localVersions={epVersions}
+                      hasLocal={hasLocal}
+                      active={isExpanded}
+                      onWatch={() => handleWatch(selectedSeason, ep.episode_number)}
+                      onPlayLocal={async (file) => {
+                        try {
+                          const url = await getFileUrl(file.filename)
+                          setMusicDismissed(true)
+                          play({
+                            url,
+                            title: `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`,
+                            poster: IMG(detail?.poster_path, 'w342'),
+                            subtitleTracks: autoSubs,
+                            onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
+                          })
+                          startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
+                        } catch (e) { alert(e.message) }
+                      }}
+                    />
+                    {/* ── Inline stream tray — opens below the clicked episode ── */}
+                    {isExpanded && (
+                      <InlineStreamTray
+                        loading={loadingStreams}
+                        streams={streams}
+                        onSelect={(url, stream) => {
+                          setMusicDismissed(true)
+                          const epTitle = `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`
+                          play({
+                            url,
+                            title: epTitle,
+                            year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
+                            poster: IMG(detail?.poster_path, 'w342'),
+                            subtitleTracks: stream?._subtitles || [],
+                            onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
+                          })
+                          startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
+                        }}
+                      />
+                    )}
+                  </div>
                 )
               })}
             </div>
           </div>
         )}
 
-        {/* ── Streams panel ── */}
-        {(loadingStreams || streams !== null) && (
+        {/* ── Movie streams panel (unchanged — shows below poster/info) ── */}
+        {type === 'movie' && (loadingStreams || streams !== null) && (
           <div style={{ padding: '0 2rem 2rem' }}>
             <StreamPanel
-            loading={loadingStreams}
-            streams={streams}
-            onSelect={(url, stream) => {
-              setMusicDismissed(true)
-              play({
-                url,
-                title,
-                year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
-                poster: IMG(detail?.poster_path, 'w342'),
-                subtitleTracks: stream?._subtitles || [],
-                onProgress: (t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342')),
-              })
-              startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
-            }}
-          />
+              loading={loadingStreams}
+              streams={streams}
+              onSelect={(url, stream) => {
+                setMusicDismissed(true)
+                play({
+                  url,
+                  title,
+                  year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
+                  poster: IMG(detail?.poster_path, 'w342'),
+                  subtitleTracks: stream?._subtitles || [],
+                  onProgress: (t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342')),
+                })
+                startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
+              }}
+            />
           </div>
         )}
 
@@ -370,6 +398,10 @@ export default function Detail() {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.6; transform: scale(1.15); }
         }
+        @keyframes slideDown {
+          from { opacity: 0; transform: translateY(-6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
       `}</style>
     </div>
   )
@@ -385,6 +417,68 @@ function Pill({ children }) {
     }}>
       {children}
     </span>
+  )
+}
+
+/** Horizontal stream tray that slides in below a clicked episode row */
+function InlineStreamTray({ loading, streams, onSelect }) {
+  return (
+    <div style={{
+      margin: '0 0 0.25rem',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid var(--border)',
+      borderTop: '2px solid var(--accent)',
+      borderRadius: '0 0 var(--radius) var(--radius)',
+      padding: '0.85rem 1rem',
+      animation: 'slideDown 0.18s ease',
+    }}>
+      {loading && (
+        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Querying add-ons…</p>
+      )}
+      {!loading && streams?.length === 0 && (
+        <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>No streams found. Make sure your add-ons are installed.</p>
+      )}
+      {!loading && streams?.length > 0 && (
+        <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.25rem' }}
+          className="shelf-scroll">
+          {streams.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => s.url && onSelect(s.url, s)}
+              disabled={!s.url}
+              style={{
+                flexShrink: 0,
+                width: 160,
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                padding: '0.65rem 0.75rem',
+                cursor: s.url ? 'pointer' : 'default',
+                textAlign: 'left',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.12)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <FiPlay size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                {s.name?.match(/\d{3,4}p|4K|HD|SD/i) && (
+                  <span style={{ fontSize: '0.62rem', background: 'var(--accent)', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>
+                    {s.name.match(/4K|\d{3,4}p|HD|SD/i)?.[0]}
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+                {s.name || s.title || 'Stream'}
+              </p>
+              <p style={{ margin: '2px 0 0', fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.addonName}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
