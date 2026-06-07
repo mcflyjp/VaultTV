@@ -46,6 +46,9 @@ export default function Detail() {
     queryFn: () => getSimilar(type, id),
   })
 
+  // imdbId must be declared before any useEffect that references it
+  const imdbId = detail?.external_ids?.imdb_id || `tmdb:${id}`
+
   // Reset music state on navigation; pre-fetch subtitles for local playback
   useEffect(() => {
     setMusicPlaying(true)
@@ -60,11 +63,10 @@ export default function Detail() {
 
   if (isLoading) return <LoadingState />
 
-  const title       = detail?.title || detail?.name
-  const backdrop    = IMG(detail?.backdrop_path, 'original')
-  const poster      = IMG(detail?.poster_path, 'w342')
+  const title         = detail?.title || detail?.name
+  const backdrop      = IMG(detail?.backdrop_path, 'original')
+  const poster        = IMG(detail?.poster_path, 'w342')
   const certification = getCertification(detail, type)
-  const imdbId      = detail?.external_ids?.imdb_id || `tmdb:${id}`
 
   const allVideos   = videos?.results || detail?.videos?.results || []
   const trailerKey  = pickTrailer(allVideos)
