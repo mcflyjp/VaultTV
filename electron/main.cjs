@@ -7,6 +7,11 @@ const { app, BrowserWindow, shell, Menu, Tray, nativeImage, ipcMain } = require(
 const path  = require('path')
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
+// Enable platform HEVC decoder on Windows (uses Windows Media Foundation).
+// This allows the app to play H.265/HEVC video natively without transcoding.
+// Must be called before app 'ready' event.
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport')
+
 let mainWindow = null
 let tray       = null
 

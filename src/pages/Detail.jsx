@@ -9,6 +9,8 @@ import { usePlayer } from '../context/PlayerContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import MediaShelf from '../components/MediaShelf'
 import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers } from 'react-icons/fi'
+import { sortStreamsByCompat, streamCompat, compatBadge } from '../lib/streamCompat'
+import { platformLabel } from '../lib/platform'
 
 export default function Detail() {
   const { type, id } = useParams()
@@ -422,6 +424,7 @@ function Pill({ children }) {
 
 /** Horizontal stream tray that slides in below a clicked episode row */
 function InlineStreamTray({ loading, streams, onSelect }) {
+  const sorted = streams ? sortStreamsByCompat(streams) : null
   return (
     <div style={{
       margin: '0 0 0.25rem',
@@ -435,77 +438,112 @@ function InlineStreamTray({ loading, streams, onSelect }) {
       {loading && (
         <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Querying add-ons…</p>
       )}
-      {!loading && streams?.length === 0 && (
+      {!loading && sorted?.length === 0 && (
         <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>No streams found. Make sure your add-ons are installed.</p>
       )}
-      {!loading && streams?.length > 0 && (
-        <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.25rem' }}
-          className="shelf-scroll">
-          {streams.map((s, i) => (
-            <button
-              key={i}
-              onClick={() => s.url && onSelect(s.url, s)}
-              disabled={!s.url}
-              style={{
-                flexShrink: 0,
-                width: 160,
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                padding: '0.65rem 0.75rem',
-                cursor: s.url ? 'pointer' : 'default',
-                textAlign: 'left',
-                transition: 'border-color 0.15s, background 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.12)' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                <FiPlay size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-                {s.name?.match(/\d{3,4}p|4K|HD|SD/i) && (
-                  <span style={{ fontSize: '0.62rem', background: 'var(--accent)', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700 }}>
-                    {s.name.match(/4K|\d{3,4}p|HD|SD/i)?.[0]}
-                  </span>
-                )}
-              </div>
-              <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
-                {s.name || s.title || 'Stream'}
-              </p>
-              <p style={{ margin: '2px 0 0', fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.addonName}
-              </p>
-            </button>
-          ))}
-        </div>
+      {!loading && sorted?.length > 0 && (
+        <>
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Sorted for {platformLabel()} · {sorted.length} streams
+          </p>
+          <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.25rem' }} className="shelf-scroll">
+            {sorted.map((s, i) => <StreamCard key={i} stream={s} onSelect={onSelect} />)}
+          </div>
+        </>
       )}
     </div>
   )
 }
 
 function StreamPanel({ loading, streams, onSelect }) {
+  const sorted = streams ? sortStreamsByCompat(streams) : null
   return (
     <div style={{ background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(12px)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' }}>
-      <h3 style={{ margin: '0 0 1rem', fontSize: '1rem', fontWeight: 700 }}>Available Streams</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
+        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Available Streams</h3>
+        {sorted?.length > 0 && (
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Sorted for {platformLabel()}</span>
+        )}
+      </div>
       {loading && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Querying add-ons…</p>}
-      {!loading && streams?.length === 0 && (
+      {!loading && sorted?.length === 0 && (
         <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams found. Make sure your add-ons are installed.</p>
       )}
-      {!loading && streams?.map((s, i) => (
-        <div
-          key={i}
-          tabIndex={s.url ? 0 : -1}
-          onClick={() => s.url && onSelect(s.url, s)}
-          onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
-          style={{ padding: '0.65rem 0.75rem', marginBottom: '0.4rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-        >
-          <div>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
-            <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</p>
+      {!loading && sorted?.map((s, i) => {
+        const compat = streamCompat(s)
+        const badge  = compatBadge(compat)
+        const dimmed = compat === 'both-issues'
+        return (
+          <div
+            key={i}
+            tabIndex={s.url ? 0 : -1}
+            onClick={() => s.url && onSelect(s.url, s)}
+            onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
+            style={{ padding: '0.65rem 0.75rem', marginBottom: '0.4rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default', border: `1px solid ${compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: dimmed ? 0.5 : 1 }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
+              <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+              {badge && (
+                <span title={badge.title} style={{ fontSize: '0.62rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
+                  {badge.label}
+                </span>
+              )}
+              {s.url && <FiPlay size={16} style={{ color: 'var(--accent)' }} />}
+            </div>
           </div>
-          {s.url && <FiPlay size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
-        </div>
-      ))}
+        )
+      })}
     </div>
+  )
+}
+
+/** Shared stream card used in the inline episode tray */
+function StreamCard({ stream: s, onSelect }) {
+  const compat = streamCompat(s)
+  const badge  = compatBadge(compat)
+  const dimmed = compat === 'both-issues'
+  const qualMatch = (s.name || '').match(/4K|\d{3,4}p|HD|SD/i)
+  return (
+    <button
+      onClick={() => s.url && onSelect(s.url, s)}
+      disabled={!s.url}
+      title={badge?.title}
+      style={{
+        flexShrink: 0, width: 160, opacity: dimmed ? 0.45 : 1,
+        background: 'var(--bg-card)',
+        border: `1px solid ${compat === 'compatible' ? 'rgba(74,222,128,0.35)' : 'var(--border)'}`,
+        borderRadius: 'var(--radius)', padding: '0.65rem 0.75rem',
+        cursor: s.url ? 'pointer' : 'default', textAlign: 'left',
+        transition: 'border-color 0.15s, background 0.15s',
+      }}
+      onMouseEnter={e => { if (!dimmed) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.12)' }}}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = compat === 'compatible' ? 'rgba(74,222,128,0.35)' : 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <FiPlay size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+          {qualMatch && (
+            <span style={{ fontSize: '0.58rem', background: 'var(--accent)', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>
+              {qualMatch[0]}
+            </span>
+          )}
+          {badge && (
+            <span style={{ fontSize: '0.58rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>
+              {badge.label}
+            </span>
+          )}
+        </div>
+      </div>
+      <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+        {s.name || s.title || 'Stream'}
+      </p>
+      <p style={{ margin: '2px 0 0', fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {s.addonName}
+      </p>
+    </button>
   )
 }
 
