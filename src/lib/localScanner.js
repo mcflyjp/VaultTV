@@ -65,10 +65,11 @@ function cleanTitle(raw) {
     .replace(/\b\w/g, c => c.toUpperCase())
 }
 
-/** Match a parsed filename against TMDB — returns best result or null */
-export async function matchTmdb(parsed, tmdbKey) {
+/** Match a parsed filename against TMDB — returns best result or null.
+ *  forceType: 'movie' | 'tv' — overrides filename-parsed guess */
+export async function matchTmdb(parsed, tmdbKey, forceType) {
   const { title, year, isTV } = parsed
-  const type = isTV ? 'tv' : 'movie'
+  const type = forceType || (isTV ? 'tv' : 'movie')
   const base = 'https://api.themoviedb.org/3'
 
   try {
