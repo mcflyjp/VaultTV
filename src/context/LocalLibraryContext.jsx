@@ -2,6 +2,16 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect } f
 import { scanDirectory, parseFilename, matchTmdb } from '../lib/localScanner'
 import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges } from '../lib/companion'
 
+/** Strip year suffixes and clean up a folder name for TMDB search, e.g. "Breaking.Bad (2008)" → "Breaking Bad" */
+function cleanFolderName(folderName) {
+  return folderName
+    .replace(/\s*\(\d{4}\)\s*$/, '')   // strip trailing (year)
+    .replace(/\s*\[\d{4}\]\s*$/, '')   // strip trailing [year]
+    .replace(/[._]/g, ' ')             // dots/underscores → spaces
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
  * sources (localStorage: vt-local-sources)
  *   [{ id, name, type: 'movie'|'tv', dirName, fileCount, scannedAt }]
@@ -170,17 +180,27 @@ export function LocalLibraryProvider({ children }) {
         }
 
         const parsed = parseFilename(name)
-        // Override media type from source setting, unless auto
         const forcedType = source.type // 'movie' | 'tv'
-        const match = await matchTmdb({ ...parsed, isTV: forcedType === 'tv' }, TMDB_KEY, forcedType)
+
+        // For TV shows, episode filenames (e.g. "s01e02.mkv") carry no show title.
+        // Use the parent folder name (e.g. "Breaking Bad") captured during the scan
+        // as the TMDB search title instead — much more reliable.
+        const { rootFolderName } = found[i]
+        const titleForTmdb =
+          forcedType === 'tv' && rootFolderName
+            ? cleanFolderName(rootFolderName)
+            : parsed.title
+
+        const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: forcedType === 'tv' }, TMDB_KEY, forcedType)
 
         results.push({
           id:            `${source.id}::${name}`,
           filename:      name,
           sourceId:      source.id,
           sourceType:    source.type,
+          showFolder:    rootFolderName || null,  // e.g. "Breaking Bad" for TV
           tmdbId:        match?.tmdbId  || null,
-          title:         match?.title   || parsed.title,
+          title:         match?.title   || titleForTmdb || parsed.title,
           media_type:    match?.media_type || forcedType,
           poster_path:   match?.poster_path || null,
           year:          match?.year    || parsed.year || '',

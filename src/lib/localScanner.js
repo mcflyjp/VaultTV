@@ -1,15 +1,23 @@
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts', '.m2ts'])
 
-/** Walk a FileSystemDirectoryHandle recursively, return all video FileSystemFileHandles */
-export async function scanDirectory(dirHandle, depth = 0) {
+/**
+ * Walk a FileSystemDirectoryHandle recursively, return all video FileSystemFileHandles.
+ * `rootFolderName` is the immediate child-folder of the user-selected root (depth=1).
+ * For a TV library structured as:  Root / Show Name / Season 1 / ep.mkv
+ * rootFolderName will be "Show Name", which we use as the TMDB search title
+ * instead of the often-useless episode filename.
+ */
+export async function scanDirectory(dirHandle, depth = 0, rootFolderName = null) {
   if (depth > 5) return [] // don't go too deep
   const files = []
   for await (const [name, handle] of dirHandle) {
     if (handle.kind === 'file') {
       const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
-      if (VIDEO_EXTS.has(ext)) files.push({ name, handle, dirHandle })
+      if (VIDEO_EXTS.has(ext)) files.push({ name, handle, dirHandle, rootFolderName })
     } else if (handle.kind === 'directory') {
-      const sub = await scanDirectory(handle, depth + 1)
+      // Capture the show/movie folder name at depth 0 → depth 1 transition
+      const childRoot = depth === 0 ? name : rootFolderName
+      const sub = await scanDirectory(handle, depth + 1, childRoot)
       files.push(...sub)
     }
   }
