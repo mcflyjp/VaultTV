@@ -74,6 +74,7 @@ export default function VideoPlayer() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab,  setSettingsTab]  = useState('quality')
   const [error,        setError]        = useState('')
+  const [audioWarning, setAudioWarning] = useState('')   // codec/no-audio warning
   const [hoverTime,    setHoverTime]    = useState(null)  // for progress tooltip
   const [hoverX,       setHoverX]       = useState(0)
 
@@ -84,7 +85,7 @@ export default function VideoPlayer() {
     if (!video) return
 
     setPlaying(false); setCurrentTime(0); setDuration(0)
-    setBuffered(0); setError(''); setQualities([]); setQuality(-1)
+    setBuffered(0); setError(''); setAudioWarning(''); setQualities([]); setQuality(-1)
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
     setSubTracks(session.subtitleTracks || []); setActiveSub(-1)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
@@ -112,6 +113,15 @@ export default function VideoPlayer() {
       }
 
       if (!src) { setError('No stream URL provided.'); return }
+
+      // Companion stream URLs are cross-origin (port 7842 vs 5174/5175).
+      // Setting crossOrigin="anonymous" lets Web Audio API access the stream.
+      // The companion already sends Access-Control-Allow-Origin on all responses.
+      if (src.includes('/stream?')) {
+        video.crossOrigin = 'anonymous'
+      } else {
+        video.removeAttribute('crossOrigin')
+      }
 
       const isHls = src.includes('.m3u8') || src.includes('manifest')
 
@@ -182,15 +192,21 @@ export default function VideoPlayer() {
       const source = ctx.createMediaElementSource(video)
       const gain   = ctx.createGain()
       const delay  = ctx.createDelay(5.0)
-      gain.gain.value         = muted ? 0 : volume
-      delay.delayTime.value   = 0
+      gain.gain.value       = muted ? 0 : volume
+      delay.delayTime.value = 0
       source.connect(gain)
       gain.connect(delay)
       delay.connect(ctx.destination)
       audioCtxRef.current = ctx
       gainRef.current     = gain
       delayRef.current    = delay
-    } catch {}
+      // Chrome creates AudioContext in suspended state — must resume on user gesture
+      ctx.resume().catch(() => {})
+    } catch (e) {
+      // createMediaElementSource throws SecurityError for cross-origin video without
+      // crossOrigin="anonymous". We fall back to native video volume in that case.
+      console.warn('[audio] Web Audio pipeline failed, using native volume:', e.message)
+    }
   }
 
   // ── Video events ──────────────────────────────────────────────
@@ -207,8 +223,32 @@ export default function VideoPlayer() {
   function onPlay()  { setPlaying(true) }
   function onPause() { setPlaying(false) }
   function onEnded() { setPlaying(false) }
-  function onLoadedMetadata(e) { setDuration(e.currentTarget.duration) }
-  function onError()  { setError('Could not play this stream. The format may be unsupported.') }
+
+  function onLoadedMetadata(e) {
+    const v = e.currentTarget
+    setDuration(v.duration)
+
+    // Detect missing audio tracks — common with AC3/DTS/TrueHD in MKV files
+    // which browsers cannot decode. audioTracks is undefined on some browsers.
+    if (v.audioTracks !== undefined && v.audioTracks.length === 0) {
+      setAudioWarning('No audio track detected. The file may use AC3/DTS audio which browsers cannot decode. Try a file with AAC or MP3 audio.')
+    } else {
+      setAudioWarning('')
+    }
+  }
+
+  function onError(e)  {
+    const v = e.currentTarget
+    const code = v.error?.code
+    // MediaError codes: 1=aborted, 2=network, 3=decode, 4=not supported
+    if (code === 4) {
+      setError('Format not supported. The video codec (HEVC/H.265) or audio codec (AC3/DTS) may not be supported by this browser. Try Chrome or Edge.')
+    } else if (code === 3) {
+      setError('Decode error — the file may be corrupted or use an unsupported codec (AC3/DTS audio is common in BluRay MKV files).')
+    } else {
+      setError('Could not play this stream. The format may be unsupported.')
+    }
+  }
 
   // ── Controls ─────────────────────────────────────────────────
   function togglePlay() {
@@ -395,6 +435,13 @@ export default function VideoPlayer() {
       {/* ── External subtitle track (VTT) ── */}
       {manualSubUrl && (
         <track key={manualSubUrl} kind="subtitles" src={manualSubUrl} default label="Subtitles" />
+      )}
+
+      {/* ── Audio codec warning (no AC3/DTS support in browser) ── */}
+      {audioWarning && !error && (
+        <div style={{ position: 'absolute', top: '5rem', left: '50%', transform: 'translateX(-50%)', zIndex: 10, background: 'rgba(180,90,0,0.92)', borderRadius: 8, padding: '0.6rem 1.1rem', maxWidth: 480, pointerEvents: 'none' }}>
+          <p style={{ color: '#fff', fontSize: '0.82rem', margin: 0, textAlign: 'center', lineHeight: 1.5 }}>⚠️ {audioWarning}</p>
+        </div>
       )}
 
       {/* ── Error overlay ── */}
