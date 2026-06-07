@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
 import Hls from 'hls.js'
-import { transcodeUrl, probeAudioCodec, needsTranscode } from '../lib/companion'
+import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode } from '../lib/companion'
 import {
   FiPlay, FiPause, FiVolume2, FiVolumeX, FiVolume1,
   FiMaximize, FiMinimize, FiX, FiSettings, FiChevronLeft,
@@ -131,14 +131,15 @@ export default function VideoPlayer() {
 
       if (!src) { setError('No stream URL provided.'); return }
 
-      // Auto-probe remote streams for unsupported audio codecs (AC3/DTS/EAC3).
+      // Auto-probe remote streams for unsupported codecs (AC3/DTS/HEVC).
       // If detected, transparently swap to the companion transcode URL.
       // Skips probe for local companion streams (already served from disk).
       if (src.startsWith('http') && !src.includes(':7842/')) {
-        const codec = await probeAudioCodec(src)
-        if (needsTranscode(codec)) {
-          console.log(`[player] Auto-transcoding — detected unsupported audio: ${codec}`)
-          src = transcodeUrl(src)
+        const codecs = await probeCodecs(src)
+        const { needed, transcodeVideo } = needsTranscode(codecs)
+        if (needed) {
+          console.log(`[player] Auto-transcoding — video: ${codecs.videoCodec}, audio: ${codecs.audioCodec}`)
+          src = transcodeUrl(src, 0, transcodeVideo)
           setTranscoding(true)
         }
       }
@@ -270,18 +271,18 @@ export default function VideoPlayer() {
     }
   }
 
-  /** Re-load the stream through the companion's ffmpeg transcoder (AAC audio fix) */
+  /** Re-load the stream through the companion's ffmpeg transcoder (full fix: audio + video) */
   function fixAudio() {
     const video = videoRef.current
     if (!video) return
     const src = rawUrlRef.current || session?.url
     if (!src) return
-    const tUrl = transcodeUrl(src, Math.floor(video.currentTime || 0))
+    // When manually triggered, always transcode both audio AND video to guarantee playback
+    const tUrl = transcodeUrl(src, Math.floor(video.currentTime || 0), true)
     setTranscoding(true)
     setAudioWarning('')
     setError('')
     video.crossOrigin = 'anonymous'
-    // Destroy HLS if active — transcoded stream is plain MP4
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
     video.src = tUrl
     video.play().catch(() => {})

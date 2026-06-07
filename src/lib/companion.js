@@ -119,28 +119,34 @@ export async function probeAudioCodec(sourceUrl) {
   }
 }
 
-/** Codecs that browsers cannot decode — need companion transcode */
+/** Audio codecs browsers cannot decode */
 const UNSUPPORTED_AUDIO = new Set(['ac3', 'eac3', 'dts', 'truehd', 'mlp'])
+/** Video codecs browsers cannot decode */
+const UNSUPPORTED_VIDEO = new Set(['hevc', 'h265', 'hvc1', 'av01'])
 
 /**
- * Returns true if the given codec name requires transcoding.
- * @param {string|null} codec
+ * Returns whether a codec pair needs companion transcoding.
+ * @param {{ audioCodec: string|null, videoCodec: string|null }} codecs
  */
-export function needsTranscode(codec) {
-  return codec ? UNSUPPORTED_AUDIO.has(codec.toLowerCase()) : false
+export function needsTranscode({ audioCodec, videoCodec } = {}) {
+  const badAudio = audioCodec ? UNSUPPORTED_AUDIO.has(audioCodec.toLowerCase()) : false
+  const badVideo = videoCodec ? UNSUPPORTED_VIDEO.has(videoCodec.toLowerCase()) : false
+  return { needed: badAudio || badVideo, transcodeVideo: badVideo }
 }
 
 /**
  * Return a URL that transcodes a remote stream through the companion's
- * ffmpeg pipeline — re-encodes audio to AAC while copying video.
- * Fixes AC3/DTS/EAC3 audio that browsers cannot decode natively.
+ * ffmpeg pipeline — re-encodes audio to AAC and optionally video to H.264.
+ * Fixes AC3/DTS/EAC3 audio and HEVC video that browsers cannot decode.
  *
- * @param {string} sourceUrl  Original stream URL (http/https)
- * @param {number} [startSec] Optional seek offset in seconds
+ * @param {string} sourceUrl      Original stream URL (http/https)
+ * @param {number} [startSec]     Optional seek offset in seconds
+ * @param {boolean} [transcodeVideo]  True to re-encode video (HEVC→H.264)
  */
-export function transcodeUrl(sourceUrl, startSec = 0) {
+export function transcodeUrl(sourceUrl, startSec = 0, transcodeVideo = false) {
   const params = new URLSearchParams({ url: sourceUrl })
   if (startSec > 0) params.set('t', String(Math.floor(startSec)))
+  if (transcodeVideo) params.set('tv', '1')
   return `${BASE}/transcode?${params}`
 }
 

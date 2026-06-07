@@ -326,8 +326,7 @@ app.get('/probe', (req, res) => {
     '-v', 'quiet',
     '-print_format', 'json',
     '-show_streams',
-    '-select_streams', 'a:0',  // first audio stream only
-    '-read_intervals', '%+#3', // read first 3 packets then stop
+    '-read_intervals', '%+#5', // read first 5 packets then stop (gets both v+a headers)
     sourceUrl,
   ]
 
@@ -335,15 +334,18 @@ app.get('/probe', (req, res) => {
   let stdout = ''
   ff.stdout.on('data', d => { stdout += d.toString() })
 
-  ff.on('close', code => {
+  ff.on('close', () => {
     try {
-      const info = JSON.parse(stdout)
-      const audioStream = info.streams?.[0]
-      const audioCodec  = audioStream?.codec_name || null
-      console.log(`[probe] ${sourceUrl.slice(0, 60)}… → audio: ${audioCodec}`)
-      res.json({ audioCodec, profile: audioStream?.profile || null })
+      const info    = JSON.parse(stdout)
+      const streams = info.streams || []
+      const audio   = streams.find(s => s.codec_type === 'audio')
+      const video   = streams.find(s => s.codec_type === 'video')
+      const audioCodec = audio?.codec_name || null
+      const videoCodec = video?.codec_name || null
+      console.log(`[probe] ${sourceUrl.slice(0, 60)}… → video: ${videoCodec}, audio: ${audioCodec}`)
+      res.json({ audioCodec, videoCodec })
     } catch {
-      res.json({ audioCodec: null })
+      res.json({ audioCodec: null, videoCodec: null })
     }
   })
 
@@ -375,20 +377,27 @@ app.get('/transcode', (req, res) => {
     return res.status(400).json({ error: 'Only http/https sources are supported' })
   }
 
-  const startSec = parseFloat(req.query.t) || 0
+  const startSec       = parseFloat(req.query.t)  || 0
+  const transcodeVideo = req.query.tv === '1'  // true when source is HEVC/H.265
 
   // Build ffmpeg args
-  // -c:v copy        — no video re-encode (fast)
-  // -c:a aac         — re-encode audio to AAC (browser-compatible)
-  // -b:a 192k        — good quality audio bitrate
-  // -movflags ...    — fragmented MP4 suitable for streaming to pipe
-  // -f mp4           — output format
-  // pipe:1           — write to stdout
+  // -c:v copy / libx264  — copy H.264; re-encode HEVC→H.264 when tv=1
+  // -c:a aac             — re-encode audio to AAC (browser-compatible)
+  // -b:a 192k            — good quality audio bitrate
+  // -movflags ...        — fragmented MP4 suitable for streaming to pipe
   const args = []
   if (startSec > 0) args.push('-ss', String(startSec))
+  args.push('-i', sourceUrl)
+
+  if (transcodeVideo) {
+    // HEVC/H.265 → H.264 (ultrafast = real-time on modern CPUs)
+    args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23')
+    console.log(`[transcode] video: HEVC→H.264 (ultrafast)`)
+  } else {
+    args.push('-c:v', 'copy')
+  }
+
   args.push(
-    '-i', sourceUrl,
-    '-c:v', 'copy',
     '-c:a', 'aac',
     '-b:a', '192k',
     '-movflags', 'frag_keyframe+empty_moov',
