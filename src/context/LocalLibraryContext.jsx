@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { scanDirectory, parseFilename, matchTmdb, parseQuality } from '../lib/localScanner'
-import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges } from '../lib/companion'
+import { pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges, scanFolder, streamUrl } from '../lib/companion'
 
 /** Strip year suffixes and clean up a folder name for TMDB search, e.g. "Breaking.Bad (2008)" → "Breaking Bad" */
 function cleanFolderName(folderName) {
@@ -42,6 +42,8 @@ export function LocalLibraryProvider({ children }) {
   const dirHandles = useRef({})
   // In-memory: filename → FileSystemFileHandle (across all sources)
   const fileHandles = useRef({})
+  // Mirror of files state in a ref so async functions always see latest list
+  const filesRef = useRef(files)
 
   // Companion server state
   const [companionOnline, setCompanionOnline] = useState(false)
@@ -50,7 +52,7 @@ export function LocalLibraryProvider({ children }) {
   const rescanSourceRef = useRef(null)
 
   function saveSources(next) { setSources(next); localStorage.setItem(LS_SOURCES, JSON.stringify(next)) }
-  function saveFiles(next)   { setFiles(next);   localStorage.setItem(LS_FILES,   JSON.stringify(next)) }
+  function saveFiles(next)   { setFiles(next); filesRef.current = next; localStorage.setItem(LS_FILES, JSON.stringify(next)) }
 
   // ── Companion server integration ──────────────────────────────────────
   // On mount: ping companion, if online subscribe to change events
@@ -254,6 +256,36 @@ export function LocalLibraryProvider({ children }) {
         if (i % 5 === 4) await new Promise(r => setTimeout(r, 300))
       }
 
+      // ── Enrich with companion paths (enables permission-free streaming) ──
+      // Ask the companion to scan the same folder and build a name→path map.
+      // We match by filename; rootFolder is used as a tiebreaker for TV shows
+      // where multiple episodes share the same episode filename across seasons.
+      if (companionOnline) {
+        try {
+          const { listWatchedFolders: lwf } = await import('../lib/companion')
+          const watched = await lwf()
+          const companionFolder =
+            watched.find(w => w.id === source.id) ||
+            watched.find(w => w.name?.toLowerCase() === source.dirName?.toLowerCase())
+
+          if (companionFolder) {
+            const scan = await scanFolder(companionFolder.id)
+            // Map "rootFolder::filename" → full OS path for precise matching
+            const pathMap = new Map(
+              scan.files.map(f => [`${f.rootFolder || ''}::${f.name}`, f.path])
+            )
+            results.forEach(r => {
+              const key = `${r.showFolder || ''}::${r.filename}`
+              const p = pathMap.get(key) || pathMap.get(`::${r.filename}`)
+              if (p) r.companionPath = p
+            })
+            console.log(`[scanner] Companion enriched ${results.filter(r => r.companionPath).length}/${results.length} files with stream paths`)
+          }
+        } catch (e) {
+          console.warn('[scanner] Companion path enrichment failed (non-fatal):', e.message)
+        }
+      }
+
       const allFiles = [...otherFiles, ...results]
       saveFiles(allFiles)
 
@@ -296,9 +328,17 @@ export function LocalLibraryProvider({ children }) {
 
   // ── Get playable URL for a local file ───────────────────────
   async function getFileUrl(filename) {
+    // Prefer companion streaming URL — no browser permission required, supports
+    // seeking via HTTP range requests, and never expires mid-movie.
+    const record = filesRef.current.find(f => f.filename === filename)
+    if (record?.companionPath) {
+      return streamUrl(record.companionPath)
+    }
+
+    // Fallback: File System Access API blob URL (requires browser permission)
     const handle = fileHandles.current[filename]
     if (!handle) {
-      throw new Error('File handle unavailable — click "Re-grant Access" in Settings → Local Library.')
+      throw new Error('File handle unavailable — make sure the companion server is running, or click "Re-grant Access" in Settings → Local Library.')
     }
     const file = await handle.getFile()
     return URL.createObjectURL(file)

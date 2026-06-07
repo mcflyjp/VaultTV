@@ -20,7 +20,7 @@ const fs       = require('fs')
 const USER_CONFIG_FILE   = path.join(__dirname, 'config.json')
 const STATE_FILE         = path.join(__dirname, 'watched-folders.json')
 
-const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts', '.m2ts'])
+const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts'])
 
 // Load user config (config.json) — defines port + folder paths
 let userConfig = { port: 7842, folders: [] }
@@ -220,21 +220,85 @@ function handleChange(folder, action, filePath) {
 }
 
 // ── Directory scanner (for /scan endpoint) ─────────────────────────────
-function scanDir(dir, depth = 0, results = []) {
-  if (depth > 5) return results
+/**
+ * Recursively scan a directory for video files.
+ * Returns array of { name, path, rootFolder } objects.
+ * rootFolder = the immediate child folder of the root dir (used for TV show grouping).
+ */
+function scanDir(dir, depth = 0, results = [], rootFolder = null) {
+  if (depth > 8) return results
   let entries
   try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return results }
   for (const entry of entries) {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      scanDir(full, depth + 1, results)
+      const childRoot = depth === 0 ? entry.name : rootFolder
+      scanDir(full, depth + 1, results, childRoot)
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase()
-      if (VIDEO_EXTS.has(ext)) results.push(entry.name)
+      if (VIDEO_EXTS.has(ext)) {
+        results.push({ name: entry.name, path: full, rootFolder: rootFolder || null })
+      }
     }
   }
   return results
 }
+
+// ── Video streaming endpoint ───────────────────────────────────────────
+// Serves local video files with HTTP range support so the browser player
+// can seek freely — no File System Access API permissions needed.
+
+const MIME_TYPES = {
+  '.mp4':  'video/mp4',
+  '.mkv':  'video/x-matroska',
+  '.avi':  'video/x-msvideo',
+  '.mov':  'video/quicktime',
+  '.m4v':  'video/mp4',
+  '.wmv':  'video/x-ms-wmv',
+  '.flv':  'video/x-flv',
+  '.webm': 'video/webm',
+  '.ts':   'video/mp2t',
+}
+
+app.get('/stream', (req, res) => {
+  const filePath = req.query.path
+  if (!filePath) return res.status(400).json({ error: 'path query parameter required' })
+
+  // Security: only serve files inside a watched folder
+  const allowed = watchedFolders.some(f => filePath.startsWith(f.folderPath))
+  if (!allowed) return res.status(403).json({ error: 'Path is not inside a watched folder' })
+
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' })
+
+  const stat     = fs.statSync(filePath)
+  const total    = stat.size
+  const ext      = path.extname(filePath).toLowerCase()
+  const mimeType = MIME_TYPES[ext] || 'video/mp4'
+
+  const range = req.headers.range
+  if (range) {
+    const [rawStart, rawEnd] = range.replace(/bytes=/, '').split('-')
+    const start = parseInt(rawStart, 10)
+    // Default chunk: up to 10 MB (Chrome asks for smaller ranges; this is fine)
+    const end   = rawEnd ? parseInt(rawEnd, 10) : Math.min(start + 10 * 1024 * 1024 - 1, total - 1)
+    const chunkSize = end - start + 1
+
+    res.writeHead(206, {
+      'Content-Range':  `bytes ${start}-${end}/${total}`,
+      'Accept-Ranges':  'bytes',
+      'Content-Length': chunkSize,
+      'Content-Type':   mimeType,
+    })
+    fs.createReadStream(filePath, { start, end }).pipe(res)
+  } else {
+    res.writeHead(200, {
+      'Content-Length': total,
+      'Content-Type':   mimeType,
+      'Accept-Ranges':  'bytes',
+    })
+    fs.createReadStream(filePath).pipe(res)
+  }
+})
 
 // ── State persistence (runtime additions via API) ──────────────────────
 function loadState() {

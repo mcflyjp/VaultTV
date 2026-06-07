@@ -50,6 +50,25 @@ export async function removeWatchedFolder(id) {
 }
 
 /**
+ * Ask the companion to scan a folder and return the full file list.
+ * Each entry: { name, path, rootFolder }
+ */
+export async function scanFolder(id) {
+  const r = await fetch(`${BASE}/folders/${id}/scan`, { signal: AbortSignal.timeout(30_000) })
+  if (!r.ok) throw new Error(`Companion scan failed: ${r.status}`)
+  return r.json() // { id, count, files: [{ name, path, rootFolder }] }
+}
+
+/**
+ * Return the URL to stream a local file via the companion server.
+ * The companion serves the file with HTTP range support for seeking.
+ * @param {string} filePath  Absolute OS path to the video file
+ */
+export function streamUrl(filePath) {
+  return `${BASE}/stream?path=${encodeURIComponent(filePath)}`
+}
+
+/**
  * Subscribe to file-system change events from the companion.
  *
  * @param {(event: { sourceId, sourceName, type, action, filename, timestamp }) => void} onChanged
