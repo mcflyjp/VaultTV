@@ -25,17 +25,19 @@ export function WatchHistoryProvider({ children }) {
     ])
   }
 
-  /** Update playback progress (call on video timeupdate) */
-  function updateProgress(id, type, progressSec, durationSec) {
+  /** Update playback progress (call on video timeupdate)
+   *  title + poster are optional — used only when creating a new entry
+   *  (React batches state so startWatching's update may not be visible yet) */
+  function updateProgress(id, type, progressSec, durationSec, title, poster) {
     const progress = durationSec > 0 ? progressSec / durationSec : 0
     const next = history.map(h =>
       h.id === id && h.type === type
         ? { ...h, progressSec, durationSec, progress, timestamp: Date.now() }
         : h
     )
-    // If not found, add it
+    // If not found in the current snapshot, add a full entry
     if (!next.find(h => h.id === id && h.type === type)) {
-      next.unshift({ id, type, progressSec, durationSec, progress, timestamp: Date.now() })
+      next.unshift({ id, type, title: title || '', poster: poster || null, progressSec, durationSec, progress, timestamp: Date.now() })
     }
     // Keep max 30 items, sorted by recency
     save(next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 30))

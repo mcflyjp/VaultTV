@@ -232,7 +232,7 @@ export default function Detail() {
                       detail={detail}
                       subtitleTracks={autoSubs}
                       setMusicDismissed={setMusicDismissed}
-                      onProgress={(t, d) => updateProgress(Number(id), type, t, d)}
+                      onProgress={(t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342'))}
                       onStartWatching={() => startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })}
                     />
                   )
@@ -321,7 +321,7 @@ export default function Detail() {
                           title: `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`,
                           poster: IMG(detail?.poster_path, 'w342'),
                           subtitleTracks: autoSubs,
-                          onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d),
+                          onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
                         })
                         startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
                       } catch (e) { alert(e.message) }
@@ -347,7 +347,7 @@ export default function Detail() {
                 year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
                 poster: IMG(detail?.poster_path, 'w342'),
                 subtitleTracks: stream?._subtitles || [],
-                onProgress: (t, d) => updateProgress(Number(id), type, t, d),
+                onProgress: (t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342')),
               })
               startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
             }}

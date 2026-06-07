@@ -155,6 +155,26 @@ a { color: inherit; text-decoration: none; }
   position: relative;
 }
 
+/* ── Global hover pop — everything interactive lifts slightly ── */
+/* Buttons, sidebar links, stream rows, setting rows, shelf items, badges */
+button:not(:disabled):not(.no-pop),
+a:not(.no-pop),
+[role="button"]:not(.no-pop),
+.btn-accent,
+.btn-ghost {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s, color 0.15s, opacity 0.15s;
+}
+button:not(:disabled):not(.no-pop):hover,
+a:not(.no-pop):hover,
+[role="button"]:not(.no-pop):hover {
+  transform: translateY(-1px) scale(1.02);
+}
+/* Cards already use scale(1.05) — no double-scaling */
+.card-hover:hover button,
+.card-hover:hover a {
+  transform: none;
+}
+
 /* ── Poster aspect ratio ── */
 .poster { aspect-ratio: 2/3; object-fit: cover; }
 .thumb  { aspect-ratio: 16/9; object-fit: cover; }
