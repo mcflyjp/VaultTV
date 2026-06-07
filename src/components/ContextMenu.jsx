@@ -12,7 +12,8 @@ import { usePlayer } from '../context/PlayerContext'
 import { IMG } from '../lib/tmdb'
 import {
   FiPlay, FiList, FiBookmark, FiCheck, FiStar, FiImage,
-  FiInfo, FiPlusSquare, FiX, FiPlus, FiHardDrive, FiLayers, FiChevronRight
+  FiInfo, FiPlusSquare, FiX, FiPlus, FiHardDrive, FiLayers, FiChevronRight,
+  FiFolder, FiCopy
 } from 'react-icons/fi'
 import ArtworkPicker from './ArtworkPicker'
 import RatingPicker from './RatingPicker'
@@ -84,6 +85,9 @@ export default function ContextMenu() {
   if (subModal === 'playlist') return (
     <PlaylistModal item={libraryItem} onClose={() => { setSubModal(null); hide() }} />
   )
+  if (subModal === 'fileinfo') return (
+    <FileInfoModal versions={localVersions} title={title} onClose={() => { setSubModal(null); hide() }} />
+  )
 
   return (
     <div
@@ -128,6 +132,11 @@ export default function ContextMenu() {
               icon={<FiHardDrive />}
               label={`Play Local (${localVersions[0].qualityLabel || 'Local'})`}
               onClick={() => playLocalVersion(localVersions[0])}
+            />
+            <MenuItem
+              icon={<FiFolder />}
+              label="Show File Info…"
+              onClick={() => setSubModal('fileinfo')}
             />
             {localVersions.length > 1 && (
               <>
@@ -213,6 +222,106 @@ function MenuSection({ label }) {
 
 function Divider() {
   return <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0.3rem 0' }} />
+}
+
+function FileInfoModal({ versions, title, onClose }) {
+  const [copied, setCopied] = useState(null)
+
+  function copy(text, key) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key)
+      setTimeout(() => setCopied(null), 1500)
+    })
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9100,
+        background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 12, width: '100%', maxWidth: 520,
+          boxShadow: '0 24px 80px rgba(0,0,0,0.8)', overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <FiFolder size={16} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>File Info — {title}</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 4, display: 'flex' }}>
+            <FiX size={18} />
+          </button>
+        </div>
+
+        {/* Note about path */}
+        <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border)', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          ⚠ Browsers don't expose full file paths for security reasons. The info below is what VaultTV can see.
+        </div>
+
+        {/* File list */}
+        <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 400, overflowY: 'auto' }}>
+          {versions.map((v, i) => {
+            // Reconstruct a best-guess path from what we have
+            const parts = [v.showFolder, v.filename].filter(Boolean)
+            const displayPath = parts.join(' / ')
+
+            return (
+              <div key={v.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.75rem 1rem' }}>
+                {/* Version badge */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  {i === 0 && <span style={{ fontSize: '0.62rem', background: '#16a34a', color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>BEST</span>}
+                  {v.qualityLabel && <span style={{ fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 600 }}>{v.qualityLabel}</span>}
+                </div>
+
+                {/* Rows */}
+                {[
+                  { label: 'Show Folder', value: v.showFolder || '—' },
+                  { label: 'Filename',    value: v.filename },
+                  { label: 'Source',      value: v.sourceType === 'movie' ? 'Movies' : 'TV Shows' },
+                  { label: 'Path (approx)', value: displayPath, copy: true },
+                ].map(row => (
+                  <div key={row.label} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', marginBottom: '0.3rem' }}>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', minWidth: 90, flexShrink: 0, paddingTop: 2 }}>{row.label}</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{row.value}</span>
+                    {row.copy && (
+                      <button
+                        onClick={() => copy(row.value, `${v.id}-path`)}
+                        title="Copy"
+                        style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4, color: copied === `${v.id}-path` ? '#4ade80' : 'var(--text-secondary)', cursor: 'pointer', padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.72rem', flexShrink: 0 }}
+                      >
+                        <FiCopy size={11} /> {copied === `${v.id}-path` ? 'Copied!' : 'Copy'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Copy filename button */}
+                <button
+                  onClick={() => copy(v.filename, `${v.id}-fn`)}
+                  style={{ marginTop: '0.35rem', background: 'none', border: '1px solid var(--border)', borderRadius: 4, color: copied === `${v.id}-fn` ? '#4ade80' : 'var(--text-secondary)', cursor: 'pointer', padding: '3px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                >
+                  <FiCopy size={11} /> {copied === `${v.id}-fn` ? 'Copied!' : 'Copy Filename'}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border)', textAlign: 'right' }}>
+          <button onClick={onClose} className="btn-ghost" style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function MenuItem({ icon, label, onClick, accent, active, muted, suffix }) {
