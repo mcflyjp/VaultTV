@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLibrary } from '../context/LibraryContext'
 import { useWatchHistory } from '../context/WatchHistoryContext'
+import { useContextMenu } from '../context/ContextMenuContext'
 import { IMG } from '../lib/tmdb'
 import { FiTrash2, FiPlay, FiFilm, FiTv, FiBookmark } from 'react-icons/fi'
 
@@ -50,12 +51,14 @@ export default function Library() {
 }
 
 function LibraryCard({ item, onNavigate, onRemove }) {
+  const { show: showMenu } = useContextMenu()
   const poster = item.poster || IMG(item.poster_path, 'w342')
 
   return (
     <div style={{ width: 150, position: 'relative' }}>
       <div
         onClick={onNavigate}
+        onContextMenu={e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) }}
         style={{ borderRadius: 'var(--radius)', overflow: 'hidden', background: 'var(--bg-card)', cursor: 'pointer', transition: 'transform 0.2s', position: 'relative' }}
         className="card-hover"
       >

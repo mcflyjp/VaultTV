@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useQueue } from '../context/QueueContext'
+import { useContextMenu } from '../context/ContextMenuContext'
 import { FiTrash2, FiArrowUp, FiPlay, FiX } from 'react-icons/fi'
 
 export default function Queue() {
@@ -42,8 +43,12 @@ export default function Queue() {
 }
 
 function QueueRow({ item, idx, isFirst, onPlay, onMoveUp, onRemove }) {
+  const { show: showMenu } = useContextMenu()
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.65rem 0.75rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+    <div
+      onContextMenu={e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) }}
+      style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.65rem 0.75rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+    >
       <span style={{ width: 20, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 700, flexShrink: 0 }}>{idx + 1}</span>
       {item.poster && (
         <img src={item.poster} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />

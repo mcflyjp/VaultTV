@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlaylist } from '../context/PlaylistContext'
+import { useContextMenu } from '../context/ContextMenuContext'
 import { FiPlus, FiTrash2, FiEdit2, FiChevronLeft, FiPlay } from 'react-icons/fi'
 
 export default function Playlists() {
@@ -43,18 +44,13 @@ export default function Playlists() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {active.items.map((item, idx) => (
-            <div key={`${item.id}-${item.type}`} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.65rem 0.75rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-              <span style={{ width: 20, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>{idx + 1}</span>
-              {item.poster && <img src={item.poster} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4 }} />}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</p>
-                <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{item.type}</p>
-              </div>
-              <div style={{ display: 'flex', gap: '0.35rem' }}>
-                <SmBtn onClick={() => navigate(`/detail/${item.type}/${item.id}`)} accent title="Play"><FiPlay size={13} /></SmBtn>
-                <SmBtn onClick={() => removeFromPlaylist(active.id, item.id, item.type)} title="Remove"><FiTrash2 size={13} /></SmBtn>
-              </div>
-            </div>
+            <PlaylistItem
+              key={`${item.id}-${item.type}`}
+              item={item}
+              idx={idx}
+              onPlay={() => navigate(`/detail/${item.type}/${item.id}`)}
+              onRemove={() => removeFromPlaylist(active.id, item.id, item.type)}
+            />
           ))}
         </div>
       )}
@@ -109,6 +105,27 @@ export default function Playlists() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function PlaylistItem({ item, idx, onPlay, onRemove }) {
+  const { show: showMenu } = useContextMenu()
+  return (
+    <div
+      onContextMenu={e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) }}
+      style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.65rem 0.75rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
+    >
+      <span style={{ width: 20, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>{idx + 1}</span>
+      {item.poster && <img src={item.poster} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4 }} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</p>
+        <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{item.type}</p>
+      </div>
+      <div style={{ display: 'flex', gap: '0.35rem' }}>
+        <SmBtn onClick={onPlay} accent title="Play"><FiPlay size={13} /></SmBtn>
+        <SmBtn onClick={onRemove} title="Remove"><FiTrash2 size={13} /></SmBtn>
+      </div>
     </div>
   )
 }
