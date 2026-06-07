@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getDetail, getSeason, getSimilar, getVideos, IMG, getCertification, YT_EMBED, pickTrailer, pickTheme } from '../lib/tmdb'
 import { useAddons } from '../context/AddonsContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useWatchHistory } from '../context/WatchHistoryContext'
+import { usePlayer } from '../context/PlayerContext'
 import MediaShelf from '../components/MediaShelf'
 import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark } from 'react-icons/fi'
 
@@ -13,13 +14,11 @@ export default function Detail() {
   const { getStreams } = useAddons()
   const { isSaved, toggle: toggleSave } = useLibrary()
   const { startWatching, updateProgress } = useWatchHistory()
-  const videoRef = useRef(null)
+  const { play } = usePlayer()
   const [streams, setStreams]         = useState(null)
   const [loadingStreams, setLoadingStreams] = useState(false)
   const [selectedSeason, setSelectedSeason] = useState(1)
-  const [playUrl, setPlayUrl]         = useState(null)
-  const [bgMuted, setBgMuted]         = useState(true)   // background video always muted
-  const [musicPlaying, setMusicPlaying] = useState(true) // theme audio on by default
+  const [musicPlaying, setMusicPlaying] = useState(true)
   const [musicDismissed, setMusicDismissed] = useState(false)
 
   const { data: detail, isLoading } = useQuery({
@@ -48,7 +47,6 @@ export default function Detail() {
   useEffect(() => {
     setMusicPlaying(true)
     setMusicDismissed(false)
-    setPlayUrl(null)
     setStreams(null)
   }, [id])
 
@@ -289,33 +287,24 @@ export default function Detail() {
         {/* ── Streams panel ── */}
         {(loadingStreams || streams !== null) && (
           <div style={{ padding: '0 2rem 2rem' }}>
-            <StreamPanel loading={loadingStreams} streams={streams} onSelect={url => { setPlayUrl(url); setMusicDismissed(true) }} />
+            <StreamPanel
+            loading={loadingStreams}
+            streams={streams}
+            onSelect={url => {
+              setMusicDismissed(true)
+              play({
+                url,
+                title,
+                year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
+                poster: IMG(detail?.poster_path, 'w342'),
+                onProgress: (t, d) => updateProgress(Number(id), type, t, d),
+              })
+              startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
+            }}
+          />
           </div>
         )}
 
-        {/* ── Video player ── */}
-        {playUrl && (
-          <div style={{ padding: '0 2rem 2rem' }}>
-            <video
-              ref={videoRef}
-              src={playUrl}
-              controls
-              autoPlay
-              style={{ width: '100%', borderRadius: 'var(--radius)', background: '#000', maxHeight: '70vh' }}
-              onPlay={() => {
-                if (detail) startWatching({
-                  id: Number(id), type,
-                  title: detail.title || detail.name,
-                  poster: IMG(detail.poster_path, 'w342'),
-                })
-              }}
-              onTimeUpdate={e => {
-                const v = e.currentTarget
-                if (v.duration > 0) updateProgress(Number(id), type, v.currentTime, v.duration)
-              }}
-            />
-          </div>
-        )}
 
         {/* ── Similar ── */}
         {similar?.results?.length > 0 && (

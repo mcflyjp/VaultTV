@@ -3,6 +3,7 @@ import { useTheme } from './context/ThemeContext'
 import { useLayout } from './context/LayoutContext'
 import Sidebar from './components/Sidebar'
 import ContextMenu from './components/ContextMenu'
+import VideoPlayer from './components/VideoPlayer'
 import Home from './pages/Home'
 import Search from './pages/Search'
 import Detail from './pages/Detail'
@@ -34,6 +35,7 @@ export default function App() {
         </Routes>
       </main>
       <ContextMenu />
+      <VideoPlayer />
     </div>
   )
 }

@@ -1,0 +1,667 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { usePlayer } from '../context/PlayerContext'
+import Hls from 'hls.js'
+import {
+  FiPlay, FiPause, FiVolume2, FiVolumeX, FiVolume1,
+  FiMaximize, FiMinimize, FiX, FiSettings, FiChevronLeft,
+} from 'react-icons/fi'
+import {
+  MdSubtitles, MdAudiotrack, MdSpeed, MdSyncAlt, MdHighQuality,
+} from 'react-icons/md'
+
+const HIDE_DELAY = 3000
+const SKIP_SECS  = 10
+
+function fmt(s) {
+  if (!s || isNaN(s)) return '0:00'
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = Math.floor(s % 60)
+  return h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+    : `${m}:${String(sec).padStart(2,'0')}`
+}
+
+export default function VideoPlayer() {
+  const { session, closePlayer } = usePlayer()
+
+  const videoRef     = useRef(null)
+  const containerRef = useRef(null)
+  const hlsRef       = useRef(null)
+  const hideTimer    = useRef(null)
+  const audioCtxRef  = useRef(null)
+  const gainRef      = useRef(null)
+  const delayRef     = useRef(null)
+  const progressRef  = useRef(null)
+  const fileUrlRef   = useRef(null)
+
+  const [playing,      setPlaying]      = useState(false)
+  const [currentTime,  setCurrentTime]  = useState(0)
+  const [duration,     setDuration]     = useState(0)
+  const [buffered,     setBuffered]     = useState(0)
+  const [volume,       setVolume]       = useState(1)
+  const [muted,        setMuted]        = useState(false)
+  const [fullscreen,   setFullscreen]   = useState(false)
+  const [showControls, setShowControls] = useState(true)
+  const [qualities,    setQualities]    = useState([])
+  const [quality,      setQuality]      = useState(-1)
+  const [audioTracks,  setAudioTracks]  = useState([])
+  const [audioTrack,   setAudioTrack]   = useState(0)
+  const [audioDelay,   setAudioDelay]   = useState(0)     // ms, 0–5000
+  const [subUrl,       setSubUrl]       = useState('')
+  const [subOffset,    setSubOffset]    = useState(0)     // seconds
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab,  setSettingsTab]  = useState('quality')
+  const [error,        setError]        = useState('')
+  const [hoverTime,    setHoverTime]    = useState(null)  // for progress tooltip
+  const [hoverX,       setHoverX]       = useState(0)
+
+  // ── Source loading ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!session) return
+    const video = videoRef.current
+    if (!video) return
+
+    setPlaying(false); setCurrentTime(0); setDuration(0)
+    setBuffered(0); setError(''); setQualities([]); setQuality(-1)
+    setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
+    setSubUrl(''); setSubOffset(0); setPlaybackRate(1)
+    setSettingsOpen(false)
+
+    // Destroy previous HLS instance
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+
+    // Revoke previous object URL
+    if (fileUrlRef.current) { URL.revokeObjectURL(fileUrlRef.current); fileUrlRef.current = null }
+
+    async function load() {
+      let src = session.url
+
+      // Local file handle
+      if (session.fileHandle) {
+        try {
+          const file = await session.fileHandle.getFile()
+          src = URL.createObjectURL(file)
+          fileUrlRef.current = src
+        } catch (e) {
+          setError('Could not read local file — re-grant folder access in Settings.')
+          return
+        }
+      }
+
+      if (!src) { setError('No stream URL provided.'); return }
+
+      const isHls = src.includes('.m3u8') || src.includes('manifest')
+
+      if (isHls && Hls.isSupported()) {
+        const hls = new Hls({
+          maxBufferLength: 60,
+          maxMaxBufferLength: 120,
+          startLevel: -1,           // auto quality
+          abrEwmaDefaultEstimate: 5000000,
+        })
+        hlsRef.current = hls
+        hls.loadSource(src)
+        hls.attachMedia(video)
+
+        hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          setQualities([{ height: 0, label: 'Auto' }, ...data.levels.map(l => ({ height: l.height, label: `${l.height}p` }))])
+          video.play().catch(() => {})
+        })
+
+        hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
+          setAudioTracks(data.audioTracks.map(t => ({ id: t.id, name: t.name || t.lang || `Track ${t.id + 1}` })))
+        })
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) setError(`Stream error: ${data.details}`)
+        })
+      } else {
+        video.src = src
+        video.play().catch(() => {})
+      }
+
+      if (session.startTime) video.currentTime = session.startTime
+    }
+
+    load()
+  }, [session])
+
+  // ── Cleanup on close ──────────────────────────────────────────
+  useEffect(() => {
+    if (session) return
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+    if (fileUrlRef.current) { URL.revokeObjectURL(fileUrlRef.current); fileUrlRef.current = null }
+    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
+    gainRef.current = null; delayRef.current = null
+  }, [session])
+
+  // ── Web Audio pipeline (lazy init on first play) ───────────────
+  function initAudio() {
+    const video = videoRef.current
+    if (!video || audioCtxRef.current) return
+    try {
+      const ctx    = new AudioContext()
+      const source = ctx.createMediaElementSource(video)
+      const gain   = ctx.createGain()
+      const delay  = ctx.createDelay(5.0)
+      gain.gain.value         = muted ? 0 : volume
+      delay.delayTime.value   = 0
+      source.connect(gain)
+      gain.connect(delay)
+      delay.connect(ctx.destination)
+      audioCtxRef.current = ctx
+      gainRef.current     = gain
+      delayRef.current    = delay
+    } catch {}
+  }
+
+  // ── Video events ──────────────────────────────────────────────
+  function onTimeUpdate(e) {
+    const v = e.currentTarget
+    setCurrentTime(v.currentTime)
+    if (v.duration > 0) {
+      const b = v.buffered
+      if (b.length) setBuffered((b.end(b.length - 1) / v.duration) * 100)
+    }
+    session?.onProgress?.(v.currentTime, v.duration)
+  }
+
+  function onPlay()  { setPlaying(true) }
+  function onPause() { setPlaying(false) }
+  function onEnded() { setPlaying(false) }
+  function onLoadedMetadata(e) { setDuration(e.currentTarget.duration) }
+  function onError()  { setError('Could not play this stream. The format may be unsupported.') }
+
+  // ── Controls ─────────────────────────────────────────────────
+  function togglePlay() {
+    const v = videoRef.current; if (!v) return
+    if (v.paused) { initAudio(); v.play() } else { v.pause() }
+  }
+
+  function seek(secs) {
+    const v = videoRef.current; if (!v) return
+    v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + secs))
+  }
+
+  function seekTo(frac) {
+    const v = videoRef.current; if (!v) return
+    v.currentTime = frac * v.duration
+  }
+
+  function changeVolume(val) {
+    const v = videoRef.current; if (!v) return
+    const n = Math.max(0, Math.min(1, val))
+    setVolume(n); setMuted(n === 0)
+    if (gainRef.current) gainRef.current.gain.value = n
+    else v.volume = n
+  }
+
+  function toggleMute() {
+    const v = videoRef.current; if (!v) return
+    const next = !muted; setMuted(next)
+    if (gainRef.current) gainRef.current.gain.value = next ? 0 : volume
+    else v.muted = next
+  }
+
+  function changeAudioDelay(ms) {
+    setAudioDelay(ms)
+    if (delayRef.current) delayRef.current.delayTime.value = ms / 1000
+  }
+
+  function changeRate(r) {
+    const v = videoRef.current; if (!v) return
+    v.playbackRate = r; setPlaybackRate(r)
+  }
+
+  function changeQuality(idx) {
+    setQuality(idx)
+    if (hlsRef.current) hlsRef.current.currentLevel = idx - 1 // 0=auto=-1
+  }
+
+  function changeAudioTrack(id) {
+    setAudioTrack(id)
+    if (hlsRef.current) hlsRef.current.audioTrack = id
+  }
+
+  function toggleFullscreen() {
+    const el = containerRef.current; if (!el) return
+    if (!document.fullscreenElement) el.requestFullscreen().catch(() => {})
+    else document.exitFullscreen()
+  }
+
+  useEffect(() => {
+    function onFsChange() { setFullscreen(!!document.fullscreenElement) }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
+  // ── Controls auto-hide ────────────────────────────────────────
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true)
+    clearTimeout(hideTimer.current)
+    hideTimer.current = setTimeout(() => {
+      if (videoRef.current && !videoRef.current.paused) setShowControls(false)
+    }, HIDE_DELAY)
+  }, [])
+
+  useEffect(() => () => clearTimeout(hideTimer.current), [])
+
+  // ── Keyboard shortcuts ────────────────────────────────────────
+  useEffect(() => {
+    if (!session) return
+    function onKey(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      switch (e.key) {
+        case ' ': case 'k': e.preventDefault(); togglePlay(); break
+        case 'ArrowLeft':   e.preventDefault(); seek(-SKIP_SECS); break
+        case 'ArrowRight':  e.preventDefault(); seek(+SKIP_SECS); break
+        case 'ArrowUp':     e.preventDefault(); changeVolume(volume + 0.1); break
+        case 'ArrowDown':   e.preventDefault(); changeVolume(volume - 0.1); break
+        case 'm': case 'M': toggleMute(); break
+        case 'f': case 'F': toggleFullscreen(); break
+        case 'Escape':      if (!document.fullscreenElement) closePlayer(); break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [session, volume, muted]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Progress bar interaction ──────────────────────────────────
+  function onProgressClick(e) {
+    const rect = progressRef.current.getBoundingClientRect()
+    seekTo((e.clientX - rect.left) / rect.width)
+  }
+
+  function onProgressHover(e) {
+    const rect = progressRef.current.getBoundingClientRect()
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    setHoverTime(frac * duration)
+    setHoverX(e.clientX - rect.left)
+  }
+
+  if (!session) return null
+
+  const title = session.title || 'Now Playing'
+  const playedPct  = duration > 0 ? (currentTime / duration) * 100 : 0
+
+  const VolumeIcon = muted || volume === 0 ? FiVolumeX : volume < 0.5 ? FiVolume1 : FiVolume2
+
+  return (
+    <div
+      ref={containerRef}
+      onMouseMove={resetHideTimer}
+      onMouseLeave={() => { if (playing) setShowControls(false) }}
+      onClick={() => { if (!settingsOpen) togglePlay() }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9000,
+        background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: showControls ? 'default' : 'none',
+      }}
+    >
+      {/* ── Video element ── */}
+      <video
+        ref={videoRef}
+        onTimeUpdate={onTimeUpdate}
+        onPlay={onPlay}
+        onPause={onPause}
+        onEnded={onEnded}
+        onLoadedMetadata={onLoadedMetadata}
+        onError={onError}
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        playsInline
+      />
+
+      {/* ── External subtitle track ── */}
+      {subUrl && (
+        <track kind="subtitles" src={subUrl} default label="Subtitles" />
+      )}
+
+      {/* ── Error overlay ── */}
+      {error && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', pointerEvents: 'none' }}>
+          <p style={{ color: '#f87171', fontSize: '1rem', fontWeight: 600, textAlign: 'center', maxWidth: 400, margin: 0 }}>{error}</p>
+        </div>
+      )}
+
+      {/* ── Controls overlay ── */}
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          opacity: showControls || !playing ? 1 : 0,
+          transition: 'opacity 0.3s ease',
+          pointerEvents: showControls || !playing ? 'auto' : 'none',
+        }}
+      >
+        {/* ── Top bar ── */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '1.25rem 1.5rem',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, transparent 100%)',
+        }}>
+          <div>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: '1.05rem', color: '#fff', textShadow: '0 1px 6px rgba(0,0,0,0.8)' }}>{title}</p>
+            {session.year && <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)' }}>{session.year}</p>}
+          </div>
+          <button
+            onClick={closePlayer}
+            title="Close (Esc)"
+            style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '50%', color: '#fff', cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <FiX size={18} />
+          </button>
+        </div>
+
+        {/* ── Centre tap hint (skip) ── */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5rem', pointerEvents: 'none' }}>
+          <SkipHint dir="left"  />
+          <div style={{ width: 64 }} />
+          <SkipHint dir="right" />
+        </div>
+
+        {/* ── Bottom bar ── */}
+        <div style={{
+          background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, transparent 100%)',
+          padding: '1rem 1.5rem 1.25rem',
+        }}>
+
+          {/* Progress bar */}
+          <div
+            ref={progressRef}
+            onClick={onProgressClick}
+            onMouseMove={onProgressHover}
+            onMouseLeave={() => setHoverTime(null)}
+            style={{ height: 4, background: 'rgba(255,255,255,0.2)', borderRadius: 2, cursor: 'pointer', position: 'relative', marginBottom: '0.85rem' }}
+          >
+            {/* Buffered */}
+            <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'rgba(255,255,255,0.25)', width: `${buffered}%` }} />
+            {/* Played */}
+            <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'var(--accent)', width: `${playedPct}%` }} />
+            {/* Thumb */}
+            <div style={{ position: 'absolute', top: '50%', left: `${playedPct}%`, transform: 'translate(-50%, -50%)', width: 14, height: 14, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px rgba(0,0,0,0.6)' }} />
+            {/* Hover tooltip */}
+            {hoverTime !== null && (
+              <div style={{ position: 'absolute', bottom: '100%', left: hoverX, transform: 'translateX(-50%)', marginBottom: 8, background: 'rgba(0,0,0,0.9)', color: '#fff', padding: '3px 8px', borderRadius: 4, fontSize: '0.75rem', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+                {fmt(hoverTime)}
+              </div>
+            )}
+          </div>
+
+          {/* Controls row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+
+            {/* Skip back */}
+            <CtrlBtn onClick={() => seek(-SKIP_SECS)} title="-10s">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/>
+                <text x="12" y="14" textAnchor="middle" fontSize="6" fill="currentColor" stroke="none">10</text>
+              </svg>
+            </CtrlBtn>
+
+            {/* Play / Pause */}
+            <CtrlBtn onClick={togglePlay} title={playing ? 'Pause (Space)' : 'Play (Space)'} large>
+              {playing ? <FiPause size={26} /> : <FiPlay size={26} />}
+            </CtrlBtn>
+
+            {/* Skip forward */}
+            <CtrlBtn onClick={() => seek(+SKIP_SECS)} title="+10s">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-3.51"/>
+                <text x="12" y="14" textAnchor="middle" fontSize="6" fill="currentColor" stroke="none">10</text>
+              </svg>
+            </CtrlBtn>
+
+            {/* Time */}
+            <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.82rem', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', marginLeft: 4 }}>
+              {fmt(currentTime)} / {fmt(duration)}
+            </span>
+
+            <div style={{ flex: 1 }} />
+
+            {/* Volume */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <CtrlBtn onClick={toggleMute} title="Mute (M)">
+                <VolumeIcon size={18} />
+              </CtrlBtn>
+              <input
+                type="range" min={0} max={1} step={0.02} value={muted ? 0 : volume}
+                onChange={e => changeVolume(Number(e.target.value))}
+                style={{ width: 80, accentColor: 'var(--accent)', cursor: 'pointer' }}
+              />
+            </div>
+
+            {/* Playback speed */}
+            <select
+              value={playbackRate}
+              onChange={e => changeRate(Number(e.target.value))}
+              title="Playback speed"
+              style={{ background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, color: '#fff', padding: '0.2rem 0.4rem', cursor: 'pointer', fontSize: '0.78rem' }}
+            >
+              {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(r => (
+                <option key={r} value={r}>{r === 1 ? 'Normal' : `${r}×`}</option>
+              ))}
+            </select>
+
+            {/* Settings */}
+            <CtrlBtn onClick={() => setSettingsOpen(o => !o)} title="Settings" active={settingsOpen}>
+              <FiSettings size={18} />
+            </CtrlBtn>
+
+            {/* Fullscreen */}
+            <CtrlBtn onClick={toggleFullscreen} title="Fullscreen (F)">
+              {fullscreen ? <FiMinimize size={18} /> : <FiMaximize size={18} />}
+            </CtrlBtn>
+
+          </div>
+        </div>
+      </div>
+
+      {/* ── Settings panel ── */}
+      {settingsOpen && (
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', bottom: 90, right: '1.5rem',
+            width: 320, background: 'rgba(10,10,20,0.97)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 12, overflow: 'hidden',
+            boxShadow: '0 16px 64px rgba(0,0,0,0.8)',
+          }}
+        >
+          {/* Tabs */}
+          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+            {[
+              { id: 'quality',   icon: <MdHighQuality size={16} />, label: 'Quality' },
+              { id: 'audio',     icon: <MdAudiotrack  size={16} />, label: 'Audio'   },
+              { id: 'subtitles', icon: <MdSubtitles   size={16} />, label: 'Subs'    },
+              { id: 'sync',      icon: <MdSyncAlt     size={16} />, label: 'Sync'    },
+              { id: 'speed',     icon: <MdSpeed       size={16} />, label: 'Speed'   },
+            ].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setSettingsTab(t.id)}
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: 2, padding: '0.6rem 0.25rem', background: 'transparent',
+                  border: 'none', borderBottom: settingsTab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
+                  color: settingsTab === t.id ? '#fff' : 'rgba(255,255,255,0.45)',
+                  cursor: 'pointer', fontSize: '0.62rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ padding: '1rem' }}>
+
+            {/* Quality tab */}
+            {settingsTab === 'quality' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {qualities.length === 0 && <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.82rem', margin: 0 }}>Quality selection available for HLS streams only.</p>}
+                {qualities.map((q, i) => (
+                  <SettingRow key={i} active={quality === i} onClick={() => changeQuality(i)}>
+                    <MdHighQuality size={14} /> {q.label}
+                  </SettingRow>
+                ))}
+              </div>
+            )}
+
+            {/* Audio tab */}
+            {settingsTab === 'audio' && (
+              <div>
+                {audioTracks.length > 0 && (
+                  <div style={{ marginBottom: '1rem' }}>
+                    <Label>Audio Track</Label>
+                    {audioTracks.map(t => (
+                      <SettingRow key={t.id} active={audioTrack === t.id} onClick={() => changeAudioTrack(t.id)}>
+                        <MdAudiotrack size={14} /> {t.name}
+                      </SettingRow>
+                    ))}
+                  </div>
+                )}
+                <Label>Audio Delay: {audioDelay > 0 ? `+${audioDelay}ms` : `${audioDelay}ms`}</Label>
+                <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.4 }}>
+                  Positive = audio comes later. Use when audio is ahead of video (lips move, sound follows).
+                </p>
+                <input
+                  type="range" min={-500} max={5000} step={50}
+                  value={audioDelay}
+                  onChange={e => changeAudioDelay(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+                  <span>-500ms</span><span>0</span><span>+5000ms</span>
+                </div>
+              </div>
+            )}
+
+            {/* Subtitles tab */}
+            {settingsTab === 'subtitles' && (
+              <div>
+                <Label>Subtitle URL (.vtt)</Label>
+                <input
+                  value={subUrl}
+                  onChange={e => setSubUrl(e.target.value)}
+                  placeholder="https://example.com/subs.vtt"
+                  style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, color: '#fff', padding: '0.45rem 0.6rem', fontSize: '0.82rem', marginBottom: '1rem' }}
+                />
+                <Label>Subtitle Offset: {subOffset > 0 ? `+${subOffset}s` : `${subOffset}s`}</Label>
+                <input
+                  type="range" min={-10} max={10} step={0.5}
+                  value={subOffset}
+                  onChange={e => setSubOffset(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+                  <span>-10s</span><span>0</span><span>+10s</span>
+                </div>
+              </div>
+            )}
+
+            {/* Sync tab */}
+            {settingsTab === 'sync' && (
+              <div>
+                <Label>A/V Sync — Audio Delay</Label>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', lineHeight: 1.5 }}>
+                  If lips move <em>before</em> you hear sound, increase the delay. If sound comes <em>before</em> lips move, decrease it.
+                </p>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent)', textAlign: 'center', marginBottom: '0.75rem', fontVariantNumeric: 'tabular-nums' }}>
+                  {audioDelay > 0 ? `+${audioDelay}` : audioDelay} ms
+                </div>
+                <input
+                  type="range" min={-500} max={5000} step={50}
+                  value={audioDelay}
+                  onChange={e => changeAudioDelay(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: 'var(--accent)', cursor: 'pointer', marginBottom: '0.5rem' }}
+                />
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                  {[-200,-100,0,100,200,500].map(v => (
+                    <button key={v} onClick={() => changeAudioDelay(v)}
+                      style={{ background: audioDelay === v ? 'var(--accent)' : 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '0.25rem 0.5rem', fontSize: '0.72rem' }}>
+                      {v > 0 ? `+${v}` : v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Speed tab */}
+            {settingsTab === 'speed' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(r => (
+                  <SettingRow key={r} active={playbackRate === r} onClick={() => changeRate(r)}>
+                    <MdSpeed size={14} /> {r === 1 ? 'Normal' : `${r}×`}
+                  </SettingRow>
+                ))}
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Small helpers ──────────────────────────────────────────────
+
+function CtrlBtn({ onClick, title, children, large, active }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        background: active ? 'rgba(255,255,255,0.15)' : 'transparent',
+        border: 'none', color: '#fff', cursor: 'pointer',
+        width: large ? 52 : 36, height: large ? 52 : 36,
+        borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        transition: 'background 0.15s', flexShrink: 0,
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+      onMouseLeave={e => e.currentTarget.style.background = active ? 'rgba(255,255,255,0.15)' : 'transparent'}
+    >
+      {children}
+    </button>
+  )
+}
+
+function SettingRow({ onClick, active, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem',
+        padding: '0.5rem 0.65rem', background: active ? 'rgba(124,58,237,0.25)' : 'rgba(255,255,255,0.05)',
+        border: active ? '1px solid var(--accent)' : '1px solid transparent',
+        borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontWeight: active ? 600 : 400,
+        textAlign: 'left',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Label({ children }) {
+  return (
+    <p style={{ margin: '0 0 0.4rem', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)' }}>
+      {children}
+    </p>
+  )
+}
+
+function SkipHint({ dir }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem', opacity: 0.3, userSelect: 'none', pointerEvents: 'none' }}>
+      {dir === 'left'
+        ? <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+        : <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-3.51"/></svg>
+      }
+      <span style={{ fontSize: '0.7rem', color: '#fff' }}>{SKIP_SECS}s</span>
+    </div>
+  )
+}

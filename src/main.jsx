@@ -15,6 +15,7 @@ import { PlaylistProvider } from './context/PlaylistContext'
 import { ArtworkProvider } from './context/ArtworkContext'
 import { ContextMenuProvider } from './context/ContextMenuContext'
 import { TraktProvider } from './context/TraktContext'
+import { PlayerProvider } from './context/PlayerContext'
 import './index.css'
 import App from './App.jsx'
 
@@ -36,6 +37,7 @@ createRoot(document.getElementById('root')).render(
             <ArtworkProvider>
             <ContextMenuProvider>
             <ParentalProvider>
+              <PlayerProvider>
               <TraktProvider>
               <AddonsProvider>
                 <BrowserRouter>
@@ -43,6 +45,7 @@ createRoot(document.getElementById('root')).render(
                 </BrowserRouter>
               </AddonsProvider>
               </TraktProvider>
+              </PlayerProvider>
             </ParentalProvider>
             </ContextMenuProvider>
             </ArtworkProvider>
