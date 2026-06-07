@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getTrending, getPopular, getTopRated } from '../lib/tmdb'
 import { fetchAddonCatalog } from '../lib/addonCatalog'
+import { getListItems, traktItemsToPartial } from '../lib/trakt'
 import { useParental } from '../context/ParentalContext'
 import { useDashboard } from '../context/DashboardContext'
+import { useTrakt } from '../context/TraktContext'
 import HeroBanner from '../components/HeroBanner'
 import MediaShelf from '../components/MediaShelf'
 import MediaGrid from '../components/MediaGrid'
@@ -204,7 +206,65 @@ function SectionShelf({ section, tmdbData }) {
     return <AddonShelf section={section} />
   }
 
+  if (section.type === 'trakt') {
+    return <TraktShelf section={section} />
+  }
+
   return null
+}
+
+const TMDB_KEY = import.meta.env.VITE_TMDB_KEY || ''
+
+function TraktShelf({ section }) {
+  const { clientId, accessToken } = useTrakt()
+
+  const { data: items = [], isLoading, error } = useQuery({
+    queryKey: ['trakt-shelf', section.id, accessToken],
+    enabled: !!accessToken && !!clientId,
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+    queryFn: async () => {
+      const raw = await getListItems(clientId, accessToken, section.traktListId)
+      const partial = traktItemsToPartial(raw).slice(0, 24)
+      const detailed = await Promise.all(
+        partial.map(item =>
+          fetch(`https://api.themoviedb.org/3/${item.media_type}/${item.id}?api_key=${TMDB_KEY}&language=en-US`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => d ? { ...item, poster_path: d.poster_path, title: d.title || d.name || item.title } : item)
+            .catch(() => item)
+        )
+      )
+      return detailed.filter(i => i.poster_path)
+    },
+  })
+
+  if (!accessToken) return null
+
+  if (isLoading) return (
+    <div style={{ padding: '0 1.75rem', marginBottom: '2rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+        <div style={{ width: 3, height: 18, borderRadius: 2, background: 'var(--accent)' }} />
+        <span style={{ fontSize: '0.88rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>{section.title}</span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Loading…</span>
+      </div>
+    </div>
+  )
+
+  if (error) return (
+    <div style={{ padding: '0 1.75rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem' }}>
+        <div style={{ width: 3, height: 18, borderRadius: 2, background: 'var(--border)' }} />
+        <span style={{ fontSize: '0.88rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>{section.title}</span>
+      </div>
+      <p style={{ margin: 0, fontSize: '0.76rem', color: '#f87171', paddingLeft: '0.9rem' }}>
+        Could not load — {error.message}. Check Settings → Trakt.
+      </p>
+    </div>
+  )
+
+  if (!items.length) return null
+
+  return <MediaShelf title={section.title} items={items} />
 }
 
 function AddonShelf({ section }) {

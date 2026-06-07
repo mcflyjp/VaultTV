@@ -1,11 +1,13 @@
 import { useState, useRef } from 'react'
 import { useDashboard } from '../context/DashboardContext'
 import { useAddons } from '../context/AddonsContext'
-import { FiEye, FiEyeOff, FiX, FiRotateCcw, FiPlus, FiMenu } from 'react-icons/fi'
+import { useTrakt } from '../context/TraktContext'
+import { FiEye, FiEyeOff, FiX, FiRotateCcw, FiPlus, FiMenu, FiRadio } from 'react-icons/fi'
 
 export default function DashboardEditor({ onClose }) {
   const { sections, toggleVisible, reorder, addAddonSection, removeSection, reset } = useDashboard()
   const { addons } = useAddons()
+  const { connected: traktConnected, lists: traktLists } = useTrakt()
   const [dragFrom, setDragFrom]   = useState(null)
   const [dragOver, setDragOver]   = useState(null)
   const touchFrom  = useRef(null)
@@ -139,6 +141,7 @@ export default function DashboardEditor({ onClose }) {
               <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: 500, color: s.visible ? 'var(--text-primary)' : 'var(--text-secondary)', textDecoration: s.visible ? 'none' : 'line-through' }}>
                 {s.title}
                 {s.type === 'addon' && <span style={{ fontSize: '0.7rem', color: 'var(--accent)', marginLeft: 6, background: 'rgba(124,58,237,0.15)', padding: '1px 6px', borderRadius: 10 }}>Add-on</span>}
+              {s.type === 'trakt' && <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: 6, background: 'rgba(239,68,68,0.15)', padding: '1px 6px', borderRadius: 10 }}>Trakt</span>}
               </span>
 
               {/* Visibility toggle */}
@@ -150,14 +153,41 @@ export default function DashboardEditor({ onClose }) {
                 {s.visible ? <FiEye size={16} /> : <FiEyeOff size={16} />}
               </button>
 
-              {/* Remove (addon sections only) */}
-              {s.type === 'addon' && (
+              {/* Remove (addon + trakt sections) */}
+              {(s.type === 'addon' || s.type === 'trakt') && (
                 <button onClick={() => removeSection(s.id)} title="Remove" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.25rem', display: 'flex' }}>
                   <FiX size={15} />
                 </button>
               )}
             </div>
           ))}
+
+          {/* Add Trakt lists */}
+          {traktConnected && (() => {
+            const allTraktLists = [{ id: 'watchlist', name: 'Watchlist' }, ...traktLists]
+            const available = allTraktLists.filter(l => !sections.find(s => s.id === `trakt_${l.id}`))
+            if (!available.length) return null
+            return (
+              <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+                <p style={{ margin: '0 0 0.5rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <FiRadio size={11} /> Add from Trakt
+                </p>
+                {available.map(l => (
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.55rem 0.75rem', borderRadius: 8, marginBottom: 4 }}>
+                    <span style={{ flex: 1, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{l.name}</span>
+                    <button
+                      onClick={() => addAddonSection({
+                        id: `trakt_${l.id}`, title: l.name, type: 'trakt', traktListId: l.id,
+                      })}
+                      style={{ background: '#ef4444', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '0.3rem 0.7rem', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 4 }}
+                    >
+                      <FiPlus size={12} /> Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
 
           {/* Add addon sections */}
           {addonSections.length > 0 && (

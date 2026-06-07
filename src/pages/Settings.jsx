@@ -2,16 +2,30 @@ import { useState } from 'react'
 import { useParental } from '../context/ParentalContext'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLayout } from '../context/LayoutContext'
-import { FiLock, FiShield, FiSun, FiGrid } from 'react-icons/fi'
+import { useTrakt } from '../context/TraktContext'
+import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink } from 'react-icons/fi'
 
 export default function Settings() {
   const { enabled, maxRating, pin, save, RATING_ORDER } = useParental()
   const { theme, changeTheme } = useTheme()
   const { density, changeDensity } = useLayout()
+  const trakt = useTrakt()
 
   const [form, setForm] = useState({ enabled, maxRating, pin, confirmPin: pin })
   const [pinError, setPinError] = useState('')
   const [saved, setSaved] = useState(false)
+
+  // Trakt credential form
+  const [tClientId,     setTClientId]     = useState(trakt.clientId)
+  const [tClientSecret, setTClientSecret] = useState(trakt.clientSecret)
+  const [credsSaved,    setCredsSaved]    = useState(false)
+
+  function handleCredsSave(e) {
+    e.preventDefault()
+    trakt.saveCredentials(tClientId, tClientSecret)
+    setCredsSaved(true)
+    setTimeout(() => setCredsSaved(false), 2000)
+  }
 
   function handleSave(e) {
     e.preventDefault()
@@ -155,6 +169,107 @@ export default function Settings() {
             {saved ? '✓ Saved' : 'Save Settings'}
           </button>
         </form>
+      </Card>
+
+      {/* Trakt */}
+      <Card title="Trakt Integration" icon={<FiRadio />}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1rem', lineHeight: 1.6 }}>
+          Connect your Trakt account to add your watchlists and custom lists as shelves on the home dashboard.
+          You need a free Trakt API app — create one at{' '}
+          <a href="https://trakt.tv/oauth/applications/new" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
+            trakt.tv/oauth/applications/new <FiExternalLink size={11} style={{ verticalAlign: 'middle' }} />
+          </a>{' '}
+          with redirect URI <code style={{ background: 'var(--bg-secondary)', padding: '1px 5px', borderRadius: 4, fontSize: '0.82rem' }}>urn:ietf:wg:oauth:2.0:oob</code>.
+        </p>
+
+        {/* Credential inputs */}
+        {!trakt.connected && (
+          <form onSubmit={handleCredsSave} style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <input
+                value={tClientId}
+                onChange={e => setTClientId(e.target.value)}
+                placeholder="Client ID"
+                style={{ flex: 1, minWidth: 200, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', padding: '0.55rem 0.75rem', fontSize: '0.85rem', fontFamily: 'monospace' }}
+              />
+              <input
+                value={tClientSecret}
+                onChange={e => setTClientSecret(e.target.value)}
+                placeholder="Client Secret"
+                type="password"
+                style={{ flex: 1, minWidth: 200, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', padding: '0.55rem 0.75rem', fontSize: '0.85rem', fontFamily: 'monospace' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+              <button type="submit" className="btn-ghost" style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}>
+                {credsSaved ? <><FiCheck size={13} /> Saved</> : 'Save Credentials'}
+              </button>
+              {trakt.clientId && !trakt.deviceFlow && (
+                <button type="button" className="btn-accent" style={{ padding: '0.45rem 1.1rem', fontSize: '0.85rem' }} onClick={trakt.startDeviceAuth}>
+                  Connect Trakt Account
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+
+        {/* Device auth flow — show code */}
+        {trakt.deviceFlow && (
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '1rem', marginBottom: '1rem' }}>
+            <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '0.9rem' }}>Activate on Trakt</p>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Go to <a href={trakt.deviceFlow.verificationUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{trakt.deviceFlow.verificationUrl}</a> and enter this code:
+            </p>
+            <div style={{ fontSize: '2rem', fontWeight: 900, letterSpacing: '0.15em', fontFamily: 'monospace', color: 'var(--accent)', marginBottom: '0.75rem' }}>
+              {trakt.deviceFlow.userCode}
+            </div>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Waiting for activation… (this page will update automatically)
+            </p>
+            <button onClick={trakt.cancelDeviceAuth} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', padding: '0.35rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem' }}>
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {trakt.flowError && (
+          <p style={{ color: '#f87171', fontSize: '0.85rem', margin: '0 0 1rem' }}>{trakt.flowError}</p>
+        )}
+
+        {/* Connected state */}
+        {trakt.connected && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div style={{ background: '#4ade80', borderRadius: '50%', width: 10, height: 10, flexShrink: 0 }} />
+              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Connected as <span style={{ color: 'var(--accent)' }}>@{trakt.username}</span></span>
+              <button onClick={trakt.disconnect} style={{ marginLeft: 'auto', background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', padding: '0.3rem 0.7rem', cursor: 'pointer', fontSize: '0.8rem' }}>
+                Disconnect
+              </button>
+            </div>
+
+            {trakt.lists.length > 0 && (
+              <div>
+                <p style={{ margin: '0 0 0.4rem', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Your Lists</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  {[{ id: 'watchlist', name: 'Watchlist' }, ...trakt.lists].map(l => (
+                    <div key={l.id} style={{ padding: '0.4rem 0.65rem', background: 'var(--bg-secondary)', borderRadius: 6, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      {l.name}
+                    </div>
+                  ))}
+                </div>
+                <p style={{ margin: '0.6rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Add these as shelves via <strong style={{ color: 'var(--text-primary)' }}>Home → Customize</strong>.
+                </p>
+              </div>
+            )}
+
+            {trakt.lists.length === 0 && (
+              <button className="btn-ghost" style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }} onClick={() => trakt.fetchLists()}>
+                Refresh Lists
+              </button>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* About */}
