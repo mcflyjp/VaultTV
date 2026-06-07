@@ -183,7 +183,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div style={{ padding: '1.4rem 1.25rem 0.9rem' }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center' }}>
-          <img src="/logo.png" alt="VaultTV" style={{ height: 32, width: 'auto' }} />
+          <img src="/logo.png" alt="VaultTV" style={{ height: 48, width: 'auto' }} />
         </Link>
       </div>
 
