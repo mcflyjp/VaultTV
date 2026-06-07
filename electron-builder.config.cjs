@@ -8,6 +8,10 @@ module.exports = {
   productName: 'VaultTV',
   copyright:   'Copyright © 2025 VaultTV',
 
+  // Use the already-installed Electron from node_modules — avoids re-downloading
+  // and sidesteps the Windows Defender EBUSY lock on freshly-extracted .asar files.
+  electronDist: 'node_modules/electron/dist',
+
   directories: {
     output: 'dist-electron',
     buildResources: 'public',
