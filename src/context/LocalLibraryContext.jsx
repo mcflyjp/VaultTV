@@ -192,17 +192,28 @@ export function LocalLibraryProvider({ children }) {
       // Load existing files for OTHER sources (keep them)
       const otherFiles = files.filter(f => f.sourceId !== source.id)
       // Existing cached files for THIS source
-      const existingByName = Object.fromEntries(
-        files.filter(f => f.sourceId === source.id).map(f => [f.filename, f])
+      // Key = "rootFolder::filename" so same filename in different show folders gets a unique id
+      const existingByKey = Object.fromEntries(
+        files.filter(f => f.sourceId === source.id).map(f => [`${f.showFolder || ''}::${f.filename}`, f])
       )
 
       const results = []
+      const seenIds = new Set() // deduplicate in case scanner visits same file twice (symlinks etc.)
       for (let i = 0; i < found.length; i++) {
-        const { name } = found[i]
+        const { name, rootFolderName } = found[i]
+        const fileKey = `${rootFolderName || ''}::${name}`
+        const fileId  = `${source.id}::${fileKey}`
 
-        // Reuse cached match if filename hasn't changed
-        if (existingByName[name]) {
-          results.push(existingByName[name])
+        // Skip duplicates (e.g. from Windows junctions / symlinks)
+        if (seenIds.has(fileId)) {
+          setProgress(p => ({ ...p, done: i + 1 }))
+          continue
+        }
+        seenIds.add(fileId)
+
+        // Reuse cached match if this exact file was matched before
+        if (existingByKey[fileKey]) {
+          results.push(existingByKey[fileKey])
           setProgress(p => ({ ...p, done: i + 1 }))
           continue
         }
@@ -210,10 +221,7 @@ export function LocalLibraryProvider({ children }) {
         const parsed = parseFilename(name)
         const forcedType = source.type // 'movie' | 'tv'
 
-        // For TV shows, episode filenames (e.g. "s01e02.mkv") carry no show title.
-        // Use the parent folder name (e.g. "Breaking Bad") captured during the scan
-        // as the TMDB search title instead — much more reliable.
-        const { rootFolderName } = found[i]
+        // For TV shows, use the show folder name for TMDB matching
         const titleForTmdb =
           forcedType === 'tv' && rootFolderName
             ? cleanFolderName(rootFolderName)
@@ -222,7 +230,7 @@ export function LocalLibraryProvider({ children }) {
         const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: forcedType === 'tv' }, TMDB_KEY, forcedType)
 
         results.push({
-          id:            `${source.id}::${name}`,
+          id:            fileId,
           filename:      name,
           sourceId:      source.id,
           sourceType:    source.type,
