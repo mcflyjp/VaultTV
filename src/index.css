@@ -61,6 +61,31 @@
   --radius: 4px;
 }
 
+/* ── Netflix-specific overrides ── */
+[data-theme="netflix"] .card-hover:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px #e50914, 0 16px 48px rgba(229,9,20,0.3);
+}
+[data-theme="netflix"] .btn-accent { border-radius: 4px; font-weight: 700; }
+[data-theme="netflix"] .shelf-heading { letter-spacing: 0; font-weight: 800; }
+
+/* ── Disney-specific overrides ── */
+[data-theme="disney"] .card-hover:hover {
+  transform: scale(1.07);
+  box-shadow: 0 0 0 2px #0063e5, 0 16px 48px rgba(0,99,229,0.35);
+}
+[data-theme="disney"] .btn-accent {
+  background: linear-gradient(135deg, #0063e5, #0483ee);
+  border-radius: 12px;
+}
+
+/* ── Top-nav layout: hides sidebar, full-width main ── */
+[data-layout="top"] {
+  flex-direction: column !important;
+}
+[data-layout="top"] .sidebar-root { display: none !important; }
+[data-layout="top"] > main { padding-top: 0; }
+
 /* ── Base ── */
 *, *::before, *::after { box-sizing: border-box; }
 

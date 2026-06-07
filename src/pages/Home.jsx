@@ -13,6 +13,8 @@ import DashboardEditor from '../components/DashboardEditor'
 import { FiFilm, FiTv, FiStar, FiTrendingUp, FiEdit2, FiChevronDown } from 'react-icons/fi'
 import { useNavigate } from 'react-router-dom'
 import ContinueWatching from '../components/ContinueWatching'
+import { useTheme } from '../context/ThemeContext'
+import { TOP_NAV_THEMES } from '../components/TopNav'
 
 const CATEGORIES = [
   { id: 'home',   label: 'Home',     icon: <FiTrendingUp size={15} /> },
@@ -38,6 +40,8 @@ export default function Home() {
   const { isAllowed } = useParental()
   const { sections }  = useDashboard()
   const navigate = useNavigate()
+  const { theme } = useTheme()
+  const isCinematic = TOP_NAV_THEMES.has(theme)
 
   const filter = (items = []) => items.filter(i => isAllowed(i.certification))
 
@@ -71,8 +75,8 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh' }}>
 
-      {/* ── Category tabs ── */}
-      <div style={{
+      {/* ── Category tabs (hidden on Netflix/Disney+ — top nav handles navigation) ── */}
+      {!isCinematic && <div style={{
         display: 'flex', alignItems: 'center', gap: '0.25rem',
         padding: '1rem 1.75rem 0',
         borderBottom: '1px solid var(--border)',
@@ -158,12 +162,12 @@ export default function Home() {
             </button>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* ── HOME tab ── */}
-      {activeTab === 'home' && (
+      {(activeTab === 'home' || isCinematic) && (
         <div>
-          <HeroBanner item={hero} />
+          <HeroBanner item={hero} cinematic={isCinematic} />
           <ContinueWatching />
           {sections
             .filter(s => s.visible)

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { useTheme } from './context/ThemeContext'
 import { useLayout } from './context/LayoutContext'
 import Sidebar from './components/Sidebar'
+import TopNav, { TOP_NAV_THEMES } from './components/TopNav'
 import ContextMenu from './components/ContextMenu'
 import VideoPlayer from './components/VideoPlayer'
 import Home from './pages/Home'
@@ -17,12 +18,19 @@ import { FiChevronLeft } from 'react-icons/fi'
 export default function App() {
   const { theme } = useTheme()
   const { density } = useLayout()
+  const useTopNav = TOP_NAV_THEMES.has(theme)
 
   return (
-    <div data-theme={theme} data-density={density} style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)' }}>
-      <Sidebar />
+    <div
+      data-theme={theme}
+      data-density={density}
+      data-layout={useTopNav ? 'top' : 'sidebar'}
+      style={{ display: 'flex', flexDirection: useTopNav ? 'column' : 'row', minHeight: '100vh', background: 'var(--bg-primary)' }}
+    >
+      {!useTopNav && <Sidebar />}
       <main style={{ flex: 1, overflowY: 'auto', minWidth: 0, position: 'relative' }}>
-        <BackButton />
+        {useTopNav && <TopNav />}
+        {!useTopNav && <BackButton />}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/search" element={<Search />} />

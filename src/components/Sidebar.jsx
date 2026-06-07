@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiMenu } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
+import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useQueue } from '../context/QueueContext'
 import { usePlaylist } from '../context/PlaylistContext'
 
@@ -31,8 +32,19 @@ function loadLibOrder() {
 export default function Sidebar() {
   const { theme, changeTheme } = useTheme()
   const { library } = useLibrary()
+  const { files: localFiles } = useLocalLibrary()
   const { queue } = useQueue()
   const { playlists } = usePlaylist()
+
+  // Count unique local titles per type (merged with saved, deduplicated)
+  const localMovieIds = new Set(localFiles.filter(f => f.media_type === 'movie' && f.tmdbId).map(f => f.tmdbId))
+  const localShowIds  = new Set(localFiles.filter(f => f.media_type === 'tv'    && f.tmdbId).map(f => f.tmdbId))
+  const localMovieUnmatched = new Set(localFiles.filter(f => f.media_type === 'movie' && !f.tmdbId).map(f => f.title)).size
+  const localShowUnmatched  = new Set(localFiles.filter(f => f.media_type === 'tv'    && !f.tmdbId).map(f => f.title)).size
+  const savedMovieIds = new Set(library.movies.map(m => m.id))
+  const savedShowIds  = new Set(library.shows.map(s => s.id))
+  const totalMovies   = new Set([...savedMovieIds, ...localMovieIds]).size + localMovieUnmatched
+  const totalShows    = new Set([...savedShowIds,  ...localShowIds]).size  + localShowUnmatched
   const [query, setQuery] = useState('')
   const [themeOpen, setThemeOpen] = useState(false)
   const navigate = useNavigate()
@@ -157,8 +169,8 @@ export default function Sidebar() {
 
   // ── Badges ──
   const badges = {
-    movies:    library.movies.length,
-    shows:     library.shows.length,
+    movies:    totalMovies,
+    shows:     totalShows,
     saved:     library.movies.length + library.shows.length,
     queue:     queue.length,
     playlists: playlists.length,
