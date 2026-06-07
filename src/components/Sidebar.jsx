@@ -305,11 +305,11 @@ export default function Sidebar() {
       <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border)', position: 'relative' }}>
         <button
           onClick={() => setThemeOpen(o => !o)}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.5rem 0.75rem', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.82rem' }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.5rem 0.75rem', color: 'var(--text-primary)', cursor: 'pointer' }}
         >
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: current?.color, flexShrink: 0 }} />
-          <img src="/logo.png" alt="VaultTV" style={{ height: '0.82rem', width: 'auto', flex: 1 }} />
-          <FiChevronRight size={13} style={{ color: 'var(--text-secondary)', transform: themeOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+          <img src="/logo.png" alt="VaultTV" style={{ height: 22, width: 'auto', flex: 1, objectFit: 'contain', objectPosition: 'left center' }} />
+          <FiChevronRight size={13} style={{ color: 'var(--text-secondary)', transform: themeOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
         </button>
 
         {themeOpen && (
