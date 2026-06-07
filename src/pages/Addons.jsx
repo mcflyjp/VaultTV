@@ -77,9 +77,10 @@ export default function Addons() {
         const catalogs = (manifest.catalogs || []).map(c => ({ type: c.type, id: c.id, name: c.name || c.id }))
         const existingIdx = toSave.findIndex(a => a.id === manifest.id)
         if (existingIdx !== -1) {
-          // Update catalogs if the existing entry is missing them
-          if (catalogs.length && !toSave[existingIdx].catalogs?.length) {
-            toSave[existingIdx] = { ...toSave[existingIdx], catalogs }
+          // Always update manifestUrl (token may have rotated) and catalogs
+          const changed = toSave[existingIdx].manifestUrl !== url || (catalogs.length && !toSave[existingIdx].catalogs?.length)
+          if (changed) {
+            toSave[existingIdx] = { ...toSave[existingIdx], manifestUrl: url, ...(catalogs.length ? { catalogs } : {}) }
             updated++
           }
           continue
