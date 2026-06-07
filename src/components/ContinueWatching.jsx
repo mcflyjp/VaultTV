@@ -1,7 +1,8 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWatchHistory } from '../context/WatchHistoryContext'
 import { FiPlay, FiX } from 'react-icons/fi'
-import { IMG } from '../lib/tmdb'
+import { IMG, getDetail } from '../lib/tmdb'
 
 export default function ContinueWatching() {
   const { inProgress, removeFromHistory } = useWatchHistory()
@@ -35,7 +36,18 @@ export default function ContinueWatching() {
 }
 
 function ContinueCard({ item, onPlay, onDismiss }) {
-  const poster   = item.poster || (item.poster_path ? IMG(item.poster_path, 'w342') : null)
+  const [poster, setPoster] = useState(
+    item.poster || (item.poster_path ? IMG(item.poster_path, 'w342') : null)
+  )
+
+  // If poster is missing from the stored entry, fetch it from TMDB
+  useEffect(() => {
+    if (poster || !item.id || !item.type) return
+    getDetail(item.type, item.id)
+      .then(d => { if (d?.poster_path) setPoster(IMG(d.poster_path, 'w342')) })
+      .catch(() => {})
+  }, [item.id, item.type]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const pct      = Math.round((item.progress || 0) * 100)
   const timeLeft = item.durationSec > 0 && item.progressSec > 0
     ? formatTime(item.durationSec - item.progressSec) + ' left'
