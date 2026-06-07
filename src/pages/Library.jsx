@@ -1,11 +1,39 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useContextMenu } from '../context/ContextMenuContext'
 import { IMG } from '../lib/tmdb'
-import { FiTrash2, FiFilm, FiTv, FiBookmark, FiHardDrive, FiAlertCircle } from 'react-icons/fi'
+import { FiTrash2, FiFilm, FiTv, FiBookmark, FiHardDrive, FiAlertCircle, FiArrowUp, FiArrowDown, FiChevronDown } from 'react-icons/fi'
 import MediaCard from '../components/MediaCard'
+
+const SORT_OPTIONS = [
+  { id: 'title_asc',    label: 'Title (A → Z)',        icon: 'asc'  },
+  { id: 'title_desc',   label: 'Title (Z → A)',        icon: 'desc' },
+  { id: 'added_desc',   label: 'Date Added (Newest)',   icon: 'desc' },
+  { id: 'added_asc',    label: 'Date Added (Oldest)',   icon: 'asc'  },
+  { id: 'release_desc', label: 'Release Date (Newest)', icon: 'desc' },
+  { id: 'release_asc',  label: 'Release Date (Oldest)', icon: 'asc'  },
+  { id: 'rating_desc',  label: 'Rating (Highest)',      icon: 'desc' },
+  { id: 'rating_asc',   label: 'Rating (Lowest)',       icon: 'asc'  },
+  { id: 'quality_desc', label: 'Quality (Best First)',  icon: 'desc' },
+]
+
+function applySort(items, sortId) {
+  const arr = [...items]
+  switch (sortId) {
+    case 'title_asc':    return arr.sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+    case 'title_desc':   return arr.sort((a, b) => (b.title || '').localeCompare(a.title || ''))
+    case 'added_desc':   return arr.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+    case 'added_asc':    return arr.sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0))
+    case 'release_desc': return arr.sort((a, b) => (b.year || b.release_date || '').localeCompare(a.year || a.release_date || ''))
+    case 'release_asc':  return arr.sort((a, b) => (a.year || a.release_date || '').localeCompare(b.year || b.release_date || ''))
+    case 'rating_desc':  return arr.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0))
+    case 'rating_asc':   return arr.sort((a, b) => (a.vote_average || 0) - (b.vote_average || 0))
+    case 'quality_desc': return arr.sort((a, b) => (b._qualityScore || 0) - (a._qualityScore || 0))
+    default:             return arr
+  }
+}
 
 export default function Library() {
   const { section } = useParams() // 'movies' | 'shows' | 'saved'
@@ -13,6 +41,16 @@ export default function Library() {
   const { files } = useLocalLibrary()
   const navigate = useNavigate()
   const [filter, setFilter] = useState('all') // 'all' | 'local' | 'saved'
+  const [sortId, setSortId] = useState('title_asc')
+  const [sortOpen, setSortOpen] = useState(false)
+  const sortRef = useRef(null)
+
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    const handler = e => { if (sortRef.current && !sortRef.current.contains(e.target)) setSortOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   // ── Build merged item list ─────────────────────────────────────────────
   const { items, title, icon } = useMemo(() => {
@@ -49,24 +87,32 @@ export default function Library() {
       }
     }
 
-    // Saved items — add isLocal flag if they also have a local file
-    const savedMerged = savedItems.map(i => ({
-      ...i,
-      _source: byTmdbId.has(i.id) ? 'both' : 'saved',
-    }))
+    // Saved items — add isLocal flag + quality score from best local version
+    const savedMerged = savedItems.map(i => {
+      const localFile = byTmdbId.get(i.id)
+      return {
+        ...i,
+        _source:       localFile ? 'both' : 'saved',
+        _qualityScore: localFile?.qualityScore || 0,
+        _qualityLabel: localFile?.qualityLabel || null,
+      }
+    })
 
     // Local-only items (not in saved library)
     const localOnly = [...byTmdbId.values()]
       .filter(f => !savedIds.has(f.tmdbId))
       .map(f => ({
-        id:          f.tmdbId,
-        type:        mediaType,
-        title:       f.title,
-        poster:      f.poster_path ? `https://image.tmdb.org/t/p/w342${f.poster_path}` : null,
-        poster_path: f.poster_path,
-        _source:     'local',
+        id:            f.tmdbId,
+        type:          mediaType,
+        title:         f.title,
+        poster:        f.poster_path ? `https://image.tmdb.org/t/p/w342${f.poster_path}` : null,
+        poster_path:   f.poster_path,
+        vote_average:  f.vote_average || 0,
+        year:          f.year || '',
+        _source:       'local',
         _qualityLabel: f.qualityLabel,
-        _matched:    f.matched,
+        _qualityScore: f.qualityScore || 0,
+        _matched:      f.matched,
       }))
 
     // Unmatched local files (no TMDB match found)
@@ -89,12 +135,15 @@ export default function Library() {
     }
   }, [section, library, files])
 
-  // Apply filter
+  // Apply filter then sort
   const filtered = useMemo(() => {
-    if (filter === 'local') return items.filter(i => i._source === 'local' || i._source === 'both')
-    if (filter === 'saved') return items.filter(i => i._source === 'saved' || i._source === 'both')
-    return items
-  }, [items, filter])
+    let result = items
+    if (filter === 'local') result = items.filter(i => i._source === 'local' || i._source === 'both')
+    if (filter === 'saved') result = items.filter(i => i._source === 'saved' || i._source === 'both')
+    return applySort(result, sortId)
+  }, [items, filter, sortId])
+
+  const currentSort = SORT_OPTIONS.find(o => o.id === sortId)
 
   const localCount = items.filter(i => i._source === 'local' || i._source === 'both').length
   const savedCount = items.filter(i => i._source === 'saved' || i._source === 'both').length
@@ -129,6 +178,53 @@ export default function Library() {
             ))}
           </div>
         )}
+
+        {/* Sort dropdown */}
+        <div ref={sortRef} style={{ position: 'relative', marginLeft: 'auto' }}>
+          <button
+            onClick={() => setSortOpen(o => !o)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.3rem 0.85rem', borderRadius: 20, cursor: 'pointer',
+              border: '1px solid var(--border)', background: 'var(--bg-card)',
+              color: 'var(--text-secondary)', fontSize: '0.8rem',
+              transition: 'all 0.15s',
+            }}
+          >
+            {currentSort?.icon === 'asc' ? <FiArrowUp size={13} /> : <FiArrowDown size={13} />}
+            {currentSort?.label}
+            <FiChevronDown size={12} style={{ transform: sortOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+          </button>
+
+          {sortOpen && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 200,
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              overflow: 'hidden', minWidth: 220,
+            }}>
+              {SORT_OPTIONS.map(opt => (
+                <button
+                  key={opt.id}
+                  onClick={() => { setSortId(opt.id); setSortOpen(false) }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    padding: '0.5rem 0.85rem', border: 'none', cursor: 'pointer', textAlign: 'left',
+                    background: sortId === opt.id ? 'var(--bg-card)' : 'transparent',
+                    color: sortId === opt.id ? 'var(--accent)' : 'var(--text-primary)',
+                    fontSize: '0.84rem',
+                  }}
+                  onMouseEnter={e => { if (sortId !== opt.id) e.currentTarget.style.background = 'var(--bg-card)' }}
+                  onMouseLeave={e => { if (sortId !== opt.id) e.currentTarget.style.background = 'transparent' }}
+                >
+                  {opt.icon === 'asc' ? <FiArrowUp size={13} style={{ flexShrink: 0, opacity: 0.6 }} /> : <FiArrowDown size={13} style={{ flexShrink: 0, opacity: 0.6 }} />}
+                  {opt.label}
+                  {sortId === opt.id && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--accent)' }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {filtered.length === 0 && (
