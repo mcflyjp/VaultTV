@@ -91,7 +91,7 @@ export default function Detail() {
     <div style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
 
       {/* ── Background trailer video ── */}
-      {bgVideoUrl && !playUrl && (
+      {bgVideoUrl && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 0,
           pointerEvents: 'none',
