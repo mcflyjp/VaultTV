@@ -272,10 +272,20 @@ for (const folder of watchedFolders) {
   }
 }
 
-app.listen(PORT, '127.0.0.1', () => {
+const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n🎬 VaultTV Companion running at http://127.0.0.1:${PORT}`)
   console.log(`   Watching ${watchedFolders.length} folder(s)`)
   console.log('   Press Ctrl+C to stop\n')
+})
+
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Port ${PORT} is already in use — another companion instance is probably still running.`)
+    console.error('   Open Task Manager, find "node.exe", and end it. Then try again.\n')
+  } else {
+    console.error('Server error:', err.message)
+  }
+  process.exit(1)
 })
 
 // Graceful shutdown
