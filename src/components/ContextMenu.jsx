@@ -1,0 +1,173 @@
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useContextMenu } from '../context/ContextMenuContext'
+import { useLibrary } from '../context/LibraryContext'
+import { useQueue } from '../context/QueueContext'
+import { useRatings } from '../context/RatingsContext'
+import { usePlaylist } from '../context/PlaylistContext'
+import { useWatchHistory } from '../context/WatchHistoryContext'
+import { useArtwork } from '../context/ArtworkContext'
+import { IMG } from '../lib/tmdb'
+import {
+  FiPlay, FiList, FiBookmark, FiCheck, FiStar, FiImage,
+  FiInfo, FiPlusSquare, FiX, FiPlus
+} from 'react-icons/fi'
+import ArtworkPicker from './ArtworkPicker'
+import RatingPicker from './RatingPicker'
+import PlaylistModal from './PlaylistModal'
+
+export default function ContextMenu() {
+  const { menu, hide } = useContextMenu()
+  const { isSaved, toggle: toggleSave } = useLibrary()
+  const { isQueued, addToQueue, removeFromQueue } = useQueue()
+  const { getRating } = useRatings()
+  const { inProgress, startWatching } = useWatchHistory()
+  const navigate = useNavigate()
+  const ref = useRef(null)
+
+  const [subModal, setSubModal] = useState(null) // 'artwork' | 'rating' | 'playlist'
+
+  // Click outside to close
+  useEffect(() => {
+    if (!menu.visible) return
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) hide() }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menu.visible])
+
+  if (!menu.visible || !menu.item) return null
+
+  const { item } = menu
+  const type  = item.type || item.media_type || (item.first_air_date ? 'tv' : 'movie')
+  const title = item.title || item.name || 'Unknown'
+  const poster = item.poster || IMG(item.poster_path, 'w92')
+  const saved  = isSaved(item.id, type)
+  const queued = isQueued(item.id, type)
+  const rating = getRating(item.id, type)
+  const year   = (item.release_date || item.first_air_date || '').slice(0, 4)
+
+  // Position: keep menu in viewport
+  const vw = window.innerWidth, vh = window.innerHeight
+  const menuW = 240, menuH = 340
+  const x = menu.x + menuW > vw ? vw - menuW - 8 : menu.x
+  const y = menu.y + menuH > vh ? vh - menuH - 8 : menu.y
+
+  function action(fn) { fn(); hide() }
+
+  const libraryItem = { id: item.id, type, title, poster }
+
+  if (subModal === 'artwork') return (
+    <ArtworkPicker item={item} type={type} onClose={() => { setSubModal(null); hide() }} />
+  )
+  if (subModal === 'rating') return (
+    <RatingPicker item={item} type={type} onClose={() => { setSubModal(null); hide() }} />
+  )
+  if (subModal === 'playlist') return (
+    <PlaylistModal item={libraryItem} onClose={() => { setSubModal(null); hide() }} />
+  )
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed', zIndex: 9000, top: y, left: x,
+        width: menuW,
+        background: 'rgba(15,15,20,0.96)',
+        backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 10,
+        boxShadow: '0 16px 60px rgba(0,0,0,0.8)',
+        overflow: 'hidden',
+        userSelect: 'none',
+      }}
+      onContextMenu={e => e.preventDefault()}
+    >
+      {/* Header — mini poster + title */}
+      <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center', padding: '0.7rem 0.85rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        {poster && (
+          <img src={poster} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+        )}
+        <div style={{ minWidth: 0 }}>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: '0.82rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</p>
+          <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>
+            {year}{year && type ? ' · ' : ''}{type === 'tv' ? 'Series' : 'Movie'}
+            {rating ? ` · ⭐ ${rating}/10` : ''}
+          </p>
+        </div>
+      </div>
+
+      {/* Menu items */}
+      <div style={{ padding: '0.35rem 0' }}>
+
+        <MenuSection label="Playback" />
+        <MenuItem icon={<FiPlay />} label="Play Now" accent onClick={() => action(() => navigate(`/detail/${type}/${item.id}`))} />
+        <MenuItem
+          icon={<FiList />}
+          label={queued ? 'Remove from Queue' : 'Add to Queue'}
+          onClick={() => action(() => queued ? removeFromQueue(item.id, type) : addToQueue(libraryItem))}
+          active={queued}
+        />
+
+        <Divider />
+        <MenuSection label="My Library" />
+        <MenuItem
+          icon={<FiBookmark />}
+          label={saved ? 'Remove from Library' : 'Save to Library'}
+          onClick={() => action(() => toggleSave(libraryItem))}
+          active={saved}
+        />
+        <MenuItem
+          icon={<FiStar />}
+          label={rating ? `My Rating: ${rating}/10` : 'Rate This…'}
+          onClick={() => setSubModal('rating')}
+          active={!!rating}
+        />
+        <MenuItem
+          icon={<FiCheck />}
+          label="Mark as Watched"
+          onClick={() => action(() => startWatching({ ...libraryItem, durationSec: 1, progressSec: 1 }))}
+        />
+
+        <Divider />
+        <MenuSection label="Organize" />
+        <MenuItem icon={<FiPlusSquare />} label="Add to Playlist…" onClick={() => setSubModal('playlist')} />
+        <MenuItem icon={<FiImage />}      label="Change Artwork…"  onClick={() => setSubModal('artwork')} />
+
+        <Divider />
+        <MenuItem icon={<FiInfo />} label="More Info" onClick={() => action(() => navigate(`/detail/${type}/${item.id}`))} muted />
+
+      </div>
+    </div>
+  )
+}
+
+function MenuSection({ label }) {
+  return <p style={{ margin: '0.2rem 0 0.1rem', padding: '0 0.85rem', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' }}>{label}</p>
+}
+
+function Divider() {
+  return <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0.3rem 0' }} />
+}
+
+function MenuItem({ icon, label, onClick, accent, active, muted }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <button
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem',
+        padding: '0.5rem 0.85rem', border: 'none', cursor: 'pointer',
+        background: hovered ? 'rgba(124,58,237,0.25)' : 'transparent',
+        color: accent || active ? 'var(--accent)' : muted ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.85)',
+        fontSize: '0.84rem', textAlign: 'left', transition: 'background 0.1s',
+        borderRadius: 0,
+      }}
+    >
+      <span style={{ flexShrink: 0, opacity: muted ? 0.5 : 1 }}>{icon}</span>
+      {label}
+      {active && !accent && <FiCheck size={12} style={{ marginLeft: 'auto', color: 'var(--accent)', flexShrink: 0 }} />}
+    </button>
+  )
+}
