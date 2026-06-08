@@ -601,28 +601,38 @@ export default function Settings() {
 function ResyncLibraryButton() {
   const local = useLocalLibrary()
   const [status, setStatus] = useState(null) // null | 'syncing' | 'done' | 'error'
+  const [errMsg, setErrMsg] = useState('')
 
   async function resync() {
     setStatus('syncing')
+    setErrMsg('')
     try {
-      const { fetchLibrary, saveLibrary } = await import('../lib/companion')
+      // Check companion is reachable first — gives a clear error on FireTV if
+      // the companion host IP hasn't been set in Settings yet
+      if (!local.companionOnline) {
+        setErrMsg('Companion offline — set the PC IP address above first')
+        setStatus('error')
+        setTimeout(() => setStatus(null), 5000)
+        return
+      }
+      const { fetchLibrary } = await import('../lib/companion')
       const lib = await fetchLibrary()
       if (lib?.files?.length) {
-        local.clearAll()
-        // Small delay so clearAll flushes to localStorage before we write new data
+        local.clearAll?.()
         await new Promise(r => setTimeout(r, 100))
-        // Write directly to localStorage then reload so context re-initialises cleanly
         localStorage.setItem('vt-local-sources', JSON.stringify(lib.sources || []))
         localStorage.setItem('vt-local-library', JSON.stringify(lib.files))
         setStatus('done')
         setTimeout(() => window.location.reload(), 800)
       } else {
+        setErrMsg('Companion has no library saved yet — scan folders on the desktop app first')
         setStatus('error')
-        setTimeout(() => setStatus(null), 3000)
+        setTimeout(() => setStatus(null), 5000)
       }
-    } catch {
+    } catch (e) {
+      setErrMsg(e?.message || 'Unknown error')
       setStatus('error')
-      setTimeout(() => setStatus(null), 3000)
+      setTimeout(() => setStatus(null), 5000)
     }
   }
 
@@ -633,14 +643,19 @@ function ResyncLibraryButton() {
   const color = status === 'done' ? '#16a34a' : status === 'error' ? '#ef4444' : 'var(--accent)'
 
   return (
-    <button
-      data-card tabIndex={0}
-      onClick={resync}
-      disabled={status === 'syncing' || status === 'done'}
-      style={{ background: color, border: 'none', borderRadius: 'var(--radius)', color: '#fff', padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'background 0.2s' }}
-    >
-      <FiRefreshCw size={13} /> {label}
-    </button>
+    <div>
+      <button
+        data-card tabIndex={0}
+        onClick={resync}
+        disabled={status === 'syncing' || status === 'done'}
+        style={{ background: color, border: 'none', borderRadius: 'var(--radius)', color: '#fff', padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'background 0.2s' }}
+      >
+        <FiRefreshCw size={13} /> {label}
+      </button>
+      {status === 'error' && errMsg && (
+        <p style={{ margin: '0.4rem 0 0', fontSize: '0.75rem', color: '#ef4444' }}>{errMsg}</p>
+      )}
+    </div>
   )
 }
 
