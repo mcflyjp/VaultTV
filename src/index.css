@@ -278,7 +278,8 @@ a:not(.no-pop):hover,
 :focus:not(:focus-visible) { outline: none; }
 
 /* ── Focusable card ── */
-.focusable-card:focus-visible {
+.focusable-card:focus-visible,
+.focusable-card.snav-focused {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
   transform: scale(1.06);

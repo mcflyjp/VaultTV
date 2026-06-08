@@ -64,7 +64,10 @@ public class MainActivity extends Activity {
         +     "if(score<bestScore){bestScore=score;best=el;}"
         +   "});"
         +   "if(!best)return false;"
+        // Remove snav-focused from the previously focused element
+        +   "document.querySelectorAll('.snav-focused').forEach(function(el){el.classList.remove('snav-focused');});"
         +   "best.focus({preventScroll:false});"
+        +   "best.classList.add('snav-focused');"
         +   "best.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
         +   "return true;"
         + "}"
@@ -92,7 +95,10 @@ public class MainActivity extends Activity {
         // Re-stamp new cards whenever React injects them
         + "new MutationObserver(stamp).observe(document.body,{childList:true,subtree:true});"
         + "stamp();"
-        + "setTimeout(function(){var f=document.querySelector(SEL);if(f)f.focus();},600);"
+        + "setTimeout(function(){"
+        +   "var f=document.querySelector(SEL);"
+        +   "if(f){document.querySelectorAll('.snav-focused').forEach(function(el){el.classList.remove('snav-focused');});f.focus();f.classList.add('snav-focused');}"
+        + "},600);"
         + "})();";
     // ─────────────────────────────────────────────────────────────────────
 
