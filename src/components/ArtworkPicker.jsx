@@ -8,7 +8,7 @@
  *   onClose   — called when user closes or applies
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useArtwork } from '../context/ArtworkContext'
 import { IMG } from '../lib/tmdb'
@@ -39,6 +39,7 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
   const [dragging,  setDragging]  = useState(false)
   const [dropError, setDropError] = useState('')
   const fileInputRef = useRef(null)
+  const modalRef     = useRef(null)
 
   const current = getArtwork(item.id, type, slot)
   const isPoster = slot === 'poster'
@@ -97,6 +98,22 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
     if (url?.startsWith('http')) { setCustomUrl(url) }
   }, [slot]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Handle Ctrl+V — paste image from clipboard
+  useEffect(() => {
+    function onPaste(e) {
+      // Don't intercept if user is typing in the URL input
+      if (e.target?.tagName === 'INPUT') return
+      const items = Array.from(e.clipboardData?.items || [])
+      const imageItem = items.find(i => i.type.startsWith('image/'))
+      if (imageItem) {
+        e.preventDefault()
+        applyFile(imageItem.getAsFile())
+      }
+    }
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+  }, [slot]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const title = item.title || item.name || 'Untitled'
 
   return (
@@ -107,8 +124,14 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
       }}
       onClick={e => e.target === e.currentTarget && onClose()}
+      onContextMenu={e => e.preventDefault()}
     >
-      <div style={{
+      <div
+        ref={modalRef}
+        onMouseDown={e => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
+        onContextMenu={e => e.stopPropagation()}
+        style={{
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 14, width: '100%',
         maxWidth: isPoster ? 580 : 780,
