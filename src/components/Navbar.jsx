@@ -31,7 +31,7 @@ export default function Navbar() {
 
         {/* Logo */}
         <Link to="/" style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-          <img src="/logo.png" alt="VaultTV" style={{ height: 52, width: 'auto' }} />
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="VaultTV" style={{ height: 52, width: 'auto' }} />
         </Link>
 
         {/* Nav links */}
