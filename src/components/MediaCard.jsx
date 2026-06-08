@@ -10,14 +10,13 @@ import { FiPlay, FiStar, FiCheck, FiHardDrive, FiFilm } from 'react-icons/fi'
 export default function MediaCard({ item, width = 150, onKeyDown }) {
   const navigate = useNavigate()
   const { show: showMenu } = useContextMenu()
-  const { getArtwork } = useArtwork()
+  const { getPoster } = useArtwork()
   const { isSaved } = useLibrary()
   const { hasLocal, getLocalEpisodeCount } = useLocalLibrary()
   const [hovered, setHovered] = useState(false)
   const type = item.media_type || (item.first_air_date ? 'tv' : 'movie')
   const title = item.title || item.name || 'Untitled'
-  const customArt = getArtwork(item.id, type)
-  const poster = customArt || IMG(item.poster_path, 'w342')
+  const poster = getPoster(item.id, type) || IMG(item.poster_path, 'w342')
   const saved   = isSaved(item.id, type)
   const isLocal = hasLocal(item.id, type)
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)

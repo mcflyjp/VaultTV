@@ -77,7 +77,7 @@ export default function ContextMenu() {
   }
 
   if (subModal === 'artwork') return (
-    <ArtworkPicker item={item} type={type} onClose={() => { setSubModal(null); hide() }} />
+    <ArtworkPicker item={item} type={type} slot="poster" onClose={() => { setSubModal(null); hide() }} />
   )
   if (subModal === 'rating') return (
     <RatingPicker item={item} type={type} onClose={() => { setSubModal(null); hide() }} />

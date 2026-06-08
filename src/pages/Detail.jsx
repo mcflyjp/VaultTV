@@ -7,8 +7,10 @@ import { useLibrary } from '../context/LibraryContext'
 import { useWatchHistory } from '../context/WatchHistoryContext'
 import { usePlayer } from '../context/PlayerContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
+import { useArtwork } from '../context/ArtworkContext'
+import ArtworkPicker from '../components/ArtworkPicker'
 import MediaShelf from '../components/MediaShelf'
-import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers } from 'react-icons/fi'
+import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage } from 'react-icons/fi'
 import { sortStreamsByCompat, streamCompat, compatBadge } from '../lib/streamCompat'
 import { platformLabel } from '../lib/platform'
 
@@ -19,6 +21,9 @@ export default function Detail() {
   const { startWatching, updateProgress } = useWatchHistory()
   const { play } = usePlayer()
   const { getLocalFile, getLocalVersions, getFileUrl } = useLocalLibrary()
+  const { getPoster, getBackdrop } = useArtwork()
+  const [artPicker, setArtPicker]     = useState(null) // null | 'poster' | 'backdrop'
+  const [posterHovered, setPosterHovered] = useState(false)
   const [streams, setStreams]         = useState(null)
   const [loadingStreams, setLoadingStreams] = useState(false)
   const [autoSubs, setAutoSubs]       = useState([])
@@ -67,8 +72,10 @@ export default function Detail() {
   if (isLoading) return <LoadingState />
 
   const title         = detail?.title || detail?.name
-  const backdrop      = IMG(detail?.backdrop_path, 'original')
-  const poster        = IMG(detail?.poster_path, 'w342')
+  const tmdbBackdrop  = IMG(detail?.backdrop_path, 'original')
+  const tmdbPoster    = IMG(detail?.poster_path, 'w342')
+  const backdrop      = getBackdrop(Number(id), type) || tmdbBackdrop
+  const poster        = getPoster(Number(id), type)   || tmdbPoster
   const certification = getCertification(detail, type)
 
   const allVideos   = videos?.results || detail?.videos?.results || []
@@ -108,15 +115,24 @@ export default function Detail() {
     }
   }
 
+  /* ArtworkPicker needs the full detail object so item can have a title */
+  const artItem = detail ? { id: Number(id), title, poster_path: detail.poster_path, backdrop_path: detail.backdrop_path } : null
+
   return (
+    <>
+    {artPicker && artItem && (
+      <ArtworkPicker
+        item={artItem}
+        type={type}
+        slot={artPicker}
+        onClose={() => setArtPicker(null)}
+      />
+    )}
     <div style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
 
-      {/* ── Background trailer video ── */}
-      {bgVideoUrl && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 0,
-          pointerEvents: 'none',
-        }}>
+      {/* ── Background — trailer video OR static backdrop image ── */}
+      <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+        {bgVideoUrl ? (
           <iframe
             src={bgVideoUrl}
             title="background"
@@ -125,22 +141,46 @@ export default function Detail() {
               position: 'absolute',
               top: '50%', left: '50%',
               transform: 'translate(-50%, -50%)',
-              width: '177.78vh',   // 16:9 fill
-              minWidth: '100%',
-              height: '56.25vw',
-              minHeight: '100%',
-              border: 'none',
-              opacity: 0.45,
+              width: '177.78vh', minWidth: '100%',
+              height: '56.25vw', minHeight: '100%',
+              border: 'none', opacity: 0.45,
               filter: 'blur(2px) brightness(0.6)',
             }}
           />
-          {/* gradient over the video */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            background: 'linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, var(--bg-primary) 80%)',
-          }} />
-        </div>
-      )}
+        ) : backdrop ? (
+          <div
+            style={{
+              position: 'absolute', inset: 0,
+              backgroundImage: `url(${backdrop})`,
+              backgroundSize: 'cover', backgroundPosition: 'center top',
+              opacity: 0.35, filter: 'blur(1px) brightness(0.5)',
+            }}
+          />
+        ) : null}
+        {/* Gradient darkens bottom so text is always readable */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, var(--bg-primary) 78%)',
+        }} />
+      </div>
+
+      {/* ── Change Banner button — top-right of viewport ── */}
+      <button
+        onClick={() => setArtPicker('backdrop')}
+        title="Change backdrop / banner"
+        style={{
+          position: 'fixed', top: '4.5rem', right: '1rem', zIndex: 50,
+          background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8,
+          color: 'rgba(255,255,255,0.65)', cursor: 'pointer',
+          padding: '0.35rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.35rem',
+          fontSize: '0.75rem', fontWeight: 600, transition: 'background 0.15s, color 0.15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.8)'; e.currentTarget.style.color = '#fff' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.55)'; e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
+      >
+        <FiImage size={13} /> Change Banner
+      </button>
 
       {/* ── Hidden theme audio iframe ── */}
       {themeAudioUrl && !musicDismissed && musicPlaying && (
@@ -192,13 +232,34 @@ export default function Detail() {
         <div style={{ minHeight: 380, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '5rem 2rem 2rem' }}>
           <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
 
-            {/* Poster */}
+            {/* Poster — hover to reveal "Change Poster" button */}
             {poster && (
-              <img
-                src={poster}
-                alt={title}
-                style={{ width: 180, borderRadius: 'var(--radius)', flexShrink: 0, boxShadow: '0 8px 40px rgba(0,0,0,0.9)', alignSelf: 'flex-start', marginTop: '1rem' }}
-              />
+              <div
+                style={{ position: 'relative', width: 180, flexShrink: 0, alignSelf: 'flex-start', marginTop: '1rem' }}
+                onMouseEnter={() => setPosterHovered(true)}
+                onMouseLeave={() => setPosterHovered(false)}
+              >
+                <img
+                  src={poster}
+                  alt={title}
+                  style={{ width: '100%', borderRadius: 'var(--radius)', display: 'block', boxShadow: '0 8px 40px rgba(0,0,0,0.9)' }}
+                />
+                {posterHovered && (
+                  <button
+                    onClick={() => setArtPicker('poster')}
+                    style={{
+                      position: 'absolute', bottom: 0, left: 0, right: 0,
+                      background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
+                      border: 'none', color: '#fff', cursor: 'pointer',
+                      padding: '0.55rem 0', borderRadius: '0 0 var(--radius) var(--radius)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                      fontSize: '0.78rem', fontWeight: 600,
+                    }}
+                  >
+                    <FiImage size={13} /> Change Poster
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Info */}
@@ -418,6 +479,7 @@ export default function Detail() {
         }
       `}</style>
     </div>
+    </>
   )
 }
 
