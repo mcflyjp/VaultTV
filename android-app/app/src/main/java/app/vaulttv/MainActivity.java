@@ -24,94 +24,75 @@ public class MainActivity extends Activity {
     // ─────────────────────────────────────────────────────────────────────
 
     // ── Spatial navigation JS ─────────────────────────────────────────────
-    // Injected after every page load. Makes all interactive elements (cards,
-    // buttons, AND form inputs) reachable with D-pad arrows + OK button.
     private static final String SPATIAL_NAV_JS = "(function(){"
-        // Focusable selector — includes inputs/selects so forms are reachable
+        // Guard: only install once per page — onPageFinished can fire multiple times
+        // (resource loads, hash changes), which would stack duplicate keydown listeners.
+        + "if(window.__snav)return;"
+        + "window.__snav=true;"
         + "var SEL='button,input,textarea,select,[data-card],[role=button],a[href]';"
-        // Add tabindex to card divs so they can receive focus
-        + "function makeFocusable(){"
+        // Give card divs a tabindex so they can receive focus
+        + "function stamp(){"
         +   "document.querySelectorAll('[data-card]').forEach(function(el){"
-        +     "if(!el.getAttribute('tabindex'))el.setAttribute('tabindex','0');"
+        +     "if(!el.tabIndex||el.tabIndex<0)el.setAttribute('tabindex','0');"
         +   "});"
         + "}"
-        + "function rect(el){return el.getBoundingClientRect();}"
+        // Return center-x and center-y of a DOMRect
         + "function cx(r){return r.left+r.width/2;}"
         + "function cy(r){return r.top+r.height/2;}"
-        + "function navigate(dir){"
-        +   "var cur=document.activeElement;"
-        +   "var cr=(cur&&cur!==document.body)?rect(cur):null;"
-        +   "var candidates=Array.from(document.querySelectorAll(SEL)).filter(function(el){"
-        +     "if(el===cur||el.offsetParent===null||el.disabled)return false;"
-        +     "var r=rect(el);"
-        +     "if(r.width===0||r.height===0)return false;"
-        // No viewport clipping — allow off-screen elements so D-pad can navigate
-        // into a grid that starts below the fold; scrollIntoView brings them in.
-        // Only exclude elements that are wildly far away (> 5 screens) to keep perf.
-        +     "var FAR=window.innerHeight*5;"
-        +     "if(r.bottom<-FAR||r.top>FAR*2)return false;"
-        +     "if(!cr)return true;"
-        +     "if(dir==='right')return r.left>=(cr.right-4);"
-        +     "if(dir==='left') return r.right<=(cr.left+4);"
-        +     "if(dir==='down') return r.top>=(cr.bottom-4);"
-        +     "if(dir==='up')   return r.bottom<=(cr.top+4);"
-        +     "return false;"
+        // Find the best focusable neighbour in direction dir
+        + "function move(dir){"
+        +   "var cur=document.activeElement,cr=cur?cur.getBoundingClientRect():null;"
+        +   "var best=null,bestScore=Infinity;"
+        +   "document.querySelectorAll(SEL).forEach(function(el){"
+        +     "if(el===cur||el.disabled||el.offsetParent===null)return;"
+        +     "var r=el.getBoundingClientRect();"
+        +     "if(!r.width||!r.height)return;"
+        // Directional gate: element must be clearly in the right direction
+        +     "if(dir==='down' &&r.top  <(cr?cr.bottom-2:0))return;"
+        +     "if(dir==='up'   &&r.bottom>(cr?cr.top+2   :window.innerHeight))return;"
+        +     "if(dir==='right'&&r.left  <(cr?cr.right-2 :0))return;"
+        +     "if(dir==='left' &&r.right >(cr?cr.left+2  :window.innerWidth))return;"
+        // Score = primary distance + 0.3 * perpendicular distance
+        // Primary = movement in the pressed direction; perp = sideways drift
+        +     "var primary,perp;"
+        +     "if(dir==='down' ){primary=r.top   -(cr?cr.bottom:0);perp=Math.abs(cx(r)-(cr?cx(cr):cx(r)));}"
+        +     "else if(dir==='up'   ){primary=(cr?cr.top:window.innerHeight)-r.bottom;perp=Math.abs(cx(r)-(cr?cx(cr):cx(r)));}"
+        +     "else if(dir==='right'){primary=r.left  -(cr?cr.right:0);perp=Math.abs(cy(r)-(cr?cy(cr):cy(r)));}"
+        +     "else                  {primary=(cr?cr.left:window.innerWidth)-r.right; perp=Math.abs(cy(r)-(cr?cy(cr):cy(r)));}"
+        +     "if(primary<0)return;"  // shouldn't happen after gate, but safety
+        +     "var score=primary+perp*0.3;"
+        +     "if(score<bestScore){bestScore=score;best=el;}"
         +   "});"
-        +   "if(!candidates.length)return false;"
-        +   "var best=candidates.reduce(function(a,b){"
-        +     "var ra=rect(a),rb=rect(b);"
-        +     "var dax,day,dbx,dby;"
-        +     "if(cr){"
-        +       "dax=cx(ra)-cx(cr);day=cy(ra)-cy(cr);"
-        +       "dbx=cx(rb)-cx(cr);dby=cy(rb)-cy(cr);"
-        +     "}else{dax=cx(ra);day=cy(ra);dbx=cx(rb);dby=cy(rb);}"
-        // Weight: primary axis counts 1x, perpendicular counts 2x (prefer straight-line movement)
-        +     "var pw=(dir==='up'||dir==='down')?1:2;"
-        +     "var wa=Math.sqrt(dax*dax*pw+day*day*(pw===1?2:1));"
-        +     "var wb=Math.sqrt(dbx*dbx*pw+dby*dby*(pw===1?2:1));"
-        +     "return wa<wb?a:b;"
-        +   "});"
+        +   "if(!best)return false;"
         +   "best.focus({preventScroll:false});"
         +   "best.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
         +   "return true;"
         + "}"
-        + "var SCROLL_STEP=220;"
         + "document.addEventListener('keydown',function(e){"
-        +   "var active=document.activeElement;"
-        +   "var tag=active?active.tagName:'';"
-        // When inside a text input, only intercept Up/Down (to leave the field);
-        // Left/Right/Enter pass through so typing still works normally
-        +   "var inText=(tag==='INPUT'&&active.type!=='checkbox'&&active.type!=='radio'&&active.type!=='submit'&&active.type!=='button')||tag==='TEXTAREA';"
-        +   "var dir=null;"
-        +   "if(e.keyCode===39||e.keyCode===228)dir='right';"
-        +   "if(e.keyCode===37||e.keyCode===225)dir='left';"
-        +   "if(e.keyCode===40||e.keyCode===227)dir='down';"
-        +   "if(e.keyCode===38||e.keyCode===226)dir='up';"
-        // Inside a text input: let left/right move cursor; only intercept up/down to leave field
-        +   "if(inText&&(dir==='left'||dir==='right'))return;"
+        +   "var tag=(document.activeElement||{}).tagName||'';"
+        +   "var isText=(tag==='TEXTAREA')||(tag==='INPUT'&&!/checkbox|radio|submit|button/i.test((document.activeElement||{}).type||''));"
+        +   "var k=e.keyCode,dir=k===40||k===227?'down':k===38||k===226?'up':k===39||k===228?'right':k===37||k===225?'left':null;"
+        // In a text field, left/right move cursor — don't intercept them
+        +   "if(isText&&(dir==='left'||dir==='right'))return;"
         +   "if(dir){"
         +     "e.preventDefault();e.stopPropagation();"
-        +     "if(!navigate(dir)){"
-        +       "var scroller=document.querySelector('main')||document.scrollingElement||document.documentElement;"
-        +       "if(dir==='down')scroller.scrollTop+=SCROLL_STEP;"
-        +       "else if(dir==='up')scroller.scrollTop-=SCROLL_STEP;"
+        +     "if(!move(dir)){"
+        +       "var s=document.querySelector('main')||document.scrollingElement;"
+        +       "if(dir==='down')s.scrollTop+=200;"
+        +       "else if(dir==='up')s.scrollTop-=200;"
         +     "}"
+        +     "return;"
         +   "}"
-        // Enter on a non-input element = click it.
-        // Enter on an input/select = submit or toggle (let default happen)
-        +   "if(e.keyCode===13||e.keyCode===23){"
-        +     "if(!inText&&tag!=='SELECT'){"
-        +       "if(active&&active!==document.body){active.click();e.preventDefault();}"
-        +     "}"
+        // OK / Enter — click the focused element (unless it's a text input)
+        +   "if((k===13||k===23)&&!isText){"
+        +     "var el=document.activeElement;"
+        +     "if(el&&el!==document.body){el.click();e.preventDefault();}"
         +   "}"
         + "},true);"
-        + "var obs=new MutationObserver(function(){makeFocusable();});"
-        + "obs.observe(document.body,{childList:true,subtree:true});"
-        + "makeFocusable();"
-        + "setTimeout(function(){"
-        +   "var first=document.querySelector(SEL);"
-        +   "if(first)first.focus();"
-        + "},800);"
+        // Re-stamp new cards whenever React injects them
+        + "new MutationObserver(stamp).observe(document.body,{childList:true,subtree:true});"
+        + "stamp();"
+        + "setTimeout(function(){var f=document.querySelector(SEL);if(f)f.focus();},600);"
         + "})();";
     // ─────────────────────────────────────────────────────────────────────
 
