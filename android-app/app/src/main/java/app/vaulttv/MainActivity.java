@@ -21,6 +21,82 @@ public class MainActivity extends Activity {
     private static final String VAULTTV_URL = "http://192.168.1.232:5174";
     // ─────────────────────────────────────────────────────────────────────
 
+    // ── Spatial navigation JS injected after every page load ─────────────
+    // Makes all cards/buttons focusable and enables arrow-key navigation.
+    private static final String SPATIAL_NAV_JS = "(function(){"
+        // Selector for everything we want to be D-pad reachable
+        + "var SEL='button,[data-card],[role=button],a[href],[tabindex]';"
+        // Make items focusable and give visual focus ring
+        + "function makeFocusable(){"
+        +   "document.querySelectorAll('[data-card]').forEach(function(el){"
+        +     "if(!el.getAttribute('tabindex'))el.setAttribute('tabindex','0');"
+        +   "});"
+        + "}"
+        // Spatial nav: find closest focusable in a given direction
+        + "function rect(el){return el.getBoundingClientRect();}"
+        + "function cx(r){return r.left+r.width/2;}"
+        + "function cy(r){return r.top+r.height/2;}"
+        + "function navigate(dir){"
+        +   "var cur=document.activeElement;"
+        +   "var cr=cur?rect(cur):null;"
+        +   "var candidates=Array.from(document.querySelectorAll(SEL)).filter(function(el){"
+        +     "if(el===cur||el.offsetParent===null)return false;"
+        +     "var r=rect(el);"
+        +     "if(r.width===0||r.height===0)return false;"
+        +     "if(dir==='right')return r.left>=(cr?cr.right-4:0);"
+        +     "if(dir==='left') return r.right<=(cr?cr.left+4:window.innerWidth);"
+        +     "if(dir==='down') return r.top>=(cr?cr.bottom-4:0);"
+        +     "if(dir==='up')   return r.bottom<=(cr?cr.top+4:window.innerHeight);"
+        +     "return false;"
+        +   "});"
+        +   "if(!candidates.length)return false;"
+        +   "var best=candidates.reduce(function(a,b){"
+        +     "var ra=rect(a),rb=rect(b);"
+        +     "var dax,day,dbx,dby;"
+        +     "if(cr){"
+        +       "dax=cx(ra)-cx(cr);day=cy(ra)-cy(cr);"
+        +       "dbx=cx(rb)-cx(cr);dby=cy(rb)-cy(cr);"
+        +     "}else{dax=cx(ra);day=cy(ra);dbx=cx(rb);dby=cy(rb);}"
+        // Weight perpendicular axis less (prefer items in the primary direction)
+        +     "var wa=Math.sqrt(dax*dax*1.5+day*day*(dir==='left'||dir==='right'?3:1));"
+        +     "var wb=Math.sqrt(dbx*dbx*1.5+dby*dby*(dir==='left'||dir==='right'?3:1));"
+        +     "return wa<wb?a:b;"
+        +   "});"
+        +   "best.focus({preventScroll:false});"
+        +   "best.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
+        +   "return true;"
+        + "}"
+        // Arrow key handler — only fires if no text input is focused
+        + "document.addEventListener('keydown',function(e){"
+        +   "var tag=document.activeElement?document.activeElement.tagName:'BODY';"
+        +   "if(tag==='INPUT'||tag==='TEXTAREA')return;"
+        +   "var dir=null;"
+        +   "if(e.keyCode===39||e.keyCode===228)dir='right';"   // ArrowRight / DPAD_RIGHT
+        +   "if(e.keyCode===37||e.keyCode===225)dir='left';"    // ArrowLeft  / DPAD_LEFT
+        +   "if(e.keyCode===40||e.keyCode===227)dir='down';"    // ArrowDown  / DPAD_DOWN
+        +   "if(e.keyCode===38||e.keyCode===226)dir='up';"      // ArrowUp    / DPAD_UP
+        +   "if(dir&&navigate(dir))e.preventDefault();"
+        // Enter / DPAD_CENTER = click focused element + trigger React synthetic click
+        +   "if(e.keyCode===13||e.keyCode===23){"
+        +     "var el=document.activeElement;"
+        +     "if(el&&el!==document.body){"
+        +       "el.click();"
+        +       "e.preventDefault();"
+        +     "}"
+        +   "}"
+        + "},true);"
+        // Re-run makeFocusable when DOM changes (React route changes add new cards)
+        + "var obs=new MutationObserver(function(){makeFocusable();});"
+        + "obs.observe(document.body,{childList:true,subtree:true});"
+        + "makeFocusable();"
+        // Focus first interactive element after a short delay
+        + "setTimeout(function(){"
+        +   "var first=document.querySelector(SEL);"
+        +   "if(first)first.focus();"
+        + "},800);"
+        + "})();";
+    // ─────────────────────────────────────────────────────────────────────
+
     private WebView webView;
     private ProgressBar progressBar;
 
@@ -35,26 +111,26 @@ public class MainActivity extends Activity {
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);       // localStorage (addons, library)
-        settings.setMediaPlaybackRequiresUserGesture(false); // auto-play video
+        settings.setDomStorageEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW); // http companion
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // Keep app inside WebView; open nothing in external browser
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return false; // handle all URLs inside WebView
+                return false;
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
+                // Inject spatial navigation after every page / route load
+                webView.evaluateJavascript(SPATIAL_NAV_JS, null);
             }
         });
 
-        // Grant fullscreen requests from the video player
         webView.setWebChromeClient(new WebChromeClient() {
             private View customView;
 
@@ -76,26 +152,23 @@ public class MainActivity extends Activity {
                 progressBar = findViewById(R.id.progressBar);
                 progressBar.setVisibility(View.GONE);
                 customView = null;
+                // Re-inject after returning from fullscreen
+                webView.evaluateJavascript(SPATIAL_NAV_JS, null);
             }
         });
 
         webView.loadUrl(VAULTTV_URL);
     }
 
-    // ── FireTV / Android TV d-pad + back button ───────────────────────
+    // ── FireTV / Android TV d-pad + back button ───────────────────────────
+    // Arrow keys and Enter are forwarded to the WebView as key events.
+    // The spatial nav JS above handles them; we only intercept Back here.
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_BACK:
-                if (webView.canGoBack()) { webView.goBack(); return true; }
-                break;
-            case KeyEvent.KEYCODE_DPAD_CENTER:
-            case KeyEvent.KEYCODE_ENTER:
-                // Simulate click on focused element
-                webView.evaluateJavascript(
-                    "document.activeElement && document.activeElement.click()", null);
-                return true;
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (webView.canGoBack()) { webView.goBack(); return true; }
         }
+        // Let all other keys (arrows, enter, play/pause, etc.) pass to WebView
         return super.onKeyDown(keyCode, event);
     }
 
