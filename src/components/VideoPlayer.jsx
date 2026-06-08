@@ -77,6 +77,8 @@ export default function VideoPlayer() {
   const [autoSubFetching, setAutoSubFetching] = useState(false) // fetching from companion
   const [playbackRate,  setPlaybackRate]  = useState(1)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false)
+  const [subMenuOpen, setSubMenuOpen] = useState(false)
   const [settingsTab,  setSettingsTab]  = useState('quality')
   const [error,        setError]        = useState('')
   const [audioWarning, setAudioWarning] = useState('')   // codec/no-audio warning
@@ -241,7 +243,10 @@ export default function VideoPlayer() {
 
           console.log(`[player] Swapping to transcode — audio:${codecs.audioCodec} video:${codecs.videoCodec}`)
           const seekTo  = Math.floor(video.currentTime || 0)
-          const tUrl    = transcodeUrl(src, seekTo, transcodeVideo)
+          // Use preferred audio language so ffmpeg selects the right track by default
+          const streamLangs = session.streamLangs || []
+          const al = audioLang && streamLangs.includes(audioLang) ? audioLang : ''
+          const tUrl    = transcodeUrl(src, seekTo, transcodeVideo, al)
 
           // Tear down HLS if active, swap src to transcode stream
           if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
@@ -293,6 +298,35 @@ export default function VideoPlayer() {
       if (blobUrl) URL.revokeObjectURL(blobUrl)
     }
   }, [session?.imdbId, session?.title, subLang, autoFetchSubs]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Manual subtitle search (triggered by CC button) ──────────
+  async function searchSubs(lang) {
+    if (!session) return
+    setAutoSubFetching(true)
+    try {
+      const url = await fetchCompanionSub({
+        imdbId:    session.imdbId,
+        title:     session.title,
+        year:      session.year,
+        lang:      lang || subLang,
+        mediaType: session.mediaType,
+        season:    session.season,
+        episode:   session.episode,
+      })
+      if (!url) return
+      const newTrack = { id: 'auto_fetched', label: `OpenSubs (${(lang || subLang).toUpperCase()})`, lang: lang || subLang, url }
+      setSubTracks(prev => {
+        const filtered = prev.filter(t => t.id !== 'auto_fetched')
+        const next = [...filtered, newTrack]
+        const idx = next.length - 1
+        setActiveSub(idx)
+        setManualSubUrl(url)
+        return next
+      })
+    } finally {
+      setAutoSubFetching(false)
+    }
+  }
 
   // ── Cleanup on close ──────────────────────────────────────────
   useEffect(() => {
@@ -360,13 +394,13 @@ export default function VideoPlayer() {
   function onPlay()    {
     setPlaying(true)
     setBuffering(false)
-    // Show "No Audio?" hint 2s after playback starts, auto-hide after 8s
+    // Show "No Audio?" hint 8s after playback starts, auto-hide after 30s
     clearTimeout(noAudioTimer.current)
     if (!transcoding) {
       noAudioTimer.current = setTimeout(() => {
         setShowNoAudio(true)
-        noAudioTimer.current = setTimeout(() => setShowNoAudio(false), 6000)
-      }, 2000)
+        noAudioTimer.current = setTimeout(() => setShowNoAudio(false), 30000)
+      }, 8000)
     }
   }
   function onPause()   { setPlaying(false) }
@@ -797,8 +831,80 @@ export default function VideoPlayer() {
               ))}
             </select>
 
+            {/* Audio track picker — only shown when stream has >1 track */}
+            {audioTracks.length > 1 && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => { setAudioMenuOpen(o => !o); setSettingsOpen(false) }}
+                  title="Switch audio track"
+                  style={{
+                    background: audioMenuOpen ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.1)',
+                    border: `1px solid ${audioMenuOpen ? 'var(--accent)' : 'rgba(255,255,255,0.2)'}`,
+                    borderRadius: 6, color: '#fff', cursor: 'pointer',
+                    padding: '0.2rem 0.5rem', fontSize: '0.72rem', fontWeight: 700,
+                    display: 'flex', alignItems: 'center', gap: '0.3rem',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  🎵 {audioTracks.find(t => t.id === audioTrack)?.name || 'Audio'}
+                </button>
+                {audioMenuOpen && (
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      position: 'absolute', bottom: 'calc(100% + 8px)', right: 0,
+                      background: 'rgba(10,10,15,0.97)', backdropFilter: 'blur(20px)',
+                      border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+                      boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+                      minWidth: 180, overflow: 'hidden', zIndex: 100,
+                    }}
+                  >
+                    <p style={{ margin: 0, padding: '0.4rem 0.75rem', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                      Audio Track
+                    </p>
+                    {audioTracks.map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => { changeAudioTrack(t.id); setAudioMenuOpen(false) }}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          padding: '0.5rem 0.75rem', border: 'none', cursor: 'pointer', textAlign: 'left',
+                          background: audioTrack === t.id ? 'rgba(124,58,237,0.25)' : 'transparent',
+                          color: audioTrack === t.id ? '#fff' : 'rgba(255,255,255,0.65)',
+                          fontSize: '0.82rem', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                          transition: 'background 0.1s',
+                        }}
+                        onMouseEnter={e => { if (audioTrack !== t.id) e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                        onMouseLeave={e => { if (audioTrack !== t.id) e.currentTarget.style.background = 'transparent' }}
+                      >
+                        <span style={{ color: audioTrack === t.id ? 'var(--accent)' : 'transparent', fontSize: '0.7rem' }}>✓</span>
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* CC subtitle button — always visible; opens subs tab */}
+            <button
+              onClick={() => { setSettingsOpen(true); setSettingsTab('subtitles'); setAudioMenuOpen(false); setSubMenuOpen(false) }}
+              title="Subtitles"
+              style={{
+                background: activeSub >= 0 ? 'rgba(124,58,237,0.4)' : 'rgba(255,255,255,0.1)',
+                border: `1px solid ${activeSub >= 0 ? 'var(--accent)' : 'rgba(255,255,255,0.2)'}`,
+                borderRadius: 6, color: '#fff', cursor: 'pointer',
+                padding: '0.2rem 0.5rem', fontSize: '0.72rem', fontWeight: 700,
+                display: 'flex', alignItems: 'center', gap: '0.3rem',
+                transition: 'all 0.15s',
+              }}
+            >
+              CC{activeSub >= 0 ? ` · ${subTracks[activeSub]?.lang?.toUpperCase() || 'ON'}` : ''}
+              {autoSubFetching && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1.5s ease-in-out infinite', display: 'inline-block' }} />}
+            </button>
+
             {/* Settings */}
-            <CtrlBtn onClick={() => setSettingsOpen(o => !o)} title="Settings" active={settingsOpen}>
+            <CtrlBtn onClick={() => { setSettingsOpen(o => !o); setAudioMenuOpen(false) }} title="Settings" active={settingsOpen}>
               <FiSettings size={18} />
             </CtrlBtn>
 
@@ -893,10 +999,44 @@ export default function VideoPlayer() {
                     ))}
                   </div>
                 )}
-                {audioTracks.length === 0 && (
+                {audioTracks.length === 0 && !transcoding && (
                   <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.78rem', margin: '0 0 1rem', lineHeight: 1.5 }}>
                     This stream has one audio track. Your preferred language will auto-select on streams with multiple tracks.
                   </p>
+                )}
+
+                {/* Transcode language switcher — only when companion is transcoding a multi-lang stream */}
+                {transcoding && session?.streamLangs?.filter(l => !['MULTI','DUAL'].includes(l)).length > 1 && (
+                  <div style={{ marginBottom: '1rem' }}>
+                    <Label>Audio Language (re-transcode)</Label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      {session.streamLangs.filter(l => !['MULTI','DUAL'].includes(l)).map(lang => (
+                        <button
+                          key={lang}
+                          onClick={() => {
+                            if (!session.rawStreamUrl) return
+                            const url = transcodeUrl(session.rawStreamUrl, 0, !!session.transcodeVideo, lang.toLowerCase())
+                            // Swap the video src without destroying the full session
+                            const video = videoRef.current
+                            if (video) { video.src = url; video.play().catch(() => {}) }
+                            setTranscoding(true)
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                            padding: '0.45rem 0.65rem', border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 6, background: 'rgba(255,255,255,0.06)',
+                            color: '#fff', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600,
+                            textAlign: 'left', transition: 'background 0.12s',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,58,237,0.2)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                        >
+                          <MdAudiotrack size={14} style={{ color: 'var(--accent)' }} />
+                          {lang.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
                 {/* Fix Audio — always visible, click if stream has no sound */}
@@ -986,10 +1126,27 @@ export default function VideoPlayer() {
                   {autoSubFetching && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.65rem', background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
                       <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1.5s ease-in-out infinite', flexShrink: 0 }} />
-                      <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)' }}>Fetching subtitles…</span>
+                      <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)' }}>Searching OpenSubtitles…</span>
                     </div>
                   )}
                 </div>
+
+                {/* Search OpenSubtitles button */}
+                <button
+                  onClick={() => searchSubs(subLang)}
+                  disabled={autoSubFetching}
+                  style={{
+                    width: '100%', marginBottom: '1rem', padding: '0.5rem',
+                    background: autoSubFetching ? 'rgba(255,255,255,0.05)' : 'rgba(124,58,237,0.2)',
+                    border: `1px solid ${autoSubFetching ? 'rgba(255,255,255,0.1)' : 'rgba(124,58,237,0.5)'}`,
+                    borderRadius: 6, color: autoSubFetching ? 'rgba(255,255,255,0.3)' : '#fff',
+                    cursor: autoSubFetching ? 'default' : 'pointer',
+                    fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                  }}
+                >
+                  <MdSubtitles size={15} />
+                  {autoSubFetching ? 'Searching…' : `Search OpenSubtitles (${subLang.toUpperCase()})`}
+                </button>
 
                 {/* Manual VTT URL fallback */}
                 <Label>Manual URL (.vtt fallback)</Label>

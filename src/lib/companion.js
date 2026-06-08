@@ -121,7 +121,8 @@ export async function probeAudioCodec(sourceUrl) {
     )
     if (!r.ok) return null
     const data = await r.json()
-    return data.audioCodec || null
+    // Return both codecs so needsTranscode can decide whether to re-encode video
+    return { audioCodec: data.audioCodec || null, videoCodec: data.videoCodec || null }
   } catch {
     return null
   }
@@ -151,10 +152,11 @@ export function needsTranscode({ audioCodec, videoCodec } = {}) {
  * @param {number} [startSec]     Optional seek offset in seconds
  * @param {boolean} [transcodeVideo]  True to re-encode video (HEVC→H.264)
  */
-export function transcodeUrl(sourceUrl, startSec = 0, transcodeVideo = false) {
+export function transcodeUrl(sourceUrl, startSec = 0, transcodeVideo = false, audioLang = '') {
   const params = new URLSearchParams({ url: sourceUrl })
   if (startSec > 0) params.set('t', String(Math.floor(startSec)))
   if (transcodeVideo) params.set('tv', '1')
+  if (audioLang) params.set('al', audioLang)
   return `${BASE}/transcode?${params}`
 }
 

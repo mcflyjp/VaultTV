@@ -434,6 +434,9 @@ export default function Detail() {
                         onSelect={(url, stream) => {
                           setMusicDismissed(true)
                           const epTitle = `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`
+                          const langs = stream ? parseStreamLanguages(stream) : []
+                          const { videoCodec } = stream ? parseStreamCodecs(stream) : {}
+                          const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
                           play({
                             url,
                             title: epTitle,
@@ -445,6 +448,9 @@ export default function Detail() {
                             season: selectedSeason,
                             episode: ep.episode_number,
                             onProgress: makeProgressHandler(id, 'tv'),
+                            streamLangs: langs,
+                            rawStreamUrl: stream?.url || null,
+                            transcodeVideo: !!needsVideoTranscode,
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
                         }}
@@ -466,6 +472,9 @@ export default function Detail() {
               preferredLang={audioLang}
               onSelect={(url, stream) => {
                 setMusicDismissed(true)
+                const langs = stream ? parseStreamLanguages(stream) : []
+                const { videoCodec } = stream ? parseStreamCodecs(stream) : {}
+                const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
                 play({
                   url,
                   title,
@@ -475,6 +484,9 @@ export default function Detail() {
                   imdbId,
                   mediaType: type,
                   onProgress: makeProgressHandler(id, type),
+                  streamLangs: langs,
+                  rawStreamUrl: stream?.url || null,
+                  transcodeVideo: !!needsVideoTranscode,
                 })
                 startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
               }}
@@ -697,10 +709,11 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
   function handleClick() {
     if (!s.url) return
     if (hasIssue && companionOnline) {
-      // Auto-transcode: convert bad audio→AAC and/or HEVC→H264
       const { videoCodec } = parseStreamCodecs(s)
       const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
-      onSelect(transcodeUrl(s.url, 0, needsVideoTranscode), s)
+      // Use preferred language so ffmpeg picks the right audio track by default
+      const al = preferredLang && langs.includes(preferredLang) ? preferredLang : ''
+      onSelect(transcodeUrl(s.url, 0, needsVideoTranscode, al), s)
     } else {
       onSelect(s.url, s)
     }
@@ -777,7 +790,8 @@ function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = fals
     if (hasIssue && companionOnline) {
       const { videoCodec } = parseStreamCodecs(s)
       const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
-      onSelect(transcodeUrl(s.url, 0, needsVideoTranscode), s)
+      const al = preferredLang && langs.includes(preferredLang) ? preferredLang : ''
+      onSelect(transcodeUrl(s.url, 0, needsVideoTranscode, al), s)
     } else {
       onSelect(s.url, s)
     }
@@ -861,24 +875,6 @@ function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = fals
         </div>
       )}
 
-      {/* Audio warning — shown on first click of an AC3/DTS stream */}
-      {audioWarn && (
-        <div style={{ marginTop: 4 }}>
-          <p style={{ margin: '0 0 6px', fontSize: '0.68rem', color: '#fbbf24', lineHeight: 1.4 }}>
-            ⚠ AC3/DTS audio may be silent in browser. Play anyway?
-          </p>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <span
-              onClick={e => { e.stopPropagation(); setAudioWarn(false); onSelect(s.url, s) }}
-              style={{ flex: 1, background: '#fbbf24', borderRadius: 4, color: '#000', fontSize: '0.65rem', fontWeight: 700, padding: '3px 0', textAlign: 'center', cursor: 'pointer' }}
-            >Play Anyway</span>
-            <span
-              onClick={e => { e.stopPropagation(); setAudioWarn(false) }}
-              style={{ flex: 1, background: 'rgba(255,255,255,0.1)', borderRadius: 4, color: 'rgba(255,255,255,0.7)', fontSize: '0.65rem', padding: '3px 0', textAlign: 'center', cursor: 'pointer' }}
-            >Cancel</span>
-          </div>
-        </div>
-      )}
     </button>
   )
 }

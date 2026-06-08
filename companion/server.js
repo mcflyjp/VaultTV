@@ -390,27 +390,40 @@ app.get('/transcode', (req, res) => {
 
   const startSec       = parseFloat(req.query.t)  || 0
   const transcodeVideo = req.query.tv === '1'  // true when source is HEVC/H.265
+  const audioLang      = (req.query.al || '').toLowerCase().trim() // e.g. 'en', 'ru'
 
   // Build ffmpeg args
   // -c:v copy / libx264  — copy H.264; re-encode HEVC→H.264 when tv=1
   // -c:a aac             — re-encode audio to AAC (browser-compatible)
   // -b:a 192k            — good quality audio bitrate
   // -movflags ...        — fragmented MP4 suitable for streaming to pipe
-  const args = []
+  const args = [
+    '-threads', '2',           // cap CPU — audio-only transcode doesn't need more
+  ]
   if (startSec > 0) args.push('-ss', String(startSec))
   args.push('-i', sourceUrl)
 
   if (transcodeVideo) {
     // HEVC/H.265 → H.264 (ultrafast = real-time on modern CPUs)
-    args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23')
+    args.push('-map', '0:v:0')
+    args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-threads', '2')
     console.log(`[transcode] video: HEVC→H.264 (ultrafast)`)
   } else {
+    args.push('-map', '0:v:0')
     args.push('-c:v', 'copy')
+  }
+
+  // Audio stream selection — pick by language tag if requested, else default track
+  if (audioLang) {
+    args.push('-map', `0:a:m:language:${audioLang}`)
+    console.log(`[transcode] audio lang: ${audioLang}`)
+  } else {
+    args.push('-map', '0:a:0')
   }
 
   args.push(
     '-c:a', 'aac',
-    '-b:a', '192k',
+    '-b:a', '128k',            // 128k is plenty for speech/TV; saves encode CPU vs 192k
     '-movflags', 'frag_keyframe+empty_moov',
     '-f', 'mp4',
     'pipe:1',
