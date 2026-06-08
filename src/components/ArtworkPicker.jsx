@@ -8,11 +8,11 @@
  *   onClose   — called when user closes or applies
  */
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useArtwork } from '../context/ArtworkContext'
 import { IMG } from '../lib/tmdb'
-import { FiX, FiCheck, FiImage, FiLayout } from 'react-icons/fi'
+import { FiX, FiCheck, FiImage, FiLayout, FiUpload } from 'react-icons/fi'
 
 const TMDB_KEY = import.meta.env.VITE_TMDB_KEY || ''
 
@@ -36,6 +36,9 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
   // 'tmdb' or 'custom' — default to 'custom' for unmatched local files
   const [tab,       setTab]       = useState(initialSlot === 'poster' && !item.id?.toString().startsWith('local_') ? 'tmdb' : 'custom')
   const [customUrl, setCustomUrl] = useState('')
+  const [dragging,  setDragging]  = useState(false)
+  const [dropError, setDropError] = useState('')
+  const fileInputRef = useRef(null)
 
   const current = getArtwork(item.id, type, slot)
   const isPoster = slot === 'poster'
@@ -66,6 +69,33 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
     clearArtwork(item.id, type, slot)
     onClose()
   }
+
+  // Convert a local image File → data: URL and apply it as artwork
+  function applyFile(file) {
+    setDropError('')
+    if (!file || !file.type.startsWith('image/')) {
+      setDropError('Not an image file. Drop a JPG, PNG, or WebP.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = e => {
+      setArtwork(item.id, type, e.target.result, slot)
+      onClose()
+    }
+    reader.onerror = () => setDropError('Could not read file.')
+    reader.readAsDataURL(file)
+  }
+
+  const onDragOver = useCallback(e => { e.preventDefault(); setDragging(true) }, [])
+  const onDragLeave = useCallback(e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }, [])
+  const onDrop = useCallback(e => {
+    e.preventDefault(); setDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) { applyFile(file); return }
+    // Also accept dropped image URLs (e.g. drag from browser)
+    const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
+    if (url?.startsWith('http')) { setCustomUrl(url) }
+  }, [slot]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const title = item.title || item.name || 'Untitled'
 
@@ -219,16 +249,59 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
             </>
           )}
 
-          {/* Custom URL tab */}
+          {/* Custom URL / drag-drop tab */}
           {tab === 'custom' && (
             <div>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem', lineHeight: 1.6 }}>
-                Paste any direct image URL to use as the {isPoster ? 'poster (ideally 2:3 portrait ratio)' : 'backdrop/banner (ideally 16:9 landscape ratio)'} for this title.
-              </p>
+              {/* Drop zone */}
+              <div
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  border: `2px dashed ${dragging ? 'var(--accent)' : 'rgba(255,255,255,0.18)'}`,
+                  borderRadius: 12,
+                  padding: '2rem 1.25rem',
+                  marginBottom: '1.25rem',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  background: dragging ? 'rgba(124,58,237,0.12)' : 'var(--bg-card)',
+                  transition: 'border-color 0.15s, background 0.15s',
+                  userSelect: 'none',
+                }}
+              >
+                <FiUpload size={28} style={{ color: dragging ? 'var(--accent)' : 'rgba(255,255,255,0.3)', marginBottom: '0.6rem' }} />
+                <p style={{ margin: '0 0 0.3rem', fontWeight: 600, fontSize: '0.9rem', color: dragging ? 'var(--accent)' : 'var(--text-primary)' }}>
+                  {dragging ? 'Drop to apply' : 'Drag & drop an image here'}
+                </p>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  or <span style={{ color: 'var(--accent)', textDecoration: 'underline' }}>browse files</span> · JPG, PNG, WebP
+                </p>
+                {dropError && (
+                  <p style={{ margin: '0.6rem 0 0', fontSize: '0.78rem', color: '#f87171' }}>{dropError}</p>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={e => e.target.files?.[0] && applyFile(e.target.files[0])}
+              />
+
+              {/* Divider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                or paste a URL
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+
+              {/* URL input */}
               <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1rem' }}>
                 <input
                   value={customUrl}
-                  onChange={e => setCustomUrl(e.target.value)}
+                  onChange={e => { setCustomUrl(e.target.value); setDropError('') }}
+                  onKeyDown={e => e.key === 'Enter' && applyCustom()}
                   placeholder={isPoster ? 'https://example.com/poster.jpg' : 'https://example.com/backdrop.jpg'}
                   style={{
                     flex: 1, background: 'var(--bg-card)', border: '1px solid var(--border)',
