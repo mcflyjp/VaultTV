@@ -82,6 +82,8 @@ export default function VideoPlayer() {
   const [audioWarning, setAudioWarning] = useState('')   // codec/no-audio warning
   const [transcoding,  setTranscoding]  = useState(false) // currently using companion transcode
   const [buffering,    setBuffering]    = useState(true)  // true while video is loading/stalled
+  const [showNoAudio,  setShowNoAudio]  = useState(false) // "No audio?" hint for first 8s
+  const noAudioTimer = useRef(null)
   const rawUrlRef = useRef('')                             // original URL before transcoding
   const [hoverTime,    setHoverTime]    = useState(null)  // for progress tooltip
   const [hoverX,       setHoverX]       = useState(0)
@@ -97,7 +99,8 @@ export default function VideoPlayer() {
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
     setSettingsOpen(false); setTranscoding(false); setAutoSubFetching(false)
-    setBuffering(true)
+    setBuffering(true); setShowNoAudio(false)
+    clearTimeout(noAudioTimer.current)
     rawUrlRef.current = session.url || ''
 
     // Auto-select subtitle track by preferred language, fall back to English then first
@@ -350,7 +353,19 @@ export default function VideoPlayer() {
     session?.onProgress?.(v.currentTime, v.duration)
   }
 
-  function onPlay()    { setPlaying(true);  setBuffering(false) }
+  function onPlay()    {
+    setPlaying(true)
+    setBuffering(false)
+    initAudio()
+    // Show "No Audio?" hint 2s after playback starts, auto-hide after 8s
+    clearTimeout(noAudioTimer.current)
+    if (!transcoding) {
+      noAudioTimer.current = setTimeout(() => {
+        setShowNoAudio(true)
+        noAudioTimer.current = setTimeout(() => setShowNoAudio(false), 6000)
+      }, 2000)
+    }
+  }
   function onPause()   { setPlaying(false) }
   function onEnded()   { setPlaying(false) }
   function onWaiting() { setBuffering(true) }
@@ -613,6 +628,26 @@ export default function VideoPlayer() {
           pointerEvents: 'none', zIndex: 5,
         }}>
           <div style={{ width: 48, height: 48, borderRadius: '50%', border: '4px solid rgba(255,255,255,0.15)', borderTopColor: 'var(--accent)', animation: 'spin 0.9s linear infinite' }} />
+        </div>
+      )}
+
+      {/* ── "No Audio?" quick-fix hint (first 8s of every stream) ── */}
+      {showNoAudio && !transcoding && !audioWarning && (
+        <div style={{
+          position: 'absolute', top: '1rem', left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.82)', border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 8, padding: '0.45rem 0.85rem', display: 'flex', alignItems: 'center',
+          gap: '0.65rem', zIndex: 20, whiteSpace: 'nowrap', animation: 'fadeInOut 6s ease forwards',
+        }}>
+          <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem' }}>🔇 No audio?</span>
+          <button
+            onClick={() => { setShowNoAudio(false); fixAudio() }}
+            style={{ background: '#f97316', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '0.25rem 0.65rem', fontSize: '0.78rem', fontWeight: 700 }}
+          >Fix It</button>
+          <button
+            onClick={() => setShowNoAudio(false)}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.75rem', padding: '0.25rem' }}
+          >✕</button>
         </div>
       )}
 
@@ -1025,6 +1060,12 @@ export default function VideoPlayer() {
         }
         @keyframes spin {
           to { transform: rotate(360deg); }
+        }
+        @keyframes fadeInOut {
+          0%   { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+          10%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          80%  { opacity: 1; }
+          100% { opacity: 0; }
         }
       `}</style>
     </div>
