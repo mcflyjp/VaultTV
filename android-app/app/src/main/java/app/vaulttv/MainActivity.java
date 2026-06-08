@@ -29,7 +29,7 @@ public class MainActivity extends Activity {
         // (resource loads, hash changes), which would stack duplicate keydown listeners.
         + "if(window.__snav)return;"
         + "window.__snav=true;"
-        + "var SEL='button,input,textarea,select,[data-card],[role=button],a[href]';"
+        + "var SEL='button,input,textarea,select,[data-card],[tabindex=\"0\"],[role=button],a[href]';"
         // Give card divs a tabindex so they can receive focus
         + "function stamp(){"
         +   "document.querySelectorAll('[data-card]').forEach(function(el){"

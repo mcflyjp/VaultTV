@@ -990,6 +990,7 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
       style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', backdropFilter: 'blur(8px)', overflow: 'visible', position: 'relative' }}
     >
       <div
+        data-card
         style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', padding: '0.75rem', cursor: 'pointer' }}
         tabIndex={0}
         onClick={() => hasLocal ? onPlayLocal(best) : onWatch()}
