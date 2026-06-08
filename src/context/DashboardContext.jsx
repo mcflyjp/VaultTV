@@ -36,8 +36,15 @@ export function DashboardProvider({ children }) {
         .eq('user_id', session.user.id)
         .single()
       if (data?.dashboard_sections?.length) {
-        setSections(data.dashboard_sections)
-        localStorage.setItem(LS_KEY, JSON.stringify(data.dashboard_sections))
+        // Merge: keep all cloud sections, then append any default sections
+        // the user never removed (identified by id). This prevents a fresh sign-in
+        // from wiping default TMDB shelves when only custom sections were saved.
+        const cloud = data.dashboard_sections
+        const cloudIds = new Set(cloud.map(s => s.id))
+        const missing = DEFAULT_SECTIONS.filter(s => !cloudIds.has(s.id))
+        const merged = [...cloud, ...missing]
+        setSections(merged)
+        localStorage.setItem(LS_KEY, JSON.stringify(merged))
       }
     }
     loadFromCloud()
