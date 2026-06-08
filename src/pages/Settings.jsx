@@ -374,12 +374,16 @@ export default function Settings() {
             </button>
           )}
           </>)}
+          {/* FireTV: resync from companion */}
+          {IS_FIRETV && local.companionOnline && (
+            <ResyncLibraryButton />
+          )}
           {local.sources.length > 0 && (
             <button
               onClick={local.clearAll}
               style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-secondary)', padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
             >
-              <FiTrash2 size={13} /> Clear All
+              <FiTrash2 size={13} /> Clear Library
             </button>
           )}
         </div>
@@ -591,6 +595,52 @@ export default function Settings() {
         </p>
       </Card>
     </div>
+  )
+}
+
+function ResyncLibraryButton() {
+  const local = useLocalLibrary()
+  const [status, setStatus] = useState(null) // null | 'syncing' | 'done' | 'error'
+
+  async function resync() {
+    setStatus('syncing')
+    try {
+      const { fetchLibrary, saveLibrary } = await import('../lib/companion')
+      const lib = await fetchLibrary()
+      if (lib?.files?.length) {
+        local.clearAll()
+        // Small delay so clearAll flushes to localStorage before we write new data
+        await new Promise(r => setTimeout(r, 100))
+        // Write directly to localStorage then reload so context re-initialises cleanly
+        localStorage.setItem('vt-local-sources', JSON.stringify(lib.sources || []))
+        localStorage.setItem('vt-local-library', JSON.stringify(lib.files))
+        setStatus('done')
+        setTimeout(() => window.location.reload(), 800)
+      } else {
+        setStatus('error')
+        setTimeout(() => setStatus(null), 3000)
+      }
+    } catch {
+      setStatus('error')
+      setTimeout(() => setStatus(null), 3000)
+    }
+  }
+
+  const label = status === 'syncing' ? 'Syncing…'
+              : status === 'done'    ? '✓ Done — reloading'
+              : status === 'error'   ? '✗ Failed'
+              : 'Resync from Companion'
+  const color = status === 'done' ? '#16a34a' : status === 'error' ? '#ef4444' : 'var(--accent)'
+
+  return (
+    <button
+      data-card tabIndex={0}
+      onClick={resync}
+      disabled={status === 'syncing' || status === 'done'}
+      style={{ background: color, border: 'none', borderRadius: 'var(--radius)', color: '#fff', padding: '0.5rem 1rem', cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'background 0.2s' }}
+    >
+      <FiRefreshCw size={13} /> {label}
+    </button>
   )
 }
 
