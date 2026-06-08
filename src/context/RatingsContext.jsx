@@ -4,6 +4,10 @@ const RatingsContext = createContext(null)
 
 const load = () => { try { return JSON.parse(localStorage.getItem('vt-ratings') || '{}') } catch { return {} } }
 
+// Trakt sync callback — set externally to avoid circular imports
+let _traktSyncRating = null
+export function setTraktRatingSync(fn) { _traktSyncRating = fn }
+
 export function RatingsProvider({ children }) {
   const [ratings, setRatings] = useState(load)
 
@@ -11,6 +15,8 @@ export function RatingsProvider({ children }) {
     const next = { ...ratings, [`${type}-${id}`]: score }
     setRatings(next)
     localStorage.setItem('vt-ratings', JSON.stringify(next))
+    // Sync to Trakt (score 1–10 maps directly)
+    _traktSyncRating?.(type, id, score)
   }
   function getRating(id, type) { return ratings[`${type}-${id}`] || null }
   function clearRating(id, type) {

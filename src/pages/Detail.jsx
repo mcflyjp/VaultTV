@@ -10,6 +10,7 @@ import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useArtwork } from '../context/ArtworkContext'
 import ArtworkPicker from '../components/ArtworkPicker'
 import { useLanguage } from '../context/LanguageContext'
+import { useTrakt } from '../context/TraktContext'
 import MediaShelf from '../components/MediaShelf'
 import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage } from 'react-icons/fi'
 import { sortAndFilterStreams, streamCompat, compatBadge, parseStreamLanguages, parseStreamMeta, LANG_LABELS } from '../lib/streamCompat'
@@ -20,6 +21,20 @@ export default function Detail() {
   const { getStreams, getSubtitles } = useAddons()
   const { isSaved, toggle: toggleSave } = useLibrary()
   const { startWatching, updateProgress } = useWatchHistory()
+  const { syncWatched: traktSyncWatched } = useTrakt()
+  // Track whether we've already synced the current item as watched this session
+  const watchSyncedRef = { current: false }
+
+  /** Shared progress handler — fires Trakt watch sync at 90% completion */
+  function makeProgressHandler(itemId, itemType) {
+    return (t, d) => {
+      updateProgress(Number(itemId), itemType, t, d, title, IMG(detail?.poster_path, 'w342'))
+      if (!watchSyncedRef.current && d > 0 && t / d >= 0.9) {
+        watchSyncedRef.current = true
+        traktSyncWatched(itemType, Number(itemId))
+      }
+    }
+  }
   const { play } = usePlayer()
   const { getLocalFile, getLocalVersions, getFileUrl } = useLocalLibrary()
   const { getPoster, getBackdrop } = useArtwork()
@@ -304,7 +319,7 @@ export default function Detail() {
                       mediaType={type}
                       subtitleTracks={autoSubs}
                       setMusicDismissed={setMusicDismissed}
-                      onProgress={(t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342'))}
+                      onProgress={makeProgressHandler(id, type)}
                       onStartWatching={() => startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })}
                     />
                   )
@@ -399,7 +414,7 @@ export default function Detail() {
                             mediaType: 'tv',
                             season: selectedSeason,
                             episode: ep.episode_number,
-                            onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
+                            onProgress: makeProgressHandler(id, 'tv'),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
                         } catch (e) { alert(e.message) }
@@ -424,7 +439,7 @@ export default function Detail() {
                             mediaType: 'tv',
                             season: selectedSeason,
                             episode: ep.episode_number,
-                            onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
+                            onProgress: makeProgressHandler(id, 'tv'),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
                         }}
@@ -454,7 +469,7 @@ export default function Detail() {
                   subtitleTracks: stream?._subtitles || [],
                   imdbId,
                   mediaType: type,
-                  onProgress: (t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342')),
+                  onProgress: makeProgressHandler(id, type),
                 })
                 startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
               }}

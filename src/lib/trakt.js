@@ -74,6 +74,64 @@ export async function getListItems(clientId, accessToken, listIdOrSlug) {
   return res.json()
 }
 
+// ── Sync helpers ──────────────────────────────────────────────────────
+
+/** Build a Trakt media object from a TMDB id + type */
+function traktObj(type, tmdbId) {
+  const key = type === 'movie' ? 'movies' : 'shows'
+  return { [key]: [{ ids: { tmdb: Number(tmdbId) } }] }
+}
+
+/** Mark an item as watched in Trakt history */
+export async function syncWatched(clientId, accessToken, type, tmdbId, watchedAt) {
+  const payload = {
+    ...(type === 'movie'
+      ? { movies: [{ ids: { tmdb: Number(tmdbId) }, watched_at: watchedAt || new Date().toISOString() }] }
+      : { shows:  [{ ids: { tmdb: Number(tmdbId) }, watched_at: watchedAt || new Date().toISOString() }] }),
+  }
+  const res = await fetch(`${BASE}/sync/history`, {
+    method: 'POST',
+    headers: hdrs(clientId, accessToken),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(`Trakt syncWatched ${res.status}`)
+  return res.json()
+}
+
+/** Push a rating (1–10) to Trakt */
+export async function syncRating(clientId, accessToken, type, tmdbId, rating) {
+  const key = type === 'movie' ? 'movies' : 'shows'
+  const res = await fetch(`${BASE}/sync/ratings`, {
+    method: 'POST',
+    headers: hdrs(clientId, accessToken),
+    body: JSON.stringify({ [key]: [{ ids: { tmdb: Number(tmdbId) }, rating }] }),
+  })
+  if (!res.ok) throw new Error(`Trakt syncRating ${res.status}`)
+  return res.json()
+}
+
+/** Add an item to the Trakt watchlist */
+export async function addToWatchlist(clientId, accessToken, type, tmdbId) {
+  const res = await fetch(`${BASE}/sync/watchlist`, {
+    method: 'POST',
+    headers: hdrs(clientId, accessToken),
+    body: JSON.stringify(traktObj(type, tmdbId)),
+  })
+  if (!res.ok) throw new Error(`Trakt addToWatchlist ${res.status}`)
+  return res.json()
+}
+
+/** Remove an item from the Trakt watchlist */
+export async function removeFromWatchlist(clientId, accessToken, type, tmdbId) {
+  const res = await fetch(`${BASE}/sync/watchlist/remove`, {
+    method: 'POST',
+    headers: hdrs(clientId, accessToken),
+    body: JSON.stringify(traktObj(type, tmdbId)),
+  })
+  if (!res.ok) throw new Error(`Trakt removeFromWatchlist ${res.status}`)
+  return res.json()
+}
+
 /** Convert raw Trakt list items to minimal TMDB-id-carrying objects */
 export function traktItemsToPartial(items) {
   return (items || [])

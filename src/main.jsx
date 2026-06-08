@@ -19,8 +19,22 @@ import { PlayerProvider } from './context/PlayerContext'
 import { LocalLibraryProvider } from './context/LocalLibraryContext'
 import { AuthProvider } from './context/AuthContext'
 import { LanguageProvider } from './context/LanguageContext'
+import { useTrakt } from './context/TraktContext'
+import { setTraktWatchlistSync } from './context/LibraryContext'
+import { setTraktRatingSync } from './context/RatingsContext'
+import { useEffect } from 'react'
 import './index.css'
 import App from './App.jsx'
+
+/** Wires Trakt sync callbacks into LibraryContext without circular imports */
+function TraktBridge() {
+  const { addToWatchlist, removeFromWatchlist, syncRating } = useTrakt()
+  useEffect(() => {
+    setTraktWatchlistSync(addToWatchlist, removeFromWatchlist)
+    setTraktRatingSync(syncRating)
+  }, [addToWatchlist, removeFromWatchlist, syncRating])
+  return null
+}
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5 * 60 * 1000, retry: 1 } },
@@ -46,6 +60,7 @@ createRoot(document.getElementById('root')).render(
               <PlayerProvider>
               <TraktProvider>
               <AddonsProvider>
+                <TraktBridge />
                 <BrowserRouter>
                   <App />
                 </BrowserRouter>

@@ -2,11 +2,16 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import {
   requestDeviceCode, pollDeviceToken, refreshAccessToken,
   getMe, getUserLists,
+  syncWatched as apiSyncWatched,
+  syncRating as apiSyncRating,
+  addToWatchlist as apiAddToWatchlist,
+  removeFromWatchlist as apiRemoveFromWatchlist,
 } from '../lib/trakt'
+import { supabase } from '../lib/supabase'
 
-const LS_CREDS  = 'vt-trakt-creds'   // { clientId, clientSecret }
-const LS_AUTH   = 'vt-trakt-auth'    // { accessToken, refreshToken, expiresAt, username }
-const LS_LISTS  = 'vt-trakt-lists'   // [{ id, name, slug }]
+const LS_CREDS  = 'vt-trakt-creds'
+const LS_AUTH   = 'vt-trakt-auth'
+const LS_LISTS  = 'vt-trakt-lists'
 
 const TraktContext = createContext(null)
 
@@ -19,28 +24,66 @@ export function TraktProvider({ children }) {
   const [auth,   setAuth]   = useState(() => loadJson(LS_AUTH, null))
   const [lists,  setLists]  = useState(() => loadJson(LS_LISTS, []))
 
-  // Device-auth flow state
-  const [deviceFlow, setDeviceFlow] = useState(null) // { userCode, verificationUrl, expiresAt }
+  const [deviceFlow, setDeviceFlow] = useState(null)
   const [flowError,  setFlowError]  = useState('')
   const pollTimer = useRef(null)
 
-  // ── Derived ──
   const clientId     = creds?.clientId     || ''
   const clientSecret = creds?.clientSecret || ''
   const accessToken  = auth?.accessToken   || null
   const username     = auth?.username      || null
   const connected    = !!accessToken
 
-  // ── Auto-refresh on mount if token expires within 7 days ──
+  // ── Load from Supabase on sign-in ──────────────────────────────────
+  useEffect(() => {
+    async function loadFromCloud() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const { data } = await supabase
+        .from('user_settings')
+        .select('trakt_creds, trakt_auth')
+        .eq('user_id', session.user.id)
+        .single()
+      if (!data) return
+      if (data.trakt_creds && !loadJson(LS_CREDS, null)) {
+        setCreds(data.trakt_creds)
+        localStorage.setItem(LS_CREDS, JSON.stringify(data.trakt_creds))
+      }
+      if (data.trakt_auth && !loadJson(LS_AUTH, null)) {
+        setAuth(data.trakt_auth)
+        localStorage.setItem(LS_AUTH, JSON.stringify(data.trakt_auth))
+      }
+    }
+    loadFromCloud()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') loadFromCloud()
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // ── Auto-refresh token ──────────────────────────────────────────────
   useEffect(() => {
     if (!auth || !creds) return
     const sevenDays = 7 * 24 * 60 * 60 * 1000
     if (auth.expiresAt - Date.now() < sevenDays) {
       refreshAccessToken(creds.clientId, creds.clientSecret, auth.refreshToken)
         .then(data => persistAuth(data, auth.username))
-        .catch(() => {}) // silently fail — user will see errors when fetching lists
+        .catch(() => {})
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveToCloud(field, value) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      await supabase.from('user_settings').upsert({
+        user_id: session.user.id,
+        [field]: value,
+        updated_at: new Date().toISOString(),
+      })
+    } catch {}
+  }
 
   function persistAuth(data, uname) {
     const next = {
@@ -51,6 +94,7 @@ export function TraktProvider({ children }) {
     }
     setAuth(next)
     localStorage.setItem(LS_AUTH, JSON.stringify(next))
+    saveToCloud('trakt_auth', next)
     return next
   }
 
@@ -58,6 +102,7 @@ export function TraktProvider({ children }) {
     const next = { clientId: clientId.trim(), clientSecret: clientSecret.trim() }
     setCreds(next)
     localStorage.setItem(LS_CREDS, JSON.stringify(next))
+    saveToCloud('trakt_creds', next)
   }
 
   function disconnect() {
@@ -68,6 +113,7 @@ export function TraktProvider({ children }) {
     setFlowError('')
     localStorage.removeItem(LS_AUTH)
     localStorage.removeItem(LS_LISTS)
+    saveToCloud('trakt_auth', null)
   }
 
   const fetchLists = useCallback(async (token, cid) => {
@@ -82,6 +128,7 @@ export function TraktProvider({ children }) {
     } catch {}
   }, [accessToken, clientId])
 
+  // ── Device auth flow ────────────────────────────────────────────────
   async function startDeviceAuth() {
     if (!clientId || !clientSecret) {
       setFlowError('Enter your Client ID and Client Secret first.')
@@ -96,15 +143,12 @@ export function TraktProvider({ children }) {
         verificationUrl: data.verification_url,
         expiresAt:       Date.now() + data.expires_in * 1000,
       })
-
-      // Poll every `interval` seconds
       const interval = (data.interval || 5) * 1000
       pollTimer.current = setInterval(async () => {
         try {
           const token = await pollDeviceToken(clientId, clientSecret, data.device_code)
-          if (!token) return // still pending
+          if (!token) return
           clearInterval(pollTimer.current)
-          // Fetch username
           let uname = ''
           try { uname = (await getMe(clientId, token.access_token)).username } catch {}
           persistAuth(token, uname)
@@ -127,11 +171,33 @@ export function TraktProvider({ children }) {
     setFlowError('')
   }
 
+  // ── Sync helpers — silently fail if not connected ───────────────────
+  async function withToken(fn) {
+    if (!connected || !clientId) return
+    try { await fn(clientId, accessToken) }
+    catch (e) {
+      // Try token refresh once on 401
+      if (e.message?.includes('401') && creds?.refreshToken) {
+        try {
+          const data = await refreshAccessToken(clientId, clientSecret, auth.refreshToken)
+          const next = persistAuth(data, username)
+          await fn(clientId, next.accessToken)
+        } catch {}
+      }
+    }
+  }
+
+  function syncWatched(type, tmdbId)          { withToken((cid, at) => apiSyncWatched(cid, at, type, tmdbId)) }
+  function syncRating(type, tmdbId, rating)   { withToken((cid, at) => apiSyncRating(cid, at, type, tmdbId, rating)) }
+  function addToWatchlist(type, tmdbId)        { withToken((cid, at) => apiAddToWatchlist(cid, at, type, tmdbId)) }
+  function removeFromWatchlist(type, tmdbId)   { withToken((cid, at) => apiRemoveFromWatchlist(cid, at, type, tmdbId)) }
+
   return (
     <TraktContext.Provider value={{
       clientId, clientSecret, connected, accessToken, username, lists,
       deviceFlow, flowError,
       saveCredentials, startDeviceAuth, cancelDeviceAuth, disconnect, fetchLists,
+      syncWatched, syncRating, addToWatchlist, removeFromWatchlist,
     }}>
       {children}
     </TraktContext.Provider>

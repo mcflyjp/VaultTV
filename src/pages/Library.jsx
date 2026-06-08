@@ -6,8 +6,18 @@ import { useContextMenu } from '../context/ContextMenuContext'
 import { useArtwork } from '../context/ArtworkContext'
 import { usePlayer } from '../context/PlayerContext'
 import { IMG } from '../lib/tmdb'
-import { FiTrash2, FiFilm, FiTv, FiBookmark, FiHardDrive, FiAlertCircle, FiArrowUp, FiArrowDown, FiChevronDown } from 'react-icons/fi'
+import { FiTrash2, FiFilm, FiTv, FiBookmark, FiHardDrive, FiAlertCircle, FiArrowUp, FiArrowDown, FiChevronDown, FiFilter, FiX } from 'react-icons/fi'
 import MediaCard from '../components/MediaCard'
+
+// TMDB genre ID → display name (combined movie + TV)
+const GENRE_MAP = {
+  28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
+  99: 'Documentary', 18: 'Drama', 10751: 'Family', 14: 'Fantasy', 36: 'History',
+  27: 'Horror', 10402: 'Music', 9648: 'Mystery', 10749: 'Romance', 878: 'Sci-Fi',
+  10770: 'TV Movie', 53: 'Thriller', 10752: 'War', 37: 'Western',
+  10759: 'Action & Adventure', 10762: 'Kids', 10763: 'News', 10764: 'Reality',
+  10765: 'Sci-Fi & Fantasy', 10766: 'Soap', 10767: 'Talk', 10768: 'War & Politics',
+}
 
 const SORT_OPTIONS = [
   { id: 'title_asc',    label: 'Title (A → Z)',        icon: 'asc'  },
@@ -42,14 +52,20 @@ export default function Library() {
   const { library, removeFromLibrary } = useLibrary()
   const { files } = useLocalLibrary()
   const navigate = useNavigate()
-  const [filter, setFilter] = useState('all') // 'all' | 'local' | 'saved'
-  const [sortId, setSortId] = useState('title_asc')
+  const [filter, setFilter]     = useState('all') // 'all' | 'local' | 'saved'
+  const [sortId, setSortId]     = useState('title_asc')
+  const [genreFilter, setGenreFilter] = useState(null) // genre id number or null
   const [sortOpen, setSortOpen] = useState(false)
-  const sortRef = useRef(null)
+  const [genreOpen, setGenreOpen] = useState(false)
+  const sortRef  = useRef(null)
+  const genreRef = useRef(null)
 
-  // Close sort dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
-    const handler = e => { if (sortRef.current && !sortRef.current.contains(e.target)) setSortOpen(false) }
+    const handler = e => {
+      if (sortRef.current  && !sortRef.current.contains(e.target))  setSortOpen(false)
+      if (genreRef.current && !genreRef.current.contains(e.target)) setGenreOpen(false)
+    }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
@@ -137,13 +153,23 @@ export default function Library() {
     }
   }, [section, library, files])
 
-  // Apply filter then sort
+  // Derive available genres from all items that have genre_ids
+  const availableGenres = useMemo(() => {
+    const seen = new Set()
+    items.forEach(i => (i.genre_ids || []).forEach(gid => {
+      if (GENRE_MAP[gid]) seen.add(gid)
+    }))
+    return [...seen].sort((a, b) => GENRE_MAP[a].localeCompare(GENRE_MAP[b]))
+  }, [items])
+
+  // Apply source filter → genre filter → sort
   const filtered = useMemo(() => {
     let result = items
-    if (filter === 'local') result = items.filter(i => i._source === 'local' || i._source === 'both')
-    if (filter === 'saved') result = items.filter(i => i._source === 'saved' || i._source === 'both')
+    if (filter === 'local') result = result.filter(i => i._source === 'local' || i._source === 'both')
+    if (filter === 'saved') result = result.filter(i => i._source === 'saved' || i._source === 'both')
+    if (genreFilter != null) result = result.filter(i => (i.genre_ids || []).includes(genreFilter))
     return applySort(result, sortId)
-  }, [items, filter, sortId])
+  }, [items, filter, genreFilter, sortId])
 
   const currentSort = SORT_OPTIONS.find(o => o.id === sortId)
 
@@ -178,6 +204,55 @@ export default function Library() {
                 }}
               >{f.label}</button>
             ))}
+          </div>
+        )}
+
+        {/* Genre filter */}
+        {availableGenres.length > 0 && (
+          <div ref={genreRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setGenreOpen(o => !o)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                padding: '0.3rem 0.85rem', borderRadius: 20, cursor: 'pointer',
+                border: '1px solid var(--border)',
+                background: genreFilter != null ? 'var(--accent)' : 'var(--bg-card)',
+                color: genreFilter != null ? '#fff' : 'var(--text-secondary)',
+                fontSize: '0.8rem', transition: 'all 0.15s',
+              }}
+            >
+              <FiFilter size={12} />
+              {genreFilter != null ? GENRE_MAP[genreFilter] : 'Genre'}
+              {genreFilter != null
+                ? <FiX size={12} style={{ marginLeft: 2 }} onClick={e => { e.stopPropagation(); setGenreFilter(null) }} />
+                : <FiChevronDown size={12} style={{ transform: genreOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              }
+            </button>
+            {genreOpen && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 200,
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                overflow: 'hidden auto', minWidth: 180, maxHeight: 320,
+              }}>
+                <button
+                  onClick={() => { setGenreFilter(null); setGenreOpen(false) }}
+                  style={{ width: '100%', padding: '0.5rem 0.85rem', border: 'none', cursor: 'pointer', textAlign: 'left', background: genreFilter == null ? 'var(--bg-card)' : 'transparent', color: genreFilter == null ? 'var(--accent)' : 'var(--text-secondary)', fontSize: '0.84rem' }}
+                >All Genres</button>
+                {availableGenres.map(gid => (
+                  <button
+                    key={gid}
+                    onClick={() => { setGenreFilter(gid); setGenreOpen(false) }}
+                    style={{ width: '100%', padding: '0.5rem 0.85rem', border: 'none', cursor: 'pointer', textAlign: 'left', background: genreFilter === gid ? 'var(--bg-card)' : 'transparent', color: genreFilter === gid ? 'var(--accent)' : 'var(--text-primary)', fontSize: '0.84rem' }}
+                    onMouseEnter={e => { if (genreFilter !== gid) e.currentTarget.style.background = 'var(--bg-card)' }}
+                    onMouseLeave={e => { if (genreFilter !== gid) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    {GENRE_MAP[gid]}
+                    {genreFilter === gid && <span style={{ marginLeft: 'auto', float: 'right', fontSize: '0.7rem', color: 'var(--accent)' }}>✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
