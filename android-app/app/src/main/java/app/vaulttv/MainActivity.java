@@ -24,81 +24,128 @@ public class MainActivity extends Activity {
     // ─────────────────────────────────────────────────────────────────────
 
     // ── Spatial navigation JS ─────────────────────────────────────────────
+    // Reinitialise spatial nav — called on first load and after OAuth return.
+    // Setting window.__snav=false before evaluating lets us re-run safely.
     private static final String SPATIAL_NAV_JS = "(function(){"
-        // Guard: only install once per page — onPageFinished can fire multiple times
-        // (resource loads, hash changes), which would stack duplicate keydown listeners.
         + "if(window.__snav)return;"
         + "window.__snav=true;"
-        + "var SEL='button,input,textarea,select,[data-card],[tabindex=\"0\"],[role=button],a[href]';"
-        // Give card divs a tabindex so they can receive focus
+
+        // ── Inject focus-highlight CSS once ──────────────────────────────────
+        // Covers every focusable element type: cards, buttons, nav items, etc.
+        + "if(!window.__snavCss){"
+        +   "window.__snavCss=true;"
+        +   "var st=document.createElement('style');"
+        +   "st.textContent="
+        +     "'.snav-focused{"
+        +       "outline:3px solid #7c3aed!important;"
+        +       "outline-offset:3px!important;"
+        +       "z-index:100!important;"
+        +       "position:relative!important;"
+        +       "box-shadow:0 0 0 3px #7c3aed,0 8px 32px rgba(0,0,0,0.7)!important;"
+        +       "border-radius:6px!important;"
+        +     "}';"
+        +   "document.head.appendChild(st);"
+        + "}"
+
+        // ── Focusable selector ────────────────────────────────────────────────
+        + "var SEL='button:not([disabled]),input:not([disabled]),select:not([disabled]),"
+        +         "[data-card],[tabindex=\"0\"],[role=button],a[href]';"
+
+        // Give [data-card] elements a tabindex so they can receive focus
         + "function stamp(){"
         +   "document.querySelectorAll('[data-card]').forEach(function(el){"
-        +     "if(!el.tabIndex||el.tabIndex<0)el.setAttribute('tabindex','0');"
+        +     "if(!el.getAttribute('tabindex')||el.getAttribute('tabindex')<0)"
+        +       "el.setAttribute('tabindex','0');"
         +   "});"
         + "}"
-        // Return center-x and center-y of a DOMRect
-        + "function cx(r){return r.left+r.width/2;}"
-        + "function cy(r){return r.top+r.height/2;}"
-        // Find the best focusable neighbour in direction dir
+
+        // Set focus + highlight on an element
+        + "function doFocus(el){"
+        +   "document.querySelectorAll('.snav-focused').forEach(function(e){e.classList.remove('snav-focused');});"
+        +   "el.focus({preventScroll:false});"
+        +   "el.classList.add('snav-focused');"
+        +   "el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
+        + "}"
+
+        // All currently visible focusable elements
+        + "function visEls(){"
+        +   "return Array.from(document.querySelectorAll(SEL)).filter(function(e){"
+        +     "if(e.disabled||e.offsetParent===null)return false;"
+        +     "var r=e.getBoundingClientRect();"
+        +     "return r.width>0&&r.height>0;"
+        +   "});"
+        + "}"
+
+        // ── Beam-based directional move ───────────────────────────────────────
+        // In-beam elements (same column for up/down, same row for left/right)
+        // score purely by primary distance. Out-of-beam elements get a heavy
+        // perpendicular penalty so navigation stays in the same column/row.
         + "function move(dir){"
-        +   "var cur=document.activeElement,cr=cur?cur.getBoundingClientRect():null;"
-        +   "var best=null,bestScore=Infinity;"
-        +   "document.querySelectorAll(SEL).forEach(function(el){"
-        +     "if(el===cur||el.disabled||el.offsetParent===null)return;"
+        +   "var cur=document.activeElement;"
+        +   "var hasFocus=cur&&cur!==document.body&&cur!==document.documentElement;"
+        +   "if(!hasFocus){var all=visEls();if(all.length)doFocus(all[0]);return;}"
+        +   "var cr=cur.getBoundingClientRect();"
+        +   "var best=null,bs=Infinity;"
+        +   "visEls().forEach(function(el){"
+        +     "if(el===cur)return;"
         +     "var r=el.getBoundingClientRect();"
-        +     "if(!r.width||!r.height)return;"
-        // Directional gate: element must be clearly in the right direction
-        +     "if(dir==='down' &&r.top  <(cr?cr.bottom-2:0))return;"
-        +     "if(dir==='up'   &&r.bottom>(cr?cr.top+2   :window.innerHeight))return;"
-        +     "if(dir==='right'&&r.left  <(cr?cr.right-2 :0))return;"
-        +     "if(dir==='left' &&r.right >(cr?cr.left+2  :window.innerWidth))return;"
-        // Score = primary distance + 0.3 * perpendicular distance
-        // Primary = movement in the pressed direction; perp = sideways drift
-        +     "var primary,perp;"
-        +     "if(dir==='down' ){primary=r.top   -(cr?cr.bottom:0);perp=Math.abs(cx(r)-(cr?cx(cr):cx(r)));}"
-        +     "else if(dir==='up'   ){primary=(cr?cr.top:window.innerHeight)-r.bottom;perp=Math.abs(cx(r)-(cr?cx(cr):cx(r)));}"
-        +     "else if(dir==='right'){primary=r.left  -(cr?cr.right:0);perp=Math.abs(cy(r)-(cr?cy(cr):cy(r)));}"
-        +     "else                  {primary=(cr?cr.left:window.innerWidth)-r.right; perp=Math.abs(cy(r)-(cr?cy(cr):cy(r)));}"
-        +     "if(primary<0)return;"  // shouldn't happen after gate, but safety
-        +     "var score=primary+perp*0.3;"
-        +     "if(score<bestScore){bestScore=score;best=el;}"
-        +   "});"
-        +   "if(!best)return false;"
-        // Remove snav-focused from the previously focused element
-        +   "document.querySelectorAll('.snav-focused').forEach(function(el){el.classList.remove('snav-focused');});"
-        +   "best.focus({preventScroll:false});"
-        +   "best.classList.add('snav-focused');"
-        +   "best.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
-        +   "return true;"
-        + "}"
-        + "document.addEventListener('keydown',function(e){"
-        +   "var tag=(document.activeElement||{}).tagName||'';"
-        +   "var isText=(tag==='TEXTAREA')||(tag==='INPUT'&&!/checkbox|radio|submit|button/i.test((document.activeElement||{}).type||''));"
-        +   "var k=e.keyCode,dir=k===40||k===227?'down':k===38||k===226?'up':k===39||k===228?'right':k===37||k===225?'left':null;"
-        // In a text field, left/right move cursor — don't intercept them
-        +   "if(isText&&(dir==='left'||dir==='right'))return;"
-        +   "if(dir){"
-        +     "e.preventDefault();e.stopPropagation();"
-        +     "if(!move(dir)){"
-        +       "var s=document.querySelector('main')||document.scrollingElement;"
-        +       "if(dir==='down')s.scrollTop+=200;"
-        +       "else if(dir==='up')s.scrollTop-=200;"
+        +     "var primary,beam,perp;"
+        +     "if(dir==='down'){"
+        +       "if(r.top<cr.bottom-5)return;"          // must be below
+        +       "primary=r.top-cr.bottom;"
+        +       "beam=r.left<cr.right&&r.right>cr.left;" // horizontal overlap
+        +       "perp=beam?0:Math.min(Math.abs(r.right-cr.left),Math.abs(r.left-cr.right));"
+        +     "}else if(dir==='up'){"
+        +       "if(r.bottom>cr.top+5)return;"           // must be above
+        +       "primary=cr.top-r.bottom;"
+        +       "beam=r.left<cr.right&&r.right>cr.left;"
+        +       "perp=beam?0:Math.min(Math.abs(r.right-cr.left),Math.abs(r.left-cr.right));"
+        +     "}else if(dir==='right'){"
+        +       "if(r.left<cr.right-5)return;"           // must be to the right
+        +       "primary=r.left-cr.right;"
+        +       "beam=r.top<cr.bottom&&r.bottom>cr.top;" // vertical overlap
+        +       "perp=beam?0:Math.min(Math.abs(r.bottom-cr.top),Math.abs(r.top-cr.bottom));"
+        +     "}else{"                                   // left
+        +       "if(r.right>cr.left+5)return;"           // must be to the left
+        +       "primary=cr.left-r.right;"
+        +       "beam=r.top<cr.bottom&&r.bottom>cr.top;"
+        +       "perp=beam?0:Math.min(Math.abs(r.bottom-cr.top),Math.abs(r.top-cr.bottom));"
         +     "}"
+        +     "if(primary<0)primary=0;"
+        +     "var score=primary+(beam?0:perp*5);" // 5× penalty for leaving the beam
+        +     "if(score<bs){bs=score;best=el;}"
+        +   "});"
+        +   "if(!best){"
+        +     "var s=document.querySelector('main')||document.scrollingElement;"
+        +     "if(dir==='down')s.scrollTop+=180;"
+        +     "else if(dir==='up')s.scrollTop-=180;"
         +     "return;"
         +   "}"
-        // OK / Enter — click the focused element (unless it's a text input)
+        +   "doFocus(best);"
+        + "}"
+
+        // ── Keydown handler ───────────────────────────────────────────────────
+        + "document.addEventListener('keydown',function(e){"
+        +   "var tag=(document.activeElement||{}).tagName||'';"
+        +   "var isText=tag==='TEXTAREA'||(tag==='INPUT'"
+        +     "&&!/checkbox|radio|submit|button/i.test((document.activeElement||{}).type||''));"
+        +   "var k=e.keyCode;"
+        +   "var dir=k===40||k===227?'down':k===38||k===226?'up'"
+        +            ":k===39||k===228?'right':k===37||k===225?'left':null;"
+        +   "if(isText&&(dir==='left'||dir==='right'))return;"
+        +   "if(dir){e.preventDefault();e.stopPropagation();move(dir);return;}"
         +   "if((k===13||k===23)&&!isText){"
         +     "var el=document.activeElement;"
         +     "if(el&&el!==document.body){el.click();e.preventDefault();}"
         +   "}"
         + "},true);"
-        // Re-stamp new cards whenever React injects them
+
+        // Re-stamp whenever React adds new cards to the DOM
         + "new MutationObserver(stamp).observe(document.body,{childList:true,subtree:true});"
         + "stamp();"
-        + "setTimeout(function(){"
-        +   "var f=document.querySelector(SEL);"
-        +   "if(f){document.querySelectorAll('.snav-focused').forEach(function(el){el.classList.remove('snav-focused');});f.focus();f.classList.add('snav-focused');}"
-        + "},600);"
+
+        // Initial focus — wait for React to finish first render
+        + "setTimeout(function(){var all=visEls();if(all.length)doFocus(all[0]);},800);"
         + "})();";
     // ─────────────────────────────────────────────────────────────────────
 
@@ -197,6 +244,9 @@ public class MainActivity extends Activity {
                 String js   = "window.__vaulttvAuthCallback && window.__vaulttvAuthCallback('" + safe + "');";
                 webView.evaluateJavascript(js, null);
             }
+            // Re-inject spatial nav after returning from OAuth (Silk clears focus state)
+            webView.evaluateJavascript("window.__snav=false;", null);
+            webView.evaluateJavascript(SPATIAL_NAV_JS, null);
         }
     }
 
