@@ -10,7 +10,12 @@ export default function MediaShelf({ title, items = [] }) {
   const [titleHovered, setTitleHovered] = useState(false)
   if (!items.length) return null
 
-  const isNetflix = theme === 'netflix'
+  const isVaultflix = theme === 'vaultflix'
+  const isVaultPlus = theme === 'vaultplus'
+  const isCinematic = isVaultflix || isVaultPlus   // both use backdrop 16:9 cards
+
+  // Vault+ uses blue "Explore All" tint; Vaultflix uses teal
+  const exploreColor = isVaultPlus ? '#1a8fff' : '#54b9c5'
 
   // D-pad left/right navigation within a shelf row
   function handleKeyDown(e, idx, cards) {
@@ -18,17 +23,15 @@ export default function MediaShelf({ title, items = [] }) {
     if (e.key === 'ArrowLeft')  { e.preventDefault(); cards[Math.max(idx - 1, 0)]?.focus() }
   }
 
-  // Netflix: wider cards at 16:9 ratio. 240px wide → ~135px tall — feels right.
-  const cardWidth = isNetflix
+  // Cinematic themes: wider 16:9 backdrop cards
+  const cardWidth = isCinematic
     ? (density === 1 ? 300 : density === 3 ? 180 : 240)
     : (density === 1 ? 200 : density === 3 ? 110 : 150)
 
   return (
-    <section style={{ marginBottom: isNetflix ? '1.5rem' : '2rem' }}>
+    <section style={{ marginBottom: isCinematic ? '1.5rem' : '2rem' }}>
       {/* Section header */}
-      {isNetflix ? (
-        // Netflix style: plain left-aligned text, no accent bar, no uppercase
-        // "Explore All ›" appears on hover
+      {isCinematic ? (
         <div
           style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem', padding: '0 3rem', marginBottom: '0.6rem', cursor: 'default' }}
           onMouseEnter={() => setTitleHovered(true)}
@@ -39,7 +42,7 @@ export default function MediaShelf({ title, items = [] }) {
             color: '#e5e5e5', letterSpacing: 'normal', textTransform: 'none',
           }}>{title}</h2>
           <span style={{
-            fontSize: '0.75rem', fontWeight: 700, color: '#54b9c5',
+            fontSize: '0.75rem', fontWeight: 700, color: exploreColor,
             opacity: titleHovered ? 1 : 0, transition: 'opacity 0.2s',
             whiteSpace: 'nowrap',
           }}>Explore All &rsaquo;</span>
@@ -54,12 +57,12 @@ export default function MediaShelf({ title, items = [] }) {
       {/* Horizontal shelf */}
       <div
         ref={rowRef}
-        className={isNetflix ? 'shelf-scroll netflix-shelf' : 'shelf-scroll'}
+        className={isCinematic ? 'shelf-scroll cinematic-shelf' : 'shelf-scroll'}
         style={{
           display: 'flex',
-          gap: isNetflix ? '0.25rem' : (density === 1 ? '1rem' : density === 3 ? '0.45rem' : '0.65rem'),
+          gap: isCinematic ? '0.25rem' : (density === 1 ? '1rem' : density === 3 ? '0.45rem' : '0.65rem'),
           overflowX: 'auto',
-          padding: isNetflix ? '0.25rem 3rem 0.5rem' : '0.25rem 1.75rem 1rem',
+          padding: isCinematic ? '0.25rem 3rem 0.5rem' : '0.25rem 1.75rem 1rem',
         }}
       >
         {items.slice(0, 20).map((item, idx) => {
@@ -69,7 +72,7 @@ export default function MediaShelf({ title, items = [] }) {
               key={`${item.id}-${item.media_type || idx}`}
               item={item}
               width={cardWidth}
-              useBackdrop={isNetflix}
+              useBackdrop={isCinematic}
               onKeyDown={e => handleKeyDown(e, idx, Array.from(cards))}
             />
           )

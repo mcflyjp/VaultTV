@@ -5,8 +5,8 @@ import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { FiSearch, FiSettings, FiChevronDown } from 'react-icons/fi'
 
-// Themes that use the top nav layout
-export const TOP_NAV_THEMES = new Set(['netflix', 'disney'])
+// Themes that use the top nav layout (no sidebar)
+export const TOP_NAV_THEMES = new Set(['vaultflix', 'vaultplus'])
 
 export default function TopNav() {
   const { theme, changeTheme } = useTheme()
@@ -37,15 +37,15 @@ export default function TopNav() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const isNetflix = theme === 'netflix'
-  const isDisney  = theme === 'disney'
+  const isVaultflix = theme === 'vaultflix'
+  const isVaultPlus = theme === 'vaultplus'
 
   const navBg = scrolled
-    ? isNetflix ? 'rgba(20,20,20,0.98)' : 'rgba(4,7,20,0.98)'
-    : isNetflix ? 'linear-gradient(to bottom, rgba(20,20,20,0.9) 0%, transparent 100%)'
-                : 'linear-gradient(to bottom, rgba(4,7,20,0.95) 0%, transparent 100%)'
+    ? isVaultflix ? 'rgba(20,20,20,0.98)' : 'rgba(4,7,20,0.98)'
+    : isVaultflix ? 'linear-gradient(to bottom, rgba(20,20,20,0.9) 0%, transparent 100%)'
+                  : 'linear-gradient(to bottom, rgba(4,7,20,0.95) 0%, transparent 100%)'
 
-  const links = isDisney
+  const links = isVaultPlus
     ? [
         { label: 'Home',       path: '/' },
         { label: 'Movies',     path: '/library/movies' },
@@ -59,16 +59,19 @@ export default function TopNav() {
         { label: 'My List',    path: '/library/saved' },
       ]
 
+  const VAULT_PLUS_BRANDS = ['All', 'Disney', 'Pixar', 'Marvel', 'Star Wars', 'Nat Geo']
+
   return (
+    <div style={{ position: 'sticky', top: 0, zIndex: 500, width: '100%' }}>
     <nav style={{
-      position: 'sticky', top: 0, zIndex: 500, width: '100%',
+      width: '100%',
       background: navBg,
       backdropFilter: scrolled ? 'blur(12px)' : 'none',
       transition: 'background 0.3s, backdrop-filter 0.3s',
       display: 'flex', alignItems: 'center',
       padding: '0 3rem',
       height: 68,
-      borderBottom: scrolled ? '1px solid rgba(255,255,255,0.06)' : 'none',
+      borderBottom: (scrolled && !isVaultPlus) ? '1px solid rgba(255,255,255,0.06)' : 'none',
     }}>
 
       {/* Logo */}
@@ -76,21 +79,20 @@ export default function TopNav() {
         onClick={() => navigate('/')}
         style={{
           background: 'none', border: 'none', cursor: 'pointer',
-          marginRight: isNetflix ? '2rem' : '2.5rem', flexShrink: 0, lineHeight: 1, padding: 0,
-          // Netflix: tall bold all-caps with tight tracking, Disney: has the + mark
+          marginRight: isVaultflix ? '2rem' : '2.5rem', flexShrink: 0, lineHeight: 1, padding: 0,
           fontWeight: 900,
-          fontSize: isNetflix ? '1.75rem' : '1.6rem',
-          letterSpacing: isNetflix ? '0.06em' : '-0.03em',
-          color: isNetflix ? '#e50914' : '#f9f9f9',
-          fontFamily: isNetflix
+          fontSize: isVaultflix ? '1.75rem' : isVaultPlus ? '1.55rem' : '1.6rem',
+          letterSpacing: isVaultflix ? '0.06em' : isVaultPlus ? '-0.02em' : '-0.03em',
+          color: isVaultflix ? '#e50914' : '#f9f9f9',
+          fontFamily: isVaultflix
             ? '"Netflix Sans", "Helvetica Neue", Helvetica, Arial, sans-serif'
-            : isDisney ? '"Arial Black", sans-serif' : 'inherit',
-          textShadow: isDisney ? '0 0 20px rgba(0,99,229,0.6)' : 'none',
-          textTransform: isNetflix ? 'uppercase' : 'none',
+            : isVaultPlus ? '"Avenir Next", "Century Gothic", Arial Black, sans-serif' : 'inherit',
+          textShadow: isVaultPlus ? '0 0 24px rgba(0,99,229,0.5)' : 'none',
+          textTransform: isVaultflix ? 'uppercase' : 'none',
         }}
       >
-        {isDisney ? 'VAULT' : isNetflix ? 'VaultTV' : 'VAULTTV'}
-        {isDisney && <span style={{ color: '#0063e5', marginLeft: 1 }}>+</span>}
+        {isVaultPlus ? 'VAULT' : isVaultflix ? 'VaultTV' : 'VAULTTV'}
+        {isVaultPlus && <span style={{ color: '#0063e5', marginLeft: 2, fontWeight: 900 }}>+</span>}
       </button>
 
       {/* Nav links */}
@@ -104,16 +106,16 @@ export default function TopNav() {
               onClick={() => navigate(link.path)}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                padding: isNetflix ? '0.3rem 0.6rem' : '0.4rem 0.75rem',
+                padding: isVaultflix ? '0.3rem 0.6rem' : '0.4rem 0.75rem',
                 borderRadius: 4,
-                fontSize: isNetflix ? '0.82rem' : '0.88rem',
-                fontWeight: active ? (isNetflix ? 700 : 700) : (isNetflix ? 400 : 500),
-                color: active ? '#fff' : (isNetflix ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.65)'),
+                fontSize: isVaultflix ? '0.82rem' : '0.88rem',
+                fontWeight: active ? 700 : (isVaultflix ? 400 : 500),
+                color: active ? '#fff' : (isVaultflix ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.65)'),
                 transition: 'color 0.15s',
                 whiteSpace: 'nowrap',
               }}
               onMouseEnter={e => { if (!active) e.currentTarget.style.color = '#fff' }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.color = isNetflix ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.65)' }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.color = isVaultflix ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.65)' }}
             >{link.label}</button>
           )
         })}
@@ -157,7 +159,7 @@ export default function TopNav() {
           {themeOpen && (
             <div style={{
               position: 'absolute', right: 0, top: 'calc(100% + 8px)',
-              background: isNetflix ? 'rgba(20,20,20,0.98)' : 'rgba(4,7,20,0.98)',
+              background: isVaultflix ? 'rgba(20,20,20,0.98)' : 'rgba(4,7,20,0.98)',
               backdropFilter: 'blur(20px)',
               border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
               boxShadow: '0 12px 40px rgba(0,0,0,0.8)',
@@ -189,6 +191,16 @@ export default function TopNav() {
         <button onClick={() => navigate('/settings')} style={iconBtn}><FiSettings size={18} /></button>
       </div>
     </nav>
+
+    {/* Vault+ brand bar — shown only in vaultplus theme */}
+    {isVaultPlus && (
+      <div className="vaultplus-brand-bar">
+        {VAULT_PLUS_BRANDS.map(brand => (
+          <button key={brand} className="no-pop">{brand}</button>
+        ))}
+      </div>
+    )}
+    </div>
   )
 }
 

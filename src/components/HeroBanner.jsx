@@ -11,8 +11,11 @@ export default function HeroBanner({ item, cinematic = false }) {
 
   if (!item) return null
 
-  const isNetflix = theme === 'netflix'
-  const isDisney  = theme === 'disney'
+  const isVaultflix = theme === 'vaultflix'
+  const isVaultPlus = theme === 'vaultplus'
+  // backward-compat aliases used below
+  const isNetflix = isVaultflix
+  const isDisney  = isVaultPlus
 
   const type     = item.media_type || (item.first_air_date ? 'tv' : 'movie')
   const title    = item.title || item.name

@@ -13,7 +13,7 @@
   --radius: 8px;
 }
 
-[data-theme="netflix"] {
+[data-theme="vaultflix"] {
   --accent: #e50914;
   --accent-hover: #f40612;
   --bg-primary: #141414;
@@ -25,19 +25,19 @@
   --radius: 4px;
 }
 
-[data-theme="disney"] {
+[data-theme="vaultplus"] {
   --accent: #0063e5;
-  --accent-hover: #0073ff;
+  --accent-hover: #1a77ff;
   --bg-primary: #040714;
-  --bg-secondary: #0c1428;
-  --bg-card: #1a2340;
+  --bg-secondary: #0b0e23;
+  --bg-card: #111630;
   --text-primary: #f9f9f9;
   --text-secondary: #8b9dc3;
-  --border: #1e2d50;
-  --radius: 12px;
+  --border: #1a2242;
+  --radius: 8px;
 }
 
-[data-theme="hbo"] {
+[data-theme="vaultmax"] {
   --accent: #b535f5;
   --accent-hover: #c44fff;
   --bg-primary: #0d0d0d;
@@ -49,7 +49,7 @@
   --radius: 6px;
 }
 
-[data-theme="prime"] {
+[data-theme="vaultprime"] {
   --accent: #00a8e1;
   --accent-hover: #00bbff;
   --bg-primary: #0f171e;
@@ -61,64 +61,111 @@
   --radius: 4px;
 }
 
-/* ── Netflix-specific overrides ── */
+/* ── Vaultflix-specific overrides (Netflix-style) ── */
 
-/* Use a clean sans-serif that approximates Netflix Sans */
-[data-theme="netflix"] body,
-[data-theme="netflix"] {
+[data-theme="vaultflix"] body,
+[data-theme="vaultflix"] {
   font-family: 'Netflix Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
-/* Card hover: scale up + subtle shadow, no accent border (Netflix doesn't outline on hover) */
-[data-theme="netflix"] .card-hover:hover {
+[data-theme="vaultflix"] .card-hover:hover {
   transform: scale(1.12);
   box-shadow: 0 8px 48px rgba(0,0,0,0.8);
   z-index: 20;
 }
 
-/* Shelf headings: already handled in component; this ensures no uppercase leaks */
-[data-theme="netflix"] .shelf-heading {
+[data-theme="vaultflix"] .shelf-heading {
   letter-spacing: 0 !important;
   text-transform: none !important;
   font-weight: 700 !important;
 }
 
-/* Buttons */
-[data-theme="netflix"] .btn-accent {
-  border-radius: 4px;
-  font-weight: 700;
-}
-[data-theme="netflix"] .btn-ghost {
-  border-radius: 4px;
-}
+[data-theme="vaultflix"] .btn-accent { border-radius: 4px; font-weight: 700; }
+[data-theme="vaultflix"] .btn-ghost  { border-radius: 4px; }
 
-/* Netflix shelf: no visible scrollbar, cards flush to edge */
-[data-theme="netflix"] .netflix-shelf {
+[data-theme="vaultflix"] .cinematic-shelf {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-[data-theme="netflix"] .netflix-shelf::-webkit-scrollbar {
-  display: none;
+[data-theme="vaultflix"] .cinematic-shelf::-webkit-scrollbar { display: none; }
+
+[data-theme="vaultflix"] [data-card] { border-radius: 4px !important; }
+
+[data-theme="vaultflix"] [data-layout="top"] > main { padding-top: 0 !important; }
+
+/* ── Vault+ overrides (Disney+-style) ── */
+
+[data-theme="vaultplus"] body,
+[data-theme="vaultplus"] {
+  font-family: 'Avenir Next', 'Avenir', 'Century Gothic', Arial, sans-serif;
 }
 
-/* Tighter card radius — Netflix uses very subtle rounding */
-[data-theme="netflix"] [data-card] {
-  border-radius: 4px !important;
+[data-theme="vaultplus"] .card-hover:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 2px #0063e5, 0 12px 40px rgba(0,99,229,0.45);
+  z-index: 20;
 }
 
-/* Top-of-page gradient fade on the hero: remove default sidebar gap */
-[data-theme="netflix"] [data-layout="top"] > main {
-  padding-top: 0 !important;
+[data-theme="vaultplus"] .shelf-heading {
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  font-weight: 700 !important;
 }
 
-/* ── Disney-specific overrides ── */
-[data-theme="disney"] .card-hover:hover {
+[data-theme="vaultplus"] .btn-accent {
+  background: linear-gradient(135deg, #0063e5, #1a8fff);
+  border-radius: 6px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+[data-theme="vaultplus"] .cinematic-shelf {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[data-theme="vaultplus"] .cinematic-shelf::-webkit-scrollbar { display: none; }
+
+[data-theme="vaultplus"] [data-card] { border-radius: 6px !important; }
+
+[data-theme="vaultplus"] [data-layout="top"] > main { padding-top: 0 !important; }
+
+/* Vault+ brand-bar (below nav) */
+.vaultplus-brand-bar {
+  display: flex;
+  gap: 2rem;
+  align-items: center;
+  padding: 0.6rem 3rem;
+  background: rgba(4,7,20,0.6);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.vaultplus-brand-bar button {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.65);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.vaultplus-brand-bar button:hover,
+.vaultplus-brand-bar button.active {
+  color: #fff;
+  border-bottom-color: #0063e5;
+}
+
+/* Vault Max (HBO) */
+[data-theme="vaultmax"] .card-hover:hover {
   transform: scale(1.07);
-  box-shadow: 0 0 0 2px #0063e5, 0 16px 48px rgba(0,99,229,0.35);
+  box-shadow: 0 0 0 2px #b535f5, 0 16px 48px rgba(181,53,245,0.3);
 }
-[data-theme="disney"] .btn-accent {
-  background: linear-gradient(135deg, #0063e5, #0483ee);
-  border-radius: 12px;
+
+/* Vault Prime */
+[data-theme="vaultprime"] .card-hover:hover {
+  transform: scale(1.07);
+  box-shadow: 0 0 0 2px #00a8e1, 0 16px 48px rgba(0,168,225,0.3);
 }
 
 /* ── Top-nav layout: hides sidebar, full-width main ── */
