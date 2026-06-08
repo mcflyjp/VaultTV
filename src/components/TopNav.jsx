@@ -76,14 +76,20 @@ export default function TopNav() {
         onClick={() => navigate('/')}
         style={{
           background: 'none', border: 'none', cursor: 'pointer',
-          fontWeight: 900, fontSize: '1.6rem', letterSpacing: '-0.03em',
-          marginRight: '2.5rem', flexShrink: 0, lineHeight: 1,
+          marginRight: isNetflix ? '2rem' : '2.5rem', flexShrink: 0, lineHeight: 1, padding: 0,
+          // Netflix: tall bold all-caps with tight tracking, Disney: has the + mark
+          fontWeight: 900,
+          fontSize: isNetflix ? '1.75rem' : '1.6rem',
+          letterSpacing: isNetflix ? '0.06em' : '-0.03em',
           color: isNetflix ? '#e50914' : '#f9f9f9',
-          fontFamily: isDisney ? '"Arial Black", sans-serif' : 'inherit',
+          fontFamily: isNetflix
+            ? '"Netflix Sans", "Helvetica Neue", Helvetica, Arial, sans-serif'
+            : isDisney ? '"Arial Black", sans-serif' : 'inherit',
           textShadow: isDisney ? '0 0 20px rgba(0,99,229,0.6)' : 'none',
+          textTransform: isNetflix ? 'uppercase' : 'none',
         }}
       >
-        {isDisney ? 'VAULT' : 'VAULTTV'}
+        {isDisney ? 'VAULT' : isNetflix ? 'VaultTV' : 'VAULTTV'}
         {isDisney && <span style={{ color: '#0063e5', marginLeft: 1 }}>+</span>}
       </button>
 
@@ -98,14 +104,16 @@ export default function TopNav() {
               onClick={() => navigate(link.path)}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                padding: '0.4rem 0.75rem', borderRadius: 4,
-                fontSize: '0.88rem', fontWeight: active ? 700 : 500,
-                color: active ? '#fff' : 'rgba(255,255,255,0.65)',
+                padding: isNetflix ? '0.3rem 0.6rem' : '0.4rem 0.75rem',
+                borderRadius: 4,
+                fontSize: isNetflix ? '0.82rem' : '0.88rem',
+                fontWeight: active ? (isNetflix ? 700 : 700) : (isNetflix ? 400 : 500),
+                color: active ? '#fff' : (isNetflix ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.65)'),
                 transition: 'color 0.15s',
                 whiteSpace: 'nowrap',
               }}
               onMouseEnter={e => { if (!active) e.currentTarget.style.color = '#fff' }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.color = isNetflix ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.65)' }}
             >{link.label}</button>
           )
         })}

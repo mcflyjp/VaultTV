@@ -62,12 +62,54 @@
 }
 
 /* ── Netflix-specific overrides ── */
-[data-theme="netflix"] .card-hover:hover {
-  transform: scale(1.08);
-  box-shadow: 0 0 0 2px #e50914, 0 16px 48px rgba(229,9,20,0.3);
+
+/* Use a clean sans-serif that approximates Netflix Sans */
+[data-theme="netflix"] body,
+[data-theme="netflix"] {
+  font-family: 'Netflix Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
-[data-theme="netflix"] .btn-accent { border-radius: 4px; font-weight: 700; }
-[data-theme="netflix"] .shelf-heading { letter-spacing: 0; font-weight: 800; }
+
+/* Card hover: scale up + subtle shadow, no accent border (Netflix doesn't outline on hover) */
+[data-theme="netflix"] .card-hover:hover {
+  transform: scale(1.12);
+  box-shadow: 0 8px 48px rgba(0,0,0,0.8);
+  z-index: 20;
+}
+
+/* Shelf headings: already handled in component; this ensures no uppercase leaks */
+[data-theme="netflix"] .shelf-heading {
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  font-weight: 700 !important;
+}
+
+/* Buttons */
+[data-theme="netflix"] .btn-accent {
+  border-radius: 4px;
+  font-weight: 700;
+}
+[data-theme="netflix"] .btn-ghost {
+  border-radius: 4px;
+}
+
+/* Netflix shelf: no visible scrollbar, cards flush to edge */
+[data-theme="netflix"] .netflix-shelf {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[data-theme="netflix"] .netflix-shelf::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tighter card radius — Netflix uses very subtle rounding */
+[data-theme="netflix"] [data-card] {
+  border-radius: 4px !important;
+}
+
+/* Top-of-page gradient fade on the hero: remove default sidebar gap */
+[data-theme="netflix"] [data-layout="top"] > main {
+  padding-top: 0 !important;
+}
 
 /* ── Disney-specific overrides ── */
 [data-theme="disney"] .card-hover:hover {

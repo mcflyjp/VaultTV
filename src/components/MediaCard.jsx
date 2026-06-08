@@ -7,7 +7,7 @@ import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { FiPlay, FiStar, FiCheck, FiHardDrive, FiFilm } from 'react-icons/fi'
 
-export default function MediaCard({ item, width = 150, onKeyDown }) {
+export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = false }) {
   const navigate = useNavigate()
   const { show: showMenu } = useContextMenu()
   const { getPoster } = useArtwork()
@@ -16,7 +16,11 @@ export default function MediaCard({ item, width = 150, onKeyDown }) {
   const [hovered, setHovered] = useState(false)
   const type = item.media_type || (item.first_air_date ? 'tv' : 'movie')
   const title = item.title || item.name || 'Untitled'
-  const poster = getPoster(item.id, type) || IMG(item.poster_path, 'w342')
+  // In backdrop mode use the 16:9 backdrop image; custom poster overrides still apply
+  const poster = getPoster(item.id, type) ||
+    (useBackdrop && item.backdrop_path ? IMG(item.backdrop_path, 'w780') : null) ||
+    IMG(item.poster_path, 'w342')
+  const aspectRatio = useBackdrop ? '16/9' : '2/3'
   const saved   = isSaved(item.id, type)
   const isLocal = hasLocal(item.id, type)
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)
@@ -67,38 +71,43 @@ export default function MediaCard({ item, width = 150, onKeyDown }) {
         zIndex: hovered ? 10 : 1,
       }}
     >
-      {/* Poster */}
+      {/* Poster / Backdrop */}
       {poster
-        ? <img src={poster} alt={title} style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }} />
-        : <div style={{ width: '100%', aspectRatio: '2/3', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>No Image</div>
+        ? <img src={poster} alt={title} style={{ width: '100%', aspectRatio, objectFit: 'cover', display: 'block' }} />
+        : <div style={{ width: '100%', aspectRatio, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>No Image</div>
       }
 
-      {/* Hover overlay */}
+      {/* Hover overlay — in backdrop mode: always show bottom gradient + title, darken on hover */}
       <div style={{
         position: 'absolute', inset: 0,
-        background: 'linear-gradient(to top, rgba(0,0,0,0.92) 40%, rgba(0,0,0,0.1) 100%)',
-        opacity: hovered ? 1 : 0,
-        transition: 'opacity 0.2s',
+        background: useBackdrop
+          ? `linear-gradient(to top, rgba(0,0,0,${hovered ? '0.85' : '0.55'}) 0%, rgba(0,0,0,${hovered ? '0.3' : '0'}) 60%, transparent 100%)`
+          : `linear-gradient(to top, rgba(0,0,0,0.92) 40%, rgba(0,0,0,0.1) 100%)`,
+        opacity: useBackdrop ? 1 : (hovered ? 1 : 0),
+        transition: 'opacity 0.2s, background 0.2s',
         display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-        padding: '0.6rem',
+        padding: useBackdrop ? '0.5rem 0.6rem' : '0.6rem',
       }}>
-        {/* Play button */}
-        <div style={{
+        {/* Play button — only on hover */}
+        {hovered && <div style={{
           width: 36, height: 36, borderRadius: '50%',
           background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
           marginBottom: '0.4rem', flexShrink: 0,
         }}>
           <FiPlay size={16} style={{ color: '#fff', marginLeft: 2 }} />
-        </div>
-        <p style={{ margin: '0 0 2px', fontWeight: 700, fontSize: '0.78rem', color: '#fff', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{title}</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-          {year && <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.6)' }}>{year}</span>}
-          {rating && (
-            <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', gap: 2 }}>
-              <FiStar size={10} style={{ color: '#fbbf24' }} />{rating}
-            </span>
-          )}
-        </div>
+        </div>}
+        {/* In backdrop mode title is always visible; in poster mode only on hover */}
+        {(useBackdrop || hovered) && <>
+          <p style={{ margin: '0 0 2px', fontWeight: 700, fontSize: useBackdrop ? '0.72rem' : '0.78rem', color: '#fff', lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{title}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {year && <span style={{ fontSize: '0.66rem', color: 'rgba(255,255,255,0.6)' }}>{year}</span>}
+            {rating && (
+              <span style={{ fontSize: '0.66rem', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', gap: 2 }}>
+                <FiStar size={9} style={{ color: '#fbbf24' }} />{rating}
+              </span>
+            )}
+          </div>
+        </>}
       </div>
 
       {/* Badges — top-left stack */}
