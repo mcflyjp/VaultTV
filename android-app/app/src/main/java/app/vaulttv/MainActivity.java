@@ -18,9 +18,9 @@ public class MainActivity extends Activity {
 
     // ── Change this to your VaultTV URL ──────────────────────────────────
     // Option A: hosted URL (works anywhere, companion via LAN for local files)
-    // private static final String VAULTTV_URL = "https://vaulttv.pages.dev";
+    private static final String VAULTTV_URL = "https://vaulttv.pages.dev";
     // Option B: LAN dev server (same network as host machine)
-    private static final String VAULTTV_URL = "http://192.168.1.232:5174";
+    // private static final String VAULTTV_URL = "http://192.168.1.232:5174";
     // ─────────────────────────────────────────────────────────────────────
 
     // ── Spatial navigation JS ─────────────────────────────────────────────
