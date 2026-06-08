@@ -294,7 +294,7 @@ function FileInfoModal({ versions, title, onClose }) {
         </div>
 
         {/* File list */}
-        <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 400, overflowY: 'auto' }}>
+        <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 400, overflowY: 'auto' }} onWheel={e => e.stopPropagation()} onTouchMove={e => e.stopPropagation()}>
           {versions.map((v, i) => {
             // Reconstruct a best-guess path from what we have
             const parts = [v.showFolder, v.filename].filter(Boolean)

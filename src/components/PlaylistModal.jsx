@@ -35,7 +35,7 @@ export default function PlaylistModal({ item, onClose }) {
         </div>
 
         {/* Existing playlists */}
-        <div style={{ maxHeight: 280, overflowY: 'auto', padding: '0.4rem 0' }}>
+        <div style={{ maxHeight: 280, overflowY: 'auto', padding: '0.4rem 0' }} onWheel={e => e.stopPropagation()} onTouchMove={e => e.stopPropagation()}>
           {playlists.length === 0 && !creating && (
             <p style={{ padding: '1rem 1.25rem', color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>No playlists yet. Create one below.</p>
           )}

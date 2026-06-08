@@ -190,7 +190,7 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
         </div>
 
         {/* ── Content ────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }} onWheel={e => e.stopPropagation()} onTouchMove={e => e.stopPropagation()}>
 
           {/* Current override banner */}
           {current && (

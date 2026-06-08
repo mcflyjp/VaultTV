@@ -108,8 +108,12 @@ export default function DashboardEditor({ onClose }) {
           </div>
         </div>
 
-        {/* Section list */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: '0.5rem' }}>
+        {/* Section list — onWheel stops scroll from bleeding through to the page behind */}
+        <div
+          style={{ overflowY: 'auto', flex: 1, padding: '0.5rem' }}
+          onWheel={e => e.stopPropagation()}
+          onTouchMove={e => e.stopPropagation()}
+        >
 
           {sections.map((s, idx) => (
             <div
