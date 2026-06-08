@@ -45,7 +45,7 @@ function fmt(s) {
 
 export default function VideoPlayer() {
   const { session, closePlayer } = usePlayer()
-  const { subLang, audioLang, autoFetchSubs } = useLanguage()
+  const { subLang, audioLang, autoFetchSubs, savePrefs, LANGUAGES } = useLanguage()
 
   const videoRef     = useRef(null)
   const containerRef = useRef(null)
@@ -761,15 +761,38 @@ export default function VideoPlayer() {
             {/* Audio tab */}
             {settingsTab === 'audio' && (
               <div>
+                {/* Preferred language — always visible */}
+                <Label>Preferred Audio Language</Label>
+                <select
+                  value={audioLang}
+                  onChange={e => savePrefs({ audioLang: e.target.value })}
+                  style={{
+                    width: '100%', marginBottom: '1rem',
+                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 6, color: '#fff', padding: '0.45rem 0.6rem',
+                    fontSize: '0.82rem', cursor: 'pointer',
+                  }}
+                >
+                  <option value="">No preference</option>
+                  {LANGUAGES.map(l => (
+                    <option key={l.code} value={l.code}>{l.label}</option>
+                  ))}
+                </select>
+
                 {audioTracks.length > 0 && (
                   <div style={{ marginBottom: '1rem' }}>
-                    <Label>Audio Track</Label>
+                    <Label>Audio Track (this stream)</Label>
                     {audioTracks.map(t => (
                       <SettingRow key={t.id} active={audioTrack === t.id} onClick={() => changeAudioTrack(t.id)}>
                         <MdAudiotrack size={14} /> {t.name}
                       </SettingRow>
                     ))}
                   </div>
+                )}
+                {audioTracks.length === 0 && (
+                  <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.78rem', margin: '0 0 1rem', lineHeight: 1.5 }}>
+                    This stream has one audio track. Your preferred language will auto-select on streams with multiple tracks.
+                  </p>
                 )}
 
                 {/* Fix Audio — always visible, click if stream has no sound */}
@@ -810,6 +833,33 @@ export default function VideoPlayer() {
             {/* Subtitles tab */}
             {settingsTab === 'subtitles' && (
               <div>
+                {/* Preferred language — always visible */}
+                <Label>Preferred Subtitle Language</Label>
+                <select
+                  value={subLang}
+                  onChange={e => {
+                    savePrefs({ subLang: e.target.value })
+                    // Re-select matching track for this session
+                    if (subTracks.length > 0) {
+                      const idx = subTracks.findIndex(t =>
+                        t.lang?.toLowerCase().startsWith(e.target.value) ||
+                        t.label?.toLowerCase().includes(e.target.value)
+                      )
+                      if (idx >= 0) changeSubtitle(idx)
+                    }
+                  }}
+                  style={{
+                    width: '100%', marginBottom: '1rem',
+                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 6, color: '#fff', padding: '0.45rem 0.6rem',
+                    fontSize: '0.82rem', cursor: 'pointer',
+                  }}
+                >
+                  {LANGUAGES.map(l => (
+                    <option key={l.code} value={l.code}>{l.label}</option>
+                  ))}
+                </select>
+
                 {/* Track list */}
                 <Label>Subtitle Track</Label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1rem' }}>
