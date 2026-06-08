@@ -27,14 +27,18 @@ export function companionSubUrl({ imdbId, title, year, lang = 'en', mediaType = 
 
   const params = new URLSearchParams({ lang })
 
-  if (imdbId) {
+  // Only use imdb_id if it's a real IMDB ID (tt… format); tmdb: fallback IDs must use title search
+  const isRealImdbId = imdbId && /^tt\d+/i.test(imdbId)
+  if (isRealImdbId) {
     const id = (season != null && episode != null)
       ? `${imdbId}:${season}:${episode}`
       : imdbId
     params.set('imdb_id', id)
-  } else {
+  } else if (title) {
     params.set('query', title)
     if (year) params.set('year', year)
+  } else {
+    return null // nothing useful to search with
   }
 
   return `${COMPANION}/subtitles?${params.toString()}`

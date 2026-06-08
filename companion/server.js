@@ -493,17 +493,21 @@ app.get('/subtitles', async (req, res) => {
 
     // ── Build OpenSubtitles.org search URL ────────────────────────────
     let searchUrl
-    if (imdb_id) {
+    // Use imdb_id only when it looks like a real IMDB ID (tt prefix or all digits)
+    const hasRealImdbId = imdb_id && /^tt\d+/i.test(imdb_id.split(':')[0])
+    if (hasRealImdbId) {
       // Strip "tt" prefix; handle episode IDs like "tt1234567:1:3"
       const [rawId, season, episode] = imdb_id.split(':')
       const bareId = rawId.replace(/^tt/i, '')
       let path = `/search/imdbid-${bareId}/sublanguageid-${lang}`
       if (season && episode) path += `/season-${season}/episode-${episode}`
       searchUrl = `https://rest.opensubtitles.org${path}`
-    } else {
+    } else if (query) {
       // Title search
       const q = encodeURIComponent(query).replace(/%20/g, '+')
       searchUrl = `https://rest.opensubtitles.org/search/query-${q}${year ? `/year-${year}` : ''}/sublanguageid-${lang}`
+    } else {
+      return res.status(400).json({ error: 'Valid imdb_id (tt…) or query required' })
     }
 
     // ── Search ────────────────────────────────────────────────────────
