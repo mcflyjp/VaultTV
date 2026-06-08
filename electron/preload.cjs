@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Native folder picker — returns { path, name } or null if user cancelled.
   // Used by LocalLibraryContext instead of File System Access API in Electron.
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+
+  // App-level fullscreen (not video fullscreen — the whole window).
+  toggleFullscreen: () => ipcRenderer.send('toggle-fullscreen'),
+  isFullScreen:     () => ipcRenderer.invoke('is-fullscreen'),
+  onFullscreenChange: (cb) => ipcRenderer.on('fullscreen-changed', (_e, v) => cb(v)),
 })

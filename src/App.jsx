@@ -13,12 +13,30 @@ import Addons from './pages/Addons'
 import Library from './pages/Library'
 import Queue from './pages/Queue'
 import Playlists from './pages/Playlists'
-import { FiChevronLeft } from 'react-icons/fi'
+import { FiChevronLeft, FiMaximize, FiMinimize } from 'react-icons/fi'
+import { useState, useEffect } from 'react'
+
+const IS_ELECTRON = !!window.electronAPI?.isElectron
 
 export default function App() {
   const { theme } = useTheme()
   const { density } = useLayout()
   const useTopNav = TOP_NAV_THEMES.has(theme)
+  const [isFullScreen, setIsFullScreen] = useState(false)
+
+  useEffect(() => {
+    if (!IS_ELECTRON) return
+    // Sync initial state
+    window.electronAPI.isFullScreen().then(setIsFullScreen)
+    // Keep in sync when window state changes
+    window.electronAPI.onFullscreenChange(setIsFullScreen)
+    // F11 in renderer (backup — globalShortcut in main handles it too)
+    const onKey = e => {
+      if (e.key === 'F11') { e.preventDefault(); window.electronAPI.toggleFullscreen() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div
@@ -46,6 +64,35 @@ export default function App() {
       </main>
       <ContextMenu />
       <VideoPlayer />
+
+      {/* App fullscreen toggle — Electron only, fixed top-right corner */}
+      {IS_ELECTRON && (
+        <button
+          onClick={() => window.electronAPI.toggleFullscreen()}
+          title={isFullScreen ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)'}
+          style={{
+            position: 'fixed',
+            top: 8,
+            right: 8,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,0.45)',
+            backdropFilter: 'blur(6px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 6,
+            color: 'rgba(255,255,255,0.7)',
+            cursor: 'pointer',
+            padding: '4px 7px',
+            display: 'flex',
+            alignItems: 'center',
+            lineHeight: 1,
+            transition: 'background 0.15s, color 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.75)'; e.currentTarget.style.color = '#fff' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.45)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)' }}
+        >
+          {isFullScreen ? <FiMinimize size={13} /> : <FiMaximize size={13} />}
+        </button>
+      )}
     </div>
   )
 }

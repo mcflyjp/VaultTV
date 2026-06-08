@@ -4,7 +4,7 @@
 
 const {
   app, BrowserWindow, shell, Menu, Tray, nativeImage,
-  ipcMain, dialog, utilityProcess,
+  ipcMain, dialog, utilityProcess, globalShortcut,
 } = require('electron')
 const path = require('path')
 const fs   = require('fs')
@@ -156,6 +156,23 @@ app.whenReady().then(() => {
   startCompanion()
   createWindow()
   createTray()
+
+  // F11 — toggle app fullscreen
+  globalShortcut.register('F11', () => {
+    if (!mainWindow) return
+    const next = !mainWindow.isFullScreen()
+    mainWindow.setFullScreen(next)
+    mainWindow.webContents.send('fullscreen-changed', next)
+  })
+
+  // ESC exits fullscreen (standard UX expectation)
+  globalShortcut.register('Escape', () => {
+    if (mainWindow?.isFullScreen()) {
+      mainWindow.setFullScreen(false)
+      mainWindow.webContents.send('fullscreen-changed', false)
+    }
+  })
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -180,6 +197,23 @@ ipcMain.on('open-external', (_event, url) => {
   if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
     shell.openExternal(url)
   }
+})
+
+// ── IPC: fullscreen ──────────────────────────────────────────────────
+ipcMain.on('toggle-fullscreen', () => {
+  if (!mainWindow) return
+  const next = !mainWindow.isFullScreen()
+  mainWindow.setFullScreen(next)
+  mainWindow.webContents.send('fullscreen-changed', next)
+})
+
+ipcMain.handle('is-fullscreen', () => mainWindow?.isFullScreen() ?? false)
+
+// Also fire the event on native fullscreen change (e.g. Windows key+↑)
+// so the React UI stays in sync with the actual window state.
+app.on('browser-window-created', (_e, win) => {
+  win.on('enter-full-screen', () => win.webContents.send('fullscreen-changed', true))
+  win.on('leave-full-screen',  () => win.webContents.send('fullscreen-changed', false))
 })
 
 // ── IPC: native folder picker ────────────────────────────────────────

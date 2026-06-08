@@ -4,8 +4,38 @@ import {
   pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges,
   scanFolder, streamUrl, fetchLibrary, saveLibrary, listWatchedFolders,
 } from '../lib/companion'
+import { supabase } from '../lib/supabase'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
+
+// ── Supabase sync helpers ──────────────────────────────────────────────────
+// Syncs local library metadata (sources + files) so other devices (phone,
+// another PC) can see the same titles in My Library and stream via addons.
+// companionPath is stripped before cloud upload — it's machine-specific.
+
+async function pushLocalLibraryToCloud(userId, sources, files) {
+  // Strip companionPath — it only means something on the machine that scanned
+  const cloudFiles = files.map(({ companionPath: _cp, ...rest }) => rest)
+  const { error } = await supabase
+    .from('user_settings')
+    .upsert({
+      user_id:       userId,
+      local_sources: sources,
+      local_files:   cloudFiles,
+      updated_at:    new Date().toISOString(),
+    })
+  if (error) throw error
+}
+
+async function fetchLocalLibraryFromCloud(userId) {
+  const { data, error } = await supabase
+    .from('user_settings')
+    .select('local_sources, local_files')
+    .eq('user_id', userId)
+    .single()
+  if (error && error.code !== 'PGRST116') throw error
+  return { sources: data?.local_sources ?? [], files: data?.local_files ?? [] }
+}
 
 /** Strip year suffixes and normalize a folder name for TMDB search */
 function cleanFolderName(name) {
@@ -44,8 +74,80 @@ export function LocalLibraryProvider({ children }) {
   const companionUnsub    = useRef(null)
   const rescanSourceRef   = useRef(null)
 
-  function saveSources(next) { setSources(next); localStorage.setItem(LS_SOURCES, JSON.stringify(next)) }
-  function saveFiles(next)   { setFiles(next); filesRef.current = next; localStorage.setItem(LS_FILES, JSON.stringify(next)) }
+  // Cloud user ref — tracked internally so we don't depend on AuthContext
+  const cloudUserRef = useRef(null)
+
+  function saveSources(next) {
+    setSources(next)
+    localStorage.setItem(LS_SOURCES, JSON.stringify(next))
+  }
+  function saveFiles(next) {
+    setFiles(next)
+    filesRef.current = next
+    localStorage.setItem(LS_FILES, JSON.stringify(next))
+  }
+
+  // After both sources and files are saved, push to cloud if logged in.
+  // Call this instead of saveSources+saveFiles separately when you want a sync.
+  function saveAndSync(nextSources, nextFiles) {
+    saveSources(nextSources)
+    saveFiles(nextFiles)
+    const user = cloudUserRef.current
+    if (user) {
+      pushLocalLibraryToCloud(user.id, nextSources, nextFiles).catch(e =>
+        console.warn('[local-library] Cloud push failed:', e.message)
+      )
+    }
+  }
+
+  // ── Supabase auth listener — sync local library to/from cloud ──────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        cloudUserRef.current = session.user
+        syncWithCloud(session.user.id)
+      }
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const prev = cloudUserRef.current
+      cloudUserRef.current = session?.user ?? null
+      if (session?.user && !prev) syncWithCloud(session.user.id)
+    })
+
+    return () => subscription.unsubscribe()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function syncWithCloud(userId) {
+    try {
+      const cloud = await fetchLocalLibraryFromCloud(userId)
+      const localFiles   = JSON.parse(localStorage.getItem(LS_FILES)   || '[]')
+      const localSources = JSON.parse(localStorage.getItem(LS_SOURCES) || '[]')
+
+      if (cloud.files.length > 0) {
+        // Cloud has data — merge: keep local files + add any cloud files not
+        // already present (matched by id). Cloud items won't have companionPath
+        // so they'll use addon streams on this device.
+        const localIds = new Set(localFiles.map(f => f.id))
+        const merged   = [...localFiles, ...cloud.files.filter(f => !localIds.has(f.id))]
+
+        const localSourceIds = new Set(localSources.map(s => s.id))
+        const mergedSources  = [...localSources, ...cloud.sources.filter(s => !localSourceIds.has(s.id))]
+
+        if (merged.length > localFiles.length || mergedSources.length > localSources.length) {
+          saveSources(mergedSources)
+          saveFiles(merged)
+          console.log(`[local-library] Merged ${cloud.files.length} cloud items into local library`)
+        }
+      } else if (localFiles.length > 0) {
+        // Local has data, cloud empty — push local up
+        await pushLocalLibraryToCloud(userId, localSources, localFiles)
+        console.log('[local-library] Pushed local library to cloud')
+      }
+    } catch (e) {
+      console.warn('[local-library] Cloud sync failed:', e.message)
+    }
+  }
 
   // ── Companion ping + SSE subscription ─────────────────────────────────
   useEffect(() => {
@@ -183,13 +285,13 @@ export function LocalLibraryProvider({ children }) {
         if (i % 5 === 4) await new Promise(r => setTimeout(r, 300))
       }
 
-      const allFiles = [...otherFiles, ...results]
-      saveFiles(allFiles)
-
       const nextSources = (currentSources || sources).map(s =>
         s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s
       )
-      saveSources(nextSources)
+      const allFiles = [...otherFiles, ...results]
+
+      // saveAndSync pushes to Supabase so other devices see these titles
+      saveAndSync(nextSources, allFiles)
 
       if (companionOnline) {
         saveLibrary({ sources: nextSources, files: allFiles }).catch(() => {})
@@ -373,13 +475,12 @@ export function LocalLibraryProvider({ children }) {
         }
       }
 
-      const allFiles = [...otherFiles, ...results]
-      saveFiles(allFiles)
-
       const nextSources = (currentSources || sources).map(s =>
         s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s
       )
-      saveSources(nextSources)
+      const allFiles = [...otherFiles, ...results]
+
+      saveAndSync(nextSources, allFiles)
 
       if (companionOnline) {
         saveLibrary({ sources: nextSources, files: allFiles }).catch(() => {})
