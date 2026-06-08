@@ -1,48 +1,92 @@
 # VaultTV Android / FireTV App
 
-A lightweight WebView wrapper that loads VaultTV from your local network.
+A lightweight WebView wrapper that loads VaultTV — works on FireTV Stick, Android TV, and any Android device.
 
-## Setup
+---
 
-1. Open `app/src/main/java/app/vaulttv/MainActivity.java`
-2. Change `VAULTTV_URL` to your host machine's IP:
-   ```java
-   private static final String VAULTTV_URL = "http://192.168.1.232:5174";
-   ```
+## Install on FireTV (Easiest — no PC needed)
 
-## Build
+### Option A — Downloader App Short Code
 
-**Requirements**: Android Studio or command-line Android SDK + Gradle
+1. Install **Downloader** (free) from Amazon Appstore on your FireTV
+2. Open Downloader → enter code: **`7898681`**
+   - Short URL: `aftv.news/7898681`
+3. Tap Download → Install → Open
+
+> Settings → My Fire TV → Developer Options → **Apps from Unknown Sources: ON** (required once)
+
+### Option B — Direct APK URL in Downloader
+
+Open Downloader → enter this URL directly:
+```
+https://github.com/mcflyjp/VaultTV/releases/download/v1.0.0/VaultTV-FireTV.apk
+```
+
+### Option C — ADB (same Wi-Fi as host PC)
+
+```bash
+# Find FireTV IP: Settings → My Fire TV → About → Network
+adb connect <firetv-ip>
+adb install -r VaultTV-FireTV.apk
+```
+
+---
+
+## GitHub Release
+
+Latest APK: https://github.com/mcflyjp/VaultTV/releases/tag/v1.0.0
+
+---
+
+## Setup — Point App at Your VaultTV Instance
+
+Open `app/src/main/java/app/vaulttv/MainActivity.java` and set `VAULTTV_URL`:
+
+```java
+// Option A: hosted URL (works anywhere)
+private static final String VAULTTV_URL = "https://vaulttv.pages.dev";
+
+// Option B: LAN (same network as host PC running VaultTV)
+private static final String VAULTTV_URL = "http://192.168.1.232:5174";
+```
+
+---
+
+## Build from Source
+
+**Requirements**: Android Studio (includes SDK + Gradle)
 
 ```bash
 cd android-app
 
-# Debug APK (sideload on FireTV / Android device)
+# Generate Gradle wrapper (first time only)
+gradle wrapper --gradle-version 8.9
+
+# Build debug APK
 ./gradlew assembleDebug
 # Output: app/build/outputs/apk/debug/app-debug.apk
 
-# Install directly via ADB
+# Install via ADB
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## FireTV Sideloading
+---
 
-1. On FireTV: Settings → My Fire TV → Developer Options → ADB Debugging ON + Apps from Unknown Sources ON
-2. Find FireTV IP: Settings → My Fire TV → About → Network
-3. Connect: `adb connect <firetv-ip>`
-4. Install: `adb install -r app-debug.apk`
-5. App appears in "Your Apps & Channels" → it is pinnable to the home screen
+## Remote Control / D-pad
 
-## D-pad / Remote Control
+| Button | Action |
+|---|---|
+| Select / OK | Click focused element |
+| Back | Browser back (exits app if no history) |
+| Play/Pause | Space key (handled by web player) |
+| Arrow keys | Navigate focusable elements |
 
-- **Select / OK** — clicks focused element
-- **Back** — browser back (or exits app if no history)
-- **Play/Pause** — handled by the web app's keyboard shortcuts (Space key)
-- Arrow keys navigate focusable elements
+---
 
 ## Notes
 
-- The app locks to landscape — ideal for TV
-- Fullscreen video works (HTML5 fullscreen API is forwarded)
-- `localStorage` persists between sessions (addons, library cache)
-- `usesCleartextTraffic="true"` is set so the companion server (http) works on LAN
+- Locked to landscape — ideal for TV
+- HTML5 fullscreen video works (forwarded to system fullscreen)
+- `localStorage` persists between sessions (addons, library, settings)
+- `usesCleartextTraffic="true"` allows http:// companion server on LAN
+- FireTV home screen banner included (320×180 `VAULTTV` graphic)
