@@ -31,6 +31,28 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  // ── FireTV OAuth deep-link handler ───────────────────────────────────
+  // MainActivity intercepts vaulttv://auth/callback, extracts the fragment,
+  // and calls window.__vaulttvAuthCallback(fragment).
+  useEffect(() => {
+    if (!IS_FIRETV) return
+    window.__vaulttvAuthCallback = async (fragment) => {
+      try {
+        const params = new URLSearchParams(fragment)
+        const accessToken  = params.get('access_token')
+        const refreshToken = params.get('refresh_token')
+        if (accessToken) {
+          await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken || '' })
+        } else {
+          await supabase.auth.exchangeCodeForSession(fragment)
+        }
+      } catch (err) {
+        console.error('VaultTV FireTV auth callback error:', err)
+      }
+    }
+    return () => { delete window.__vaulttvAuthCallback }
+  }, [])
+
   // ── Electron OAuth deep-link handler ─────────────────────────────────
   // When Google OAuth completes, the system browser redirects to
   // vaulttv://auth/callback#access_token=...&refresh_token=...
@@ -89,18 +111,15 @@ export function AuthProvider({ children }) {
       if (data?.url) window.electronAPI.openExternal(data.url)
 
     } else if (IS_FIRETV) {
-      // FireTV WebView: Google blocks OAuth in embedded browsers.
-      // Open the auth URL in Silk browser; after sign-in Supabase redirects
-      // back to this app's URL and the WebView picks up the session from storage.
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      // FireTV: Java intercepts accounts.google.com URLs and opens Silk.
+      // Supabase redirects back to vaulttv://auth/callback — Android catches
+      // that intent and calls window.__vaulttvAuthCallback() with the fragment.
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: window.location.href,
-          skipBrowserRedirect: true,
-        },
+        options: { redirectTo: 'vaulttv://auth/callback' },
       })
       if (error) throw error
-      if (data?.url) window.open(data.url, '_blank')
+      // Navigation to Google happens inside the WebView; Java intercepts it.
 
     } else {
       // Browser / web: normal redirect flow
