@@ -116,6 +116,9 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        // Append identifier so the React app can detect FireTV WebView
+        // and suppress Google OAuth (blocked by Google in embedded browsers)
+        settings.setUserAgentString(settings.getUserAgentString() + " VaultTV-FireTV");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override

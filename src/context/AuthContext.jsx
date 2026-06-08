@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 const AuthContext = createContext(null)
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
+// FireTV WebView — Google blocks OAuth in embedded browsers, so we open Silk
+const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
 
 // The custom URL scheme registered in electron/main.cjs.
 // Must also be added as an allowed redirect URL in the Supabase dashboard:
@@ -75,24 +77,33 @@ export function AuthProvider({ children }) {
 
   async function signInWithGoogle() {
     if (IS_ELECTRON) {
-      // In Electron we cannot redirect back to a file:// URL.
-      // 1. Ask Supabase for the OAuth URL without opening it (skipBrowserRedirect).
-      // 2. Open that URL in the system browser via shell.openExternal.
-      // 3. Google redirects to vaulttv://auth/callback — main.cjs catches it
-      //    and fires the 'auth-callback' IPC event handled above.
+      // Electron: open OAuth in system browser, catch deep-link callback
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: ELECTRON_REDIRECT,
-          skipBrowserRedirect: true,  // don't let Supabase navigate Electron
+          skipBrowserRedirect: true,
         },
       })
       if (error) throw error
-      if (data?.url) {
-        window.electronAPI.openExternal(data.url)
-      }
+      if (data?.url) window.electronAPI.openExternal(data.url)
+
+    } else if (IS_FIRETV) {
+      // FireTV WebView: Google blocks OAuth in embedded browsers.
+      // Open the auth URL in Silk browser; after sign-in Supabase redirects
+      // back to this app's URL and the WebView picks up the session from storage.
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.href,
+          skipBrowserRedirect: true,
+        },
+      })
+      if (error) throw error
+      if (data?.url) window.open(data.url, '_blank')
+
     } else {
-      // Browser: normal redirect flow
+      // Browser / web: normal redirect flow
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: window.location.origin },
