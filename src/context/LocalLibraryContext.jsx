@@ -231,9 +231,15 @@ export function LocalLibraryProvider({ children }) {
         // 404 means the companion lost its state (e.g. after reinstall).
         // Re-register the folder using the stored path and retry once.
         if (e.message.includes('404') && source.folderPath) {
-          console.warn('[scanner] Companion lost folder state — re-registering:', source.id)
-          await addWatchedFolder({ id: source.id, folderPath: source.folderPath, type: source.type, name: source.dirName || source.name })
+          console.warn('[scanner] Companion lost folder state — re-registering:', source.id, source.folderPath)
+          try {
+            await addWatchedFolder({ id: source.id, folderPath: source.folderPath, type: source.type, name: source.dirName || source.name })
+          } catch (regErr) {
+            throw new Error(`Could not register folder "${source.folderPath}" with companion: ${regErr.message}`)
+          }
           result = await scanFolder(source.id)
+        } else if (e.message.includes('404') && !source.folderPath) {
+          throw new Error('Folder path is missing — remove this folder and add it again')
         } else {
           throw e
         }
@@ -521,15 +527,35 @@ export function LocalLibraryProvider({ children }) {
 
   // ── Rescan a source ───────────────────────────────────────────────────
   const rescanSource = useCallback(async (id) => {
-    const source = sources.find(s => s.id === id)
+    let source = sources.find(s => s.id === id)
     if (!source) return
 
     if (IS_ELECTRON) {
-      // Re-register folder (in case companion restarted and lost state)
+      // If folderPath is missing (source added before folderPath was saved),
+      // ask the user to re-pick the folder so we can register it with the companion.
+      if (!source.folderPath) {
+        setError('')
+        const folderInfo = await window.electronAPI?.selectFolder()
+        if (!folderInfo) {
+          setError(`"${source.name}" is missing its folder path — please pick the folder when prompted.`)
+          return
+        }
+        // Persist the recovered path into sources
+        const patchedSources = sources.map(s =>
+          s.id === id ? { ...s, folderPath: folderInfo.path, dirName: folderInfo.name || s.dirName } : s
+        )
+        saveSources(patchedSources)
+        source = patchedSources.find(s => s.id === id)
+      }
+
+      // Re-register with companion (companion loses state after restart/reinstall)
       if (source.folderPath && companionOnline) {
         try {
           await addWatchedFolder({ id: source.id, folderPath: source.folderPath, type: source.type, name: source.name })
-        } catch { /* already registered is fine */ }
+        } catch (regErr) {
+          // Log but don't abort — scanSourceViaCompanion has its own recovery
+          console.warn('[scanner] Pre-registration failed:', regErr.message)
+        }
       }
       await scanSourceViaCompanion(source, sources)
     } else {
