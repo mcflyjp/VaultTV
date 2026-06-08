@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Component } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getDetail, getSeason, getSimilar, getVideos, IMG, getCertification, YT_EMBED, pickTrailer, pickTheme } from '../lib/tmdb'
@@ -427,6 +427,7 @@ export default function Detail() {
                     />
                     {/* ── Inline stream tray — opens below the clicked episode ── */}
                     {isExpanded && (
+                      <StreamErrorBoundary>
                       <InlineStreamTray
                         loading={loadingStreams}
                         streams={streams}
@@ -455,6 +456,7 @@ export default function Detail() {
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
                         }}
                       />
+                      </StreamErrorBoundary>
                     )}
                   </div>
                 )
@@ -466,6 +468,7 @@ export default function Detail() {
         {/* ── Movie streams panel (unchanged — shows below poster/info) ── */}
         {type === 'movie' && (loadingStreams || streams !== null) && (
           <div style={{ padding: '0 2rem 2rem' }}>
+            <StreamErrorBoundary>
             <StreamPanel
               loading={loadingStreams}
               streams={streams}
@@ -491,6 +494,7 @@ export default function Detail() {
                 startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
               }}
             />
+            </StreamErrorBoundary>
           </div>
         )}
 
@@ -544,6 +548,19 @@ function streamLangOptions(streams) {
 }
 
 /** Compact sort/filter toolbar shared by both stream panels */
+class StreamErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { err: null } }
+  static getDerivedStateFromError(e) { return { err: e } }
+  render() {
+    if (this.state.err) return (
+      <p style={{ margin: 0, fontSize: '0.82rem', color: 'rgba(255,80,80,0.8)' }}>
+        Stream list error: {this.state.err.message}
+      </p>
+    )
+    return this.props.children
+  }
+}
+
 function StreamSortBar({ streams, sortBy, setSortBy, filterLang, setFilterLang, compatOnly, setCompatOnly }) {
   const langOptions = streamLangOptions(streams)
   const selectStyle = {

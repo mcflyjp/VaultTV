@@ -622,5 +622,5 @@ export function LocalLibraryProvider({ children }) {
 }
 
 export function useLocalLibrary() {
-  return useContext(LocalLibraryContext)
+  return useContext(LocalLibraryContext) ?? {}
 }
