@@ -163,7 +163,11 @@ export default function VideoPlayer() {
       // playing the raw URL now, then swap to a transcode URL in the background
       // if the probe finds an unsupported codec.
       function startPlayback(url) {
-        const isHls = url.includes('.m3u8') || url.includes('manifest')
+        // Only check the URL path — not query params, which may contain an encoded
+        // source URL (e.g. companion /transcode?url=...m3u8). Checking the full
+        // string would misidentify a transcode URL as HLS and break playback.
+        const urlPath = url.split('?')[0]
+        const isHls = urlPath.includes('.m3u8') || urlPath.includes('manifest')
 
         if (isHls && Hls.isSupported()) {
           const hls = new Hls({
