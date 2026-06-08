@@ -74,14 +74,17 @@ export default function Sidebar() {
   }
 
   return (
-    <aside style={{
-      width: 220, minWidth: 220,
-      background: 'var(--bg-secondary)',
-      borderRight: '1px solid var(--border)',
-      display: 'flex', flexDirection: 'column',
-      height: '100vh', position: 'sticky', top: 0,
-      overflow: 'hidden', flexShrink: 0,
-    }}>
+    <aside
+      onTouchMove={e => e.stopPropagation()}
+      onWheel={e => e.stopPropagation()}
+      style={{
+        width: 220, minWidth: 220,
+        background: 'var(--bg-secondary)',
+        borderRight: '1px solid var(--border)',
+        display: 'flex', flexDirection: 'column',
+        height: '100vh', position: 'sticky', top: 0,
+        overflow: 'hidden', flexShrink: 0,
+      }}>
       {/* Logo */}
       <div style={{ padding: '0.75rem 1rem' }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center' }}>
