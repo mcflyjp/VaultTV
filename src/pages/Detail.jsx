@@ -13,8 +13,9 @@ import { useLanguage } from '../context/LanguageContext'
 import { useTrakt } from '../context/TraktContext'
 import MediaShelf from '../components/MediaShelf'
 import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage } from 'react-icons/fi'
-import { sortAndFilterStreams, streamCompat, compatBadge, parseStreamLanguages, parseStreamMeta, LANG_LABELS } from '../lib/streamCompat'
+import { sortAndFilterStreams, streamCompat, compatBadge, parseStreamLanguages, parseStreamMeta, parseStreamCodecs, LANG_LABELS } from '../lib/streamCompat'
 import { platformLabel } from '../lib/platform'
+import { transcodeUrl } from '../lib/companion'
 
 export default function Detail() {
   const { type, id } = useParams()
@@ -679,55 +680,48 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
 }
 
 function StreamPanelRow({ stream: s, onSelect, preferredLang }) {
-  const [audioWarn, setAudioWarn] = useState(false)
+  const { companionOnline } = useLocalLibrary()
   const compat    = streamCompat(s)
   const badge     = compatBadge(compat)
-  const dimmed    = compat === 'both-issues'
-  const hasAudioIssue = compat === 'audio-issue' || compat === 'both-issues'
+  const dimmed    = compat === 'both-issues' && !companionOnline
+  const hasIssue  = compat === 'audio-issue' || compat === 'video-issue' || compat === 'both-issues'
   const langs     = parseStreamLanguages(s)
   const meta      = parseStreamMeta(s)
   const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
-  const rawTooltip = [s.name, s.title, badge?.title].filter(Boolean).join('\n─────\n')
+  const rawTooltip = [s.name, s.title, companionOnline && hasIssue ? '⚡ Auto-transcoding via companion' : badge?.title].filter(Boolean).join('\n─────\n')
 
   function handleClick() {
     if (!s.url) return
-    if (hasAudioIssue && !audioWarn) { setAudioWarn(true); return }
-    setAudioWarn(false)
-    onSelect(s.url, s)
+    if (hasIssue && companionOnline) {
+      // Auto-transcode: convert bad audio→AAC and/or HEVC→H264
+      const { transcodeVideo } = parseStreamCodecs(s)
+      onSelect(transcodeUrl(s.url, 0, !!transcodeVideo), s)
+    } else {
+      onSelect(s.url, s)
+    }
   }
+
+  // Effective compat badge — show ⚡ when companion will auto-fix it
+  const effectiveBadge = hasIssue && companionOnline
+    ? { label: '⚡ Auto', color: '#4ade80', title: 'Will be transcoded automatically via companion' }
+    : badge
 
   return (
     <div
       tabIndex={s.url ? 0 : -1}
       data-card
-      title={audioWarn ? undefined : rawTooltip}
+      title={rawTooltip}
       onClick={handleClick}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
       style={{
         padding: '0.65rem 0.75rem', marginBottom: '0.4rem',
         background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
         borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
-        border: `1px solid ${audioWarn ? 'rgba(251,191,36,0.6)' : langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
-        opacity: dimmed && !audioWarn ? 0.5 : 1,
+        border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' || (hasIssue && companionOnline) ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
+        opacity: dimmed ? 0.5 : 1,
       }}
     >
-      {audioWarn ? (
-        <div>
-          <p style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#fbbf24', fontWeight: 600 }}>
-            ⚠ This stream uses AC3/DTS audio which may be silent in browsers.
-          </p>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button onClick={e => { e.stopPropagation(); setAudioWarn(false); onSelect(s.url, s) }}
-              style={{ padding: '0.35rem 0.85rem', background: '#fbbf24', border: 'none', borderRadius: 6, color: '#000', cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem' }}>
-              Play Anyway
-            </button>
-            <button onClick={e => { e.stopPropagation(); setAudioWarn(false) }}
-              style={{ padding: '0.35rem 0.85rem', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.82rem' }}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
+      {(
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
@@ -745,7 +739,7 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang }) {
                 border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.4)' : langMatch && code === preferredLang ? 'rgba(251,191,36,0.5)' : 'rgba(255,255,255,0.12)'}`,
               }}>{LANG_LABELS[code] || code.toUpperCase()}</span>
             ))}
-            {badge && <span title={badge.title} style={{ fontSize: '0.62rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>{badge.label}</span>}
+            {effectiveBadge && <span title={effectiveBadge.title} style={{ fontSize: '0.62rem', background: effectiveBadge.color + '22', color: effectiveBadge.color, border: `1px solid ${effectiveBadge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>{effectiveBadge.label}</span>}
             {s.url && <FiPlay size={16} style={{ color: 'var(--accent)' }} />}
           </div>
         </div>
@@ -756,27 +750,32 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang }) {
 
 /** Shared stream card used in the inline episode tray */
 function StreamCard({ stream: s, onSelect, preferredLang }) {
-  const [audioWarn, setAudioWarn] = useState(false)
+  const { companionOnline } = useLocalLibrary()
   const compat    = streamCompat(s)
   const badge     = compatBadge(compat)
-  const dimmed    = compat === 'both-issues'
-  const hasAudioIssue = compat === 'audio-issue' || compat === 'both-issues'
+  const hasIssue  = compat === 'audio-issue' || compat === 'video-issue' || compat === 'both-issues'
+  const dimmed    = compat === 'both-issues' && !companionOnline
   const langs     = parseStreamLanguages(s)
   const meta      = parseStreamMeta(s)
   const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
   const qualMatch = (s.name || '').match(/4K|\d{3,4}p|HD|SD/i)
-  const baseBorder = audioWarn ? 'rgba(251,191,36,0.6)'
-                   : langMatch ? 'rgba(251,191,36,0.45)'
-                   : compat === 'compatible' ? 'rgba(74,222,128,0.35)'
+  const effectiveBadge = hasIssue && companionOnline
+    ? { label: '⚡ Auto', color: '#4ade80', title: 'Will be transcoded automatically via companion' }
+    : badge
+  const baseBorder = langMatch ? 'rgba(251,191,36,0.45)'
+                   : compat === 'compatible' || (hasIssue && companionOnline) ? 'rgba(74,222,128,0.35)'
                    : 'var(--border)'
 
-  const rawTooltip = [s.name, s.title, badge?.title].filter(Boolean).join('\n─────\n')
+  const rawTooltip = [s.name, s.title, companionOnline && hasIssue ? '⚡ Auto-transcoding via companion' : effectiveBadge?.title].filter(Boolean).join('\n─────\n')
 
   function handleClick() {
     if (!s.url) return
-    if (hasAudioIssue && !audioWarn) { setAudioWarn(true); return }
-    setAudioWarn(false)
-    onSelect(s.url, s)
+    if (hasIssue && companionOnline) {
+      const { transcodeVideo } = parseStreamCodecs(s)
+      onSelect(transcodeUrl(s.url, 0, !!transcodeVideo), s)
+    } else {
+      onSelect(s.url, s)
+    }
   }
 
   return (
@@ -804,9 +803,9 @@ function StreamCard({ stream: s, onSelect, preferredLang }) {
               {qualMatch[0]}
             </span>
           )}
-          {badge && (
-            <span style={{ fontSize: '0.58rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>
-              {badge.label}
+          {effectiveBadge && (
+            <span style={{ fontSize: '0.58rem', background: effectiveBadge.color + '22', color: effectiveBadge.color, border: `1px solid ${effectiveBadge.color}55`, borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>
+              {effectiveBadge.label}
             </span>
           )}
         </div>
@@ -833,7 +832,7 @@ function StreamCard({ stream: s, onSelect, preferredLang }) {
       </div>
 
       {/* Language badges row */}
-      {langs.length > 0 && !audioWarn && (
+      {langs.length > 0 && (
         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
           {langs.map(code => (
             <span
