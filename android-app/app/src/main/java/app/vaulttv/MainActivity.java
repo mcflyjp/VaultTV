@@ -76,45 +76,61 @@ public class MainActivity extends Activity {
         +   "});"
         + "}"
 
-        // ── Beam-based directional move ───────────────────────────────────────
-        // In-beam elements (same column for up/down, same row for left/right)
-        // score purely by primary distance. Out-of-beam elements get a heavy
-        // perpendicular penalty so navigation stays in the same column/row.
+        // ── Modal focus trap ──────────────────────────────────────────────────
+        // If a modal/dialog/overlay is open, restrict navigation to elements
+        // inside it so the background page is not affected.
+        + "function getScope(){"
+        +   "var modal=document.querySelector("
+        +     "'[role=dialog],[data-modal],[data-overlay],"
+        +     ".modal-backdrop,.settings-panel,.context-menu-open'"
+        +   ");"
+        +   "if(modal)return modal;"
+        // Also treat any element with position:fixed that is visible and tall
+        // (likely an overlay) as the scope boundary
+        +   "var fixed=Array.from(document.querySelectorAll('[style*=\"position: fixed\"],[style*=\"position:fixed\"]')).filter(function(el){"
+        +     "var r=el.getBoundingClientRect();"
+        +     "return r.height>window.innerHeight*0.3&&r.width>window.innerWidth*0.3&&el.offsetParent!==null;"
+        +   "});"
+        +   "return fixed.length?fixed[fixed.length-1]:document;"
+        + "}"
+
+        // ── Strict beam-based directional move ────────────────────────────────
+        // Phase 1: find candidates strictly in the beam (true column/row overlap).
+        // Phase 2: only if no beam candidates, fall back to nearest in direction.
+        // This means up/down NEVER goes left/right and vice versa.
         + "function move(dir){"
         +   "var cur=document.activeElement;"
         +   "var hasFocus=cur&&cur!==document.body&&cur!==document.documentElement;"
-        +   "if(!hasFocus){var all=visEls();if(all.length)doFocus(all[0]);return;}"
+        +   "var scope=getScope();"
+        +   "var els=visEls().filter(function(el){"
+        +     "return scope===document||scope.contains(el);"
+        +   "});"
+        +   "if(!hasFocus){if(els.length)doFocus(els[0]);return;}"
         +   "var cr=cur.getBoundingClientRect();"
-        +   "var best=null,bs=Infinity;"
-        +   "visEls().forEach(function(el){"
+        // Phase 1: strictly in-beam candidates only
+        +   "var beam=[];"
+        +   "els.forEach(function(el){"
         +     "if(el===cur)return;"
         +     "var r=el.getBoundingClientRect();"
-        +     "var primary,beam,perp;"
-        +     "if(dir==='down'){"
-        +       "if(r.top<cr.bottom-5)return;"          // must be below
-        +       "primary=r.top-cr.bottom;"
-        +       "beam=r.left<cr.right&&r.right>cr.left;" // horizontal overlap
-        +       "perp=beam?0:Math.min(Math.abs(r.right-cr.left),Math.abs(r.left-cr.right));"
-        +     "}else if(dir==='up'){"
-        +       "if(r.bottom>cr.top+5)return;"           // must be above
-        +       "primary=cr.top-r.bottom;"
-        +       "beam=r.left<cr.right&&r.right>cr.left;"
-        +       "perp=beam?0:Math.min(Math.abs(r.right-cr.left),Math.abs(r.left-cr.right));"
-        +     "}else if(dir==='right'){"
-        +       "if(r.left<cr.right-5)return;"           // must be to the right
-        +       "primary=r.left-cr.right;"
-        +       "beam=r.top<cr.bottom&&r.bottom>cr.top;" // vertical overlap
-        +       "perp=beam?0:Math.min(Math.abs(r.bottom-cr.top),Math.abs(r.top-cr.bottom));"
-        +     "}else{"                                   // left
-        +       "if(r.right>cr.left+5)return;"           // must be to the left
-        +       "primary=cr.left-r.right;"
-        +       "beam=r.top<cr.bottom&&r.bottom>cr.top;"
-        +       "perp=beam?0:Math.min(Math.abs(r.bottom-cr.top),Math.abs(r.top-cr.bottom));"
+        +     "if(dir==='down'||dir==='up'){"
+        // For up/down: element must have horizontal overlap with current element
+        +       "var overlap=Math.min(r.right,cr.right)-Math.max(r.left,cr.left);"
+        +       "if(overlap<=0)return;"  // no horizontal overlap → skip entirely
+        +       "if(dir==='down'&&r.top<cr.bottom-5)return;"
+        +       "if(dir==='up'&&r.bottom>cr.top+5)return;"
+        +       "beam.push({el:el,d:dir==='down'?r.top-cr.bottom:cr.top-r.bottom});"
+        +     "}else{"
+        // For left/right: element must have vertical overlap with current element
+        +       "var overlap=Math.min(r.bottom,cr.bottom)-Math.max(r.top,cr.top);"
+        +       "if(overlap<=0)return;"  // no vertical overlap → skip entirely
+        +       "if(dir==='right'&&r.left<cr.right-5)return;"
+        +       "if(dir==='left'&&r.right>cr.left+5)return;"
+        +       "beam.push({el:el,d:dir==='right'?r.left-cr.right:cr.left-r.right});"
         +     "}"
-        +     "if(primary<0)primary=0;"
-        +     "var score=primary+(beam?0:perp*5);" // 5× penalty for leaving the beam
-        +     "if(score<bs){bs=score;best=el;}"
         +   "});"
+        +   "beam.sort(function(a,b){return a.d-b.d;});"
+        +   "var best=beam.length?beam[0].el:null;"
+        // Phase 2: no beam match → scroll (don't jump sideways)
         +   "if(!best){"
         +     "var s=document.querySelector('main')||document.scrollingElement;"
         +     "if(dir==='down')s.scrollTop+=180;"

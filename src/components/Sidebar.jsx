@@ -7,6 +7,8 @@ import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useQueue } from '../context/QueueContext'
 import { usePlaylist } from '../context/PlaylistContext'
 
+const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
+
 // ── Library item definitions (canonical order) ──
 const ALL_LIB_IDS = ['movies', 'shows', 'saved', 'queue', 'playlists']
 
@@ -242,16 +244,16 @@ export default function Sidebar() {
             <div
               key={id}
               data-lib-idx={idx}
-              draggable
-              onDragStart={e => onDragStart(e, idx)}
-              onDragOver={e => onDragOver(e, idx)}
-              onDragLeave={onDragLeave}
-              onDrop={e => onDrop(e, idx)}
-              onDragEnd={onDragEnd}
-              onTouchStart={e => onTouchStart(e, idx)}
-              onTouchEnd={onTouchEnd}
-              onKeyDown={e => onKeyDown(e, idx)}
-              onKeyUp={onKeyUp}
+              draggable={!IS_FIRETV}
+              onDragStart={IS_FIRETV ? undefined : e => onDragStart(e, idx)}
+              onDragOver={IS_FIRETV ? undefined : e => onDragOver(e, idx)}
+              onDragLeave={IS_FIRETV ? undefined : onDragLeave}
+              onDrop={IS_FIRETV ? undefined : e => onDrop(e, idx)}
+              onDragEnd={IS_FIRETV ? undefined : onDragEnd}
+              onTouchStart={IS_FIRETV ? undefined : e => onTouchStart(e, idx)}
+              onTouchEnd={IS_FIRETV ? undefined : onTouchEnd}
+              onKeyDown={IS_FIRETV ? undefined : e => onKeyDown(e, idx)}
+              onKeyUp={IS_FIRETV ? undefined : onKeyUp}
               tabIndex={0}
               style={{
                 display: 'flex', alignItems: 'center',
@@ -261,11 +263,12 @@ export default function Sidebar() {
                 outline: isDragTarget || isKbMoving ? '1px solid var(--accent)' : 'none',
                 outlineOffset: -1,
                 transition: 'background 0.1s, opacity 0.15s',
-                cursor: 'grab',
+                cursor: IS_FIRETV ? 'pointer' : 'grab',
                 userSelect: 'none',
               }}
             >
-              {/* Drag handle */}
+              {/* Drag handle — hidden on FireTV (no mouse/touch drag) */}
+              {!IS_FIRETV && (
               <span style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 padding: '0.5rem 0 0.5rem 0.45rem',
@@ -274,6 +277,7 @@ export default function Sidebar() {
               }}>
                 <FiMenu size={11} />
               </span>
+              )}
 
               {/* Nav link — click navigates, drag doesn't */}
               <Link
