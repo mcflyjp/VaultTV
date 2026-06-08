@@ -2,6 +2,8 @@ package app.vaulttv;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.View;
@@ -21,32 +23,38 @@ public class MainActivity extends Activity {
     private static final String VAULTTV_URL = "http://192.168.1.232:5174";
     // ─────────────────────────────────────────────────────────────────────
 
-    // ── Spatial navigation JS injected after every page load ─────────────
-    // Makes all cards/buttons focusable and enables arrow-key navigation.
+    // ── Spatial navigation JS ─────────────────────────────────────────────
+    // Injected after every page load. Makes all interactive elements (cards,
+    // buttons, AND form inputs) reachable with D-pad arrows + OK button.
     private static final String SPATIAL_NAV_JS = "(function(){"
-        // Selector for everything we want to be D-pad reachable
-        + "var SEL='button,[data-card],[role=button],a[href],[tabindex]';"
-        // Make items focusable and give visual focus ring
+        // Focusable selector — includes inputs/selects so forms are reachable
+        + "var SEL='button,input,textarea,select,[data-card],[role=button],a[href]';"
+        // Add tabindex to card divs so they can receive focus
         + "function makeFocusable(){"
         +   "document.querySelectorAll('[data-card]').forEach(function(el){"
         +     "if(!el.getAttribute('tabindex'))el.setAttribute('tabindex','0');"
         +   "});"
         + "}"
-        // Spatial nav: find closest focusable in a given direction
         + "function rect(el){return el.getBoundingClientRect();}"
         + "function cx(r){return r.left+r.width/2;}"
         + "function cy(r){return r.top+r.height/2;}"
         + "function navigate(dir){"
         +   "var cur=document.activeElement;"
-        +   "var cr=cur?rect(cur):null;"
+        +   "var cr=(cur&&cur!==document.body)?rect(cur):null;"
         +   "var candidates=Array.from(document.querySelectorAll(SEL)).filter(function(el){"
-        +     "if(el===cur||el.offsetParent===null)return false;"
+        +     "if(el===cur||el.offsetParent===null||el.disabled)return false;"
         +     "var r=rect(el);"
         +     "if(r.width===0||r.height===0)return false;"
-        +     "if(dir==='right')return r.left>=(cr?cr.right-4:0);"
-        +     "if(dir==='left') return r.right<=(cr?cr.left+4:window.innerWidth);"
-        +     "if(dir==='down') return r.top>=(cr?cr.bottom-4:0);"
-        +     "if(dir==='up')   return r.bottom<=(cr?cr.top+4:window.innerHeight);"
+        // No viewport clipping — allow off-screen elements so D-pad can navigate
+        // into a grid that starts below the fold; scrollIntoView brings them in.
+        // Only exclude elements that are wildly far away (> 5 screens) to keep perf.
+        +     "var FAR=window.innerHeight*5;"
+        +     "if(r.bottom<-FAR||r.top>FAR*2)return false;"
+        +     "if(!cr)return true;"
+        +     "if(dir==='right')return r.left>=(cr.right-4);"
+        +     "if(dir==='left') return r.right<=(cr.left+4);"
+        +     "if(dir==='down') return r.top>=(cr.bottom-4);"
+        +     "if(dir==='up')   return r.bottom<=(cr.top+4);"
         +     "return false;"
         +   "});"
         +   "if(!candidates.length)return false;"
@@ -57,51 +65,49 @@ public class MainActivity extends Activity {
         +       "dax=cx(ra)-cx(cr);day=cy(ra)-cy(cr);"
         +       "dbx=cx(rb)-cx(cr);dby=cy(rb)-cy(cr);"
         +     "}else{dax=cx(ra);day=cy(ra);dbx=cx(rb);dby=cy(rb);}"
-        // Weight perpendicular axis less (prefer items in the primary direction)
-        +     "var wa=Math.sqrt(dax*dax*1.5+day*day*(dir==='left'||dir==='right'?3:1));"
-        +     "var wb=Math.sqrt(dbx*dbx*1.5+dby*dby*(dir==='left'||dir==='right'?3:1));"
+        // Weight: primary axis counts 1x, perpendicular counts 2x (prefer straight-line movement)
+        +     "var pw=(dir==='up'||dir==='down')?1:2;"
+        +     "var wa=Math.sqrt(dax*dax*pw+day*day*(pw===1?2:1));"
+        +     "var wb=Math.sqrt(dbx*dbx*pw+dby*dby*(pw===1?2:1));"
         +     "return wa<wb?a:b;"
         +   "});"
         +   "best.focus({preventScroll:false});"
         +   "best.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
         +   "return true;"
         + "}"
-        // Scroll amount when no focusable target exists in that direction
         + "var SCROLL_STEP=220;"
-        // Arrow key handler — always intercepts arrows so WebView never does its
-        // own page-jump scroll (Android WebView treats DPAD up/down as Home/End)
         + "document.addEventListener('keydown',function(e){"
-        +   "var tag=document.activeElement?document.activeElement.tagName:'BODY';"
-        +   "if(tag==='INPUT'||tag==='TEXTAREA')return;"
+        +   "var active=document.activeElement;"
+        +   "var tag=active?active.tagName:'';"
+        // When inside a text input, only intercept Up/Down (to leave the field);
+        // Left/Right/Enter pass through so typing still works normally
+        +   "var inText=(tag==='INPUT'&&active.type!=='checkbox'&&active.type!=='radio'&&active.type!=='submit'&&active.type!=='button')||tag==='TEXTAREA';"
         +   "var dir=null;"
         +   "if(e.keyCode===39||e.keyCode===228)dir='right';"
         +   "if(e.keyCode===37||e.keyCode===225)dir='left';"
         +   "if(e.keyCode===40||e.keyCode===227)dir='down';"
         +   "if(e.keyCode===38||e.keyCode===226)dir='up';"
+        // Inside a text input: let left/right move cursor; only intercept up/down to leave field
+        +   "if(inText&&(dir==='left'||dir==='right'))return;"
         +   "if(dir){"
-        // Always stop WebView from doing its own scroll
-        +     "e.preventDefault();"
-        +     "e.stopPropagation();"
+        +     "e.preventDefault();e.stopPropagation();"
         +     "if(!navigate(dir)){"
-        // No focusable target — scroll the page manually instead
         +       "var scroller=document.querySelector('main')||document.scrollingElement||document.documentElement;"
         +       "if(dir==='down')scroller.scrollTop+=SCROLL_STEP;"
         +       "else if(dir==='up')scroller.scrollTop-=SCROLL_STEP;"
-        +       "else if(dir==='right')scroller.scrollLeft+=SCROLL_STEP;"
-        +       "else if(dir==='left')scroller.scrollLeft-=SCROLL_STEP;"
         +     "}"
         +   "}"
-        // Enter / DPAD_CENTER = click focused element
+        // Enter on a non-input element = click it.
+        // Enter on an input/select = submit or toggle (let default happen)
         +   "if(e.keyCode===13||e.keyCode===23){"
-        +     "var el=document.activeElement;"
-        +     "if(el&&el!==document.body){el.click();e.preventDefault();}"
+        +     "if(!inText&&tag!=='SELECT'){"
+        +       "if(active&&active!==document.body){active.click();e.preventDefault();}"
+        +     "}"
         +   "}"
         + "},true);"
-        // Re-run makeFocusable when DOM changes (React route changes add new cards)
         + "var obs=new MutationObserver(function(){makeFocusable();});"
         + "obs.observe(document.body,{childList:true,subtree:true});"
         + "makeFocusable();"
-        // Focus first interactive element after a short delay
         + "setTimeout(function(){"
         +   "var first=document.querySelector(SEL);"
         +   "if(first)first.focus();"
@@ -128,20 +134,36 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        // Append identifier so the React app can detect FireTV WebView
-        // and suppress Google OAuth (blocked by Google in embedded browsers)
         settings.setUserAgentString(settings.getUserAgentString() + " VaultTV-FireTV");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                // Google OAuth must open in Silk — Google blocks it in WebViews.
+                // We intercept here at the Java level (more reliable than JS window.open).
+                if (url.contains("accounts.google.com") || url.contains("google.com/o/oauth2")) {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    startActivity(intent);
+                    return true; // don't load in WebView
+                }
+                // Deep-link callback: vaulttv://auth/callback#tokens
+                // Silk finishes auth, Supabase redirects here, Android fires this intent.
+                // We extract the fragment and run it through Supabase in the WebView.
+                if (url.startsWith("vaulttv://auth/callback")) {
+                    String fragment = request.getUrl().getFragment();
+                    if (fragment != null && !fragment.isEmpty()) {
+                        String js = "window.__vaulttvAuthCallback && window.__vaulttvAuthCallback('" + fragment.replace("'", "\\'") + "');";
+                        webView.evaluateJavascript(js, null);
+                    }
+                    return true;
+                }
                 return false;
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
-                // Inject spatial navigation after every page / route load
                 webView.evaluateJavascript(SPATIAL_NAV_JS, null);
             }
         });
@@ -167,7 +189,6 @@ public class MainActivity extends Activity {
                 progressBar = findViewById(R.id.progressBar);
                 progressBar.setVisibility(View.GONE);
                 customView = null;
-                // Re-inject after returning from fullscreen
                 webView.evaluateJavascript(SPATIAL_NAV_JS, null);
             }
         });
@@ -175,15 +196,11 @@ public class MainActivity extends Activity {
         webView.loadUrl(VAULTTV_URL);
     }
 
-    // ── FireTV / Android TV d-pad + back button ───────────────────────────
-    // Arrow keys and Enter are forwarded to the WebView as key events.
-    // The spatial nav JS above handles them; we only intercept Back here.
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (webView.canGoBack()) { webView.goBack(); return true; }
         }
-        // Let all other keys (arrows, enter, play/pause, etc.) pass to WebView
         return super.onKeyDown(keyCode, event);
     }
 
