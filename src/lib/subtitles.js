@@ -3,7 +3,13 @@
  * provides fetch utilities for auto-downloading VTT files.
  */
 
-const COMPANION = 'http://127.0.0.1:7842'
+// Use the same configurable host as companion.js — reads vt-companion-host from localStorage
+function getCompanionBase() {
+  const stored = localStorage.getItem('vt-companion-host')
+  const host = (stored && stored.trim()) || window.location.hostname || 'localhost'
+  return `http://${host}:7842`
+}
+const COMPANION = { toString() { return getCompanionBase() } }
 
 /**
  * Build a URL to the companion's /subtitles proxy endpoint.

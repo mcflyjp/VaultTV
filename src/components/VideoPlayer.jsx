@@ -575,12 +575,12 @@ export default function VideoPlayer() {
         onPlaying={onCanPlay}
         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         playsInline
-      />
-
-      {/* ── External subtitle track (VTT) ── */}
-      {manualSubUrl && (
-        <track key={manualSubUrl} kind="subtitles" src={manualSubUrl} default label="Subtitles" />
-      )}
+      >
+        {/* <track> MUST be inside <video> — browser ignores it as a sibling */}
+        {manualSubUrl && (
+          <track key={manualSubUrl} kind="subtitles" src={manualSubUrl} default label="Subtitles" />
+        )}
+      </video>
 
       {/* ── Transcoding indicator ── */}
       {transcoding && (

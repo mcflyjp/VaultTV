@@ -671,75 +671,84 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
           />
           {sorted.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams match the current filters.</p>
-          ) : sorted.map((s, i) => {
-            const compat    = streamCompat(s)
-            const badge     = compatBadge(compat)
-            const dimmed    = compat === 'both-issues'
-            const langs     = parseStreamLanguages(s)
-            const meta      = parseStreamMeta(s)
-            const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
-            const rawTooltip = [s.name, s.title, badge?.title].filter(Boolean).join('\n─────\n')
-            return (
-              <div
-                key={i}
-                tabIndex={s.url ? 0 : -1}
-                title={rawTooltip}
-                onClick={() => s.url && onSelect(s.url, s)}
-                onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
-                style={{
-                  padding: '0.65rem 0.75rem', marginBottom: '0.4rem',
-                  background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
-                  borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
-                  border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  opacity: dimmed ? 0.5 : 1,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
-                  <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</span>
-                    {meta.seeds != null && (
-                      <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>👤 {meta.seeds}</span>
-                    )}
-                    {meta.sizeGb != null && (
-                      <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>
-                        💾 {meta.sizeGb >= 1 ? `${meta.sizeGb.toFixed(1)} GB` : `${(meta.sizeGb * 1024).toFixed(0)} MB`}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {langs.map(code => (
-                    <span
-                      key={code}
-                      style={{
-                        fontSize: '0.6rem', borderRadius: 3, padding: '2px 5px', fontWeight: 700,
-                        background: code === 'MULTI' ? 'rgba(99,102,241,0.2)'
-                                   : langMatch && code === preferredLang ? 'rgba(251,191,36,0.25)'
-                                   : 'rgba(255,255,255,0.08)',
-                        color: code === 'MULTI' ? '#818cf8'
-                             : langMatch && code === preferredLang ? '#fbbf24'
-                             : 'rgba(255,255,255,0.55)',
-                        border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.4)'
-                                  : langMatch && code === preferredLang ? 'rgba(251,191,36,0.5)'
-                                  : 'rgba(255,255,255,0.12)'}`,
-                      }}
-                    >
-                      {LANG_LABELS[code] || code.toUpperCase()}
-                    </span>
-                  ))}
-                  {badge && (
-                    <span title={badge.title} style={{ fontSize: '0.62rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
-                      {badge.label}
-                    </span>
-                  )}
-                  {s.url && <FiPlay size={16} style={{ color: 'var(--accent)' }} />}
-                </div>
-              </div>
-            )
-          })}
+          ) : sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} />)}
         </>
+      )}
+    </div>
+  )
+}
+
+function StreamPanelRow({ stream: s, onSelect, preferredLang }) {
+  const [audioWarn, setAudioWarn] = useState(false)
+  const compat    = streamCompat(s)
+  const badge     = compatBadge(compat)
+  const dimmed    = compat === 'both-issues'
+  const hasAudioIssue = compat === 'audio-issue' || compat === 'both-issues'
+  const langs     = parseStreamLanguages(s)
+  const meta      = parseStreamMeta(s)
+  const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
+  const rawTooltip = [s.name, s.title, badge?.title].filter(Boolean).join('\n─────\n')
+
+  function handleClick() {
+    if (!s.url) return
+    if (hasAudioIssue && !audioWarn) { setAudioWarn(true); return }
+    setAudioWarn(false)
+    onSelect(s.url, s)
+  }
+
+  return (
+    <div
+      tabIndex={s.url ? 0 : -1}
+      data-card
+      title={audioWarn ? undefined : rawTooltip}
+      onClick={handleClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
+      style={{
+        padding: '0.65rem 0.75rem', marginBottom: '0.4rem',
+        background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
+        borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
+        border: `1px solid ${audioWarn ? 'rgba(251,191,36,0.6)' : langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
+        opacity: dimmed && !audioWarn ? 0.5 : 1,
+      }}
+    >
+      {audioWarn ? (
+        <div>
+          <p style={{ margin: '0 0 8px', fontSize: '0.82rem', color: '#fbbf24', fontWeight: 600 }}>
+            ⚠ This stream uses AC3/DTS audio which may be silent in browsers.
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={e => { e.stopPropagation(); setAudioWarn(false); onSelect(s.url, s) }}
+              style={{ padding: '0.35rem 0.85rem', background: '#fbbf24', border: 'none', borderRadius: 6, color: '#000', cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem' }}>
+              Play Anyway
+            </button>
+            <button onClick={e => { e.stopPropagation(); setAudioWarn(false) }}
+              style={{ padding: '0.35rem 0.85rem', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.82rem' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</span>
+              {meta.seeds != null && <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>👤 {meta.seeds}</span>}
+              {meta.sizeGb != null && <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>💾 {meta.sizeGb >= 1 ? `${meta.sizeGb.toFixed(1)} GB` : `${(meta.sizeGb * 1024).toFixed(0)} MB`}</span>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {langs.map(code => (
+              <span key={code} style={{ fontSize: '0.6rem', borderRadius: 3, padding: '2px 5px', fontWeight: 700,
+                background: code === 'MULTI' ? 'rgba(99,102,241,0.2)' : langMatch && code === preferredLang ? 'rgba(251,191,36,0.25)' : 'rgba(255,255,255,0.08)',
+                color: code === 'MULTI' ? '#818cf8' : langMatch && code === preferredLang ? '#fbbf24' : 'rgba(255,255,255,0.55)',
+                border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.4)' : langMatch && code === preferredLang ? 'rgba(251,191,36,0.5)' : 'rgba(255,255,255,0.12)'}`,
+              }}>{LANG_LABELS[code] || code.toUpperCase()}</span>
+            ))}
+            {badge && <span title={badge.title} style={{ fontSize: '0.62rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>{badge.label}</span>}
+            {s.url && <FiPlay size={16} style={{ color: 'var(--accent)' }} />}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -747,24 +756,32 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
 
 /** Shared stream card used in the inline episode tray */
 function StreamCard({ stream: s, onSelect, preferredLang }) {
+  const [audioWarn, setAudioWarn] = useState(false)
   const compat    = streamCompat(s)
   const badge     = compatBadge(compat)
   const dimmed    = compat === 'both-issues'
+  const hasAudioIssue = compat === 'audio-issue' || compat === 'both-issues'
   const langs     = parseStreamLanguages(s)
   const meta      = parseStreamMeta(s)
   const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
   const qualMatch = (s.name || '').match(/4K|\d{3,4}p|HD|SD/i)
-  const baseBorder = langMatch ? 'rgba(251,191,36,0.45)'
+  const baseBorder = audioWarn ? 'rgba(251,191,36,0.6)'
+                   : langMatch ? 'rgba(251,191,36,0.45)'
                    : compat === 'compatible' ? 'rgba(74,222,128,0.35)'
                    : 'var(--border)'
 
-  // Build a rich tooltip from all raw stream fields so users can see
-  // everything the addon sent, even when auto-detection missed something
   const rawTooltip = [s.name, s.title, badge?.title].filter(Boolean).join('\n─────\n')
+
+  function handleClick() {
+    if (!s.url) return
+    if (hasAudioIssue && !audioWarn) { setAudioWarn(true); return }
+    setAudioWarn(false)
+    onSelect(s.url, s)
+  }
 
   return (
     <button
-      onClick={() => s.url && onSelect(s.url, s)}
+      onClick={handleClick}
       disabled={!s.url}
       title={rawTooltip}
       style={{
@@ -816,7 +833,7 @@ function StreamCard({ stream: s, onSelect, preferredLang }) {
       </div>
 
       {/* Language badges row */}
-      {langs.length > 0 && (
+      {langs.length > 0 && !audioWarn && (
         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
           {langs.map(code => (
             <span
@@ -837,6 +854,25 @@ function StreamCard({ stream: s, onSelect, preferredLang }) {
               {LANG_LABELS[code] || code.toUpperCase()}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Audio warning — shown on first click of an AC3/DTS stream */}
+      {audioWarn && (
+        <div style={{ marginTop: 4 }}>
+          <p style={{ margin: '0 0 6px', fontSize: '0.68rem', color: '#fbbf24', lineHeight: 1.4 }}>
+            ⚠ AC3/DTS audio may be silent in browser. Play anyway?
+          </p>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <span
+              onClick={e => { e.stopPropagation(); setAudioWarn(false); onSelect(s.url, s) }}
+              style={{ flex: 1, background: '#fbbf24', borderRadius: 4, color: '#000', fontSize: '0.65rem', fontWeight: 700, padding: '3px 0', textAlign: 'center', cursor: 'pointer' }}
+            >Play Anyway</span>
+            <span
+              onClick={e => { e.stopPropagation(); setAudioWarn(false) }}
+              style={{ flex: 1, background: 'rgba(255,255,255,0.1)', borderRadius: 4, color: 'rgba(255,255,255,0.7)', fontSize: '0.65rem', padding: '3px 0', textAlign: 'center', cursor: 'pointer' }}
+            >Cancel</span>
+          </div>
         </div>
       )}
     </button>
