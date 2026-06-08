@@ -595,13 +595,24 @@ export default function Settings() {
 }
 
 function CompanionHostInput() {
+  const local = useLocalLibrary()
   const [val, setVal] = useState(() => localStorage.getItem('vt-companion-host') || '')
-  const [saved, setSaved] = useState(false)
-  function save() {
+  const [status, setStatus] = useState(null) // null | 'testing' | 'online' | 'offline'
+
+  async function saveAndTest() {
     localStorage.setItem('vt-companion-host', val.trim())
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setStatus('testing')
+    const online = await local.recheckCompanion()
+    setStatus(online ? 'online' : 'offline')
+    setTimeout(() => setStatus(null), 4000)
   }
+
+  const btnLabel = status === 'testing' ? 'Testing…'
+                 : status === 'online'  ? '✓ Online'
+                 : status === 'offline' ? '✗ Offline'
+                 : 'Save & Test'
+  const btnColor = status === 'online' ? '#16a34a' : status === 'offline' ? '#ef4444' : 'var(--accent)'
+
   return (
     <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
       <input
@@ -611,7 +622,7 @@ function CompanionHostInput() {
         placeholder="192.168.1.xxx  (your PC's LAN IP)"
         value={val}
         onChange={e => setVal(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter') save() }}
+        onKeyDown={e => { if (e.key === 'Enter') saveAndTest() }}
         style={{
           flex: 1, minWidth: 200, padding: '0.4rem 0.7rem',
           background: 'var(--bg-card)', border: '1px solid var(--border)',
@@ -621,13 +632,14 @@ function CompanionHostInput() {
       <button
         data-card
         tabIndex={0}
-        onClick={save}
+        onClick={saveAndTest}
+        disabled={status === 'testing'}
         style={{
-          padding: '0.4rem 0.85rem', background: saved ? '#16a34a' : 'var(--accent)',
+          padding: '0.4rem 0.85rem', background: btnColor,
           border: 'none', borderRadius: 'var(--radius)', color: '#fff',
           cursor: 'pointer', fontSize: '0.82rem', transition: 'background 0.2s',
         }}
-      >{saved ? '✓ Saved' : 'Save'}</button>
+      >{btnLabel}</button>
     </div>
   )
 }

@@ -539,6 +539,13 @@ export function LocalLibraryProvider({ children }) {
 
   rescanSourceRef.current = rescanSource
 
+  // ── Manual re-ping (called after user changes companion host in Settings) ─
+  async function recheckCompanion() {
+    const online = await pingCompanion()
+    setCompanionOnline(online)
+    return online
+  }
+
   // ── Re-grant access (browser only) ────────────────────────────────────
   const reGrantAll = useCallback(async () => {
     if (IS_ELECTRON) {
@@ -606,7 +613,7 @@ export function LocalLibraryProvider({ children }) {
   return (
     <LocalLibraryContext.Provider value={{
       sources, files, scanning, progress, error, hasHandles, companionOnline,
-      addSource, removeSource, rescanSource, reGrantAll,
+      addSource, removeSource, rescanSource, reGrantAll, recheckCompanion,
       getFileUrl, getLocalFile, getLocalVersions, hasLocal, getLocalEpisodeCount, clearAll,
     }}>
       {children}
