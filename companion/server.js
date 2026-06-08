@@ -22,8 +22,16 @@ const { spawn } = require('child_process')
 
 // ── Config ────────────────────────────────────────────────────────────
 const USER_CONFIG_FILE   = path.join(__dirname, 'config.json')
-const STATE_FILE         = path.join(__dirname, 'watched-folders.json')
-const LIBRARY_FILE       = path.join(__dirname, 'library.json')
+
+// Store mutable state in a user-writable persistent directory so it survives
+// app reinstalls. Fall back to __dirname when running in dev (no APPDATA etc.)
+const DATA_DIR = (process.env.APPDATA || process.env.HOME
+  ? path.join(process.env.APPDATA || path.join(process.env.HOME, '.config'), 'VaultTV')
+  : __dirname)
+try { require('fs').mkdirSync(DATA_DIR, { recursive: true }) } catch {}
+
+const STATE_FILE   = path.join(DATA_DIR, 'watched-folders.json')
+const LIBRARY_FILE = path.join(DATA_DIR, 'library.json')
 
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts'])
 

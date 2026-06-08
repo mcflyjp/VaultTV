@@ -224,7 +224,20 @@ export function LocalLibraryProvider({ children }) {
     setScanning(true)
     setError('')
     try {
-      const result = await scanFolder(source.id)
+      let result
+      try {
+        result = await scanFolder(source.id)
+      } catch (e) {
+        // 404 means the companion lost its state (e.g. after reinstall).
+        // Re-register the folder using the stored path and retry once.
+        if (e.message.includes('404') && source.folderPath) {
+          console.warn('[scanner] Companion lost folder state — re-registering:', source.id)
+          await addWatchedFolder({ id: source.id, folderPath: source.folderPath, type: source.type, name: source.dirName || source.name })
+          result = await scanFolder(source.id)
+        } else {
+          throw e
+        }
+      }
       const companionFiles = result.files || []
       setProgress({ done: 0, total: companionFiles.length, label: source.dirName })
 
