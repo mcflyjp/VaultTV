@@ -22,17 +22,21 @@ import { LanguageProvider } from './context/LanguageContext'
 import { useTrakt } from './context/TraktContext'
 import { setTraktWatchlistSync } from './context/LibraryContext'
 import { setTraktRatingSync } from './context/RatingsContext'
+import { setTraktDashboardSync } from './context/TraktContext'
+import { useDashboard } from './context/DashboardContext'
 import { useEffect } from 'react'
 import './index.css'
 import App from './App.jsx'
 
-/** Wires Trakt sync callbacks into LibraryContext without circular imports */
+/** Wires Trakt sync callbacks into LibraryContext and DashboardContext without circular imports */
 function TraktBridge() {
   const { addToWatchlist, removeFromWatchlist, syncRating } = useTrakt()
+  const { addAddonSection } = useDashboard()
   useEffect(() => {
     setTraktWatchlistSync(addToWatchlist, removeFromWatchlist)
     setTraktRatingSync(syncRating)
-  }, [addToWatchlist, removeFromWatchlist, syncRating])
+    setTraktDashboardSync(addAddonSection)
+  }, [addToWatchlist, removeFromWatchlist, syncRating, addAddonSection])
   return null
 }
 

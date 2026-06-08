@@ -9,6 +9,11 @@ import {
 } from '../lib/trakt'
 import { supabase } from '../lib/supabase'
 
+// Set by main.jsx — lets TraktContext add Trakt lists to the dashboard
+// without creating a circular dependency on DashboardContext.
+let _addDashboardSection = null
+export function setTraktDashboardSync(fn) { _addDashboardSection = fn }
+
 const LS_CREDS  = 'vt-trakt-creds'
 const LS_AUTH   = 'vt-trakt-auth'
 const LS_LISTS  = 'vt-trakt-lists'
@@ -126,6 +131,11 @@ export function TraktProvider({ children }) {
       const next = raw.map(l => ({ id: l.ids?.slug || String(l.ids?.trakt), name: l.name, slug: l.ids?.slug }))
       setLists(next)
       localStorage.setItem(LS_LISTS, JSON.stringify(next))
+      // Auto-add watchlist + any custom lists to the dashboard (skips if already present)
+      const allLists = [{ id: 'watchlist', name: 'Watchlist' }, ...next]
+      allLists.forEach(l => _addDashboardSection?.({
+        id: `trakt_${l.id}`, title: l.name, type: 'trakt', traktListId: l.id,
+      }))
     } catch {}
   }, [accessToken, clientId])
 

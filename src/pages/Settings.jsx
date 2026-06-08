@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
+const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
 
 /** Open a link in the system browser. Works in both Electron and web. */
 function openLink(url) {
@@ -344,8 +345,9 @@ export default function Settings() {
           </div>
         )}
 
-        {/* Add folder buttons */}
+        {/* Add folder buttons — hidden on FireTV (no File System Access API) */}
         <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: local.sources.length > 0 ? '1rem' : 0 }}>
+          {!IS_FIRETV && (<>
           <button
             className="btn-accent"
             onClick={() => local.addSource('movie')}
@@ -371,6 +373,7 @@ export default function Settings() {
               <FiRefreshCw size={13} /> Re-grant Access
             </button>
           )}
+          </>)}
           {local.sources.length > 0 && (
             <button
               onClick={local.clearAll}
@@ -414,7 +417,7 @@ export default function Settings() {
           <div style={{ marginTop: 2, color: local.companionOnline ? '#4ade80' : 'var(--text-secondary)', flexShrink: 0 }}>
             {local.companionOnline ? <FiWifi size={16} /> : <FiWifiOff size={16} />}
           </div>
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: '0 0 0.25rem', fontWeight: 600, fontSize: '0.85rem', color: local.companionOnline ? '#4ade80' : 'var(--text-secondary)' }}>
               Companion Server — {local.companionOnline ? 'Online' : 'Offline'}
             </p>
@@ -423,17 +426,28 @@ export default function Settings() {
                 ? 'Auto-sync is active. VaultTV will prompt you to rescan when new files are detected in your folders.'
                 : IS_ELECTRON
                   ? 'The companion server starts automatically with the app. If it stays offline, try restarting VaultTV.'
-                  : <>
-                      Auto-sync is unavailable. Run <code style={{ background: 'var(--bg-card)', padding: '1px 5px', borderRadius: 4 }}>cd companion &amp;&amp; npm install &amp;&amp; node server.js</code> in the VaultTV folder to enable it. Stop it any time — the library keeps working.
-                    </>
+                  : IS_FIRETV
+                    ? 'Enter your PC\'s LAN IP below so the FireTV can reach the companion server.'
+                    : <>
+                        Auto-sync is unavailable. Run <code style={{ background: 'var(--bg-card)', padding: '1px 5px', borderRadius: 4 }}>cd companion &amp;&amp; npm install &amp;&amp; node server.js</code> in the VaultTV folder to enable it. Stop it any time — the library keeps working.
+                      </>
               }
             </p>
+            {/* Companion host override — shown on FireTV or when loaded from hosted URL */}
+            {(IS_FIRETV || !['localhost', '127.0.0.1'].includes(window.location.hostname) && !window.location.hostname.match(/^192\.|^10\.|^172\./)) && (
+              <CompanionHostInput />
+            )}
           </div>
         </div>
 
-        {!IS_ELECTRON && !window.showDirectoryPicker && (
+        {!IS_ELECTRON && !IS_FIRETV && !window.showDirectoryPicker && (
           <p style={{ color: '#fbbf24', fontSize: '0.82rem', margin: '1rem 0 0' }}>
-            ⚠ Your browser doesn't support folder access. Use Chrome, Edge, or the Fire TV Silk browser.
+            ⚠ Your browser doesn't support folder access. Use Chrome or Edge.
+          </p>
+        )}
+        {IS_FIRETV && (
+          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.78rem', margin: '0.75rem 0 0', lineHeight: 1.5 }}>
+            ℹ Local library folders are added from the desktop app or browser. Once scanned, your library syncs here automatically via the cloud.
           </p>
         )}
       </Card>
@@ -580,7 +594,43 @@ export default function Settings() {
   )
 }
 
-const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
+function CompanionHostInput() {
+  const [val, setVal] = useState(() => localStorage.getItem('vt-companion-host') || '')
+  const [saved, setSaved] = useState(false)
+  function save() {
+    localStorage.setItem('vt-companion-host', val.trim())
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+  return (
+    <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <input
+        data-card
+        tabIndex={0}
+        type="text"
+        placeholder="192.168.1.xxx  (your PC's LAN IP)"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') save() }}
+        style={{
+          flex: 1, minWidth: 200, padding: '0.4rem 0.7rem',
+          background: 'var(--bg-card)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)', color: 'var(--text-primary)', fontSize: '0.82rem',
+        }}
+      />
+      <button
+        data-card
+        tabIndex={0}
+        onClick={save}
+        style={{
+          padding: '0.4rem 0.85rem', background: saved ? '#16a34a' : 'var(--accent)',
+          border: 'none', borderRadius: 'var(--radius)', color: '#fff',
+          cursor: 'pointer', fontSize: '0.82rem', transition: 'background 0.2s',
+        }}
+      >{saved ? '✓ Saved' : 'Save'}</button>
+    </div>
+  )
+}
 
 function LoginPanel({ signInWithEmail, signUpWithEmail, signInWithGoogle }) {
   const [mode,     setMode]     = useState('signin') // 'signin' | 'signup'

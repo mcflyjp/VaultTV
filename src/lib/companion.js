@@ -13,10 +13,18 @@
 // will talk to the companion at http://192.168.1.232:7842 automatically).
 const COMPANION_PORT = 7842
 // In Electron (file:// protocol) hostname is "" — fall back to localhost.
-// In browser on LAN (e.g. http://192.168.1.232:5174) use the same host so
-// the companion is reachable from any device on the network.
-const _host = window.location.hostname || 'localhost'
-const BASE = `http://${_host}:${COMPANION_PORT}`
+// When loaded from a hosted URL (e.g. vaulttv.pages.dev) the hostname is wrong
+// for LAN companion access — user must configure the IP in Settings.
+// Falls back to window.location.hostname so LAN dev server (192.168.x.x:5174)
+// still works automatically.
+function getCompanionBase() {
+  const stored = localStorage.getItem('vt-companion-host')
+  const host = (stored && stored.trim()) || window.location.hostname || 'localhost'
+  return `http://${host}:${COMPANION_PORT}`
+}
+// Recompute on every call so Settings changes take effect without a reload
+Object.defineProperty(window, '__companionBase', { get: getCompanionBase, configurable: true })
+const BASE = { toString() { return getCompanionBase() } }
 
 /** Check if companion is reachable. Resolves to true/false. */
 export async function pingCompanion() {
