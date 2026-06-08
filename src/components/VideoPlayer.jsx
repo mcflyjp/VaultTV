@@ -117,7 +117,7 @@ export default function VideoPlayer() {
     async function load() {
       let src = session.url
 
-      // Local file handle
+      // Local file handle (File System Access API blob URL)
       if (session.fileHandle) {
         try {
           const file = await session.fileHandle.getFile()
@@ -131,72 +131,93 @@ export default function VideoPlayer() {
 
       if (!src) { setError('No stream URL provided.'); return }
 
-      // Auto-probe remote streams for unsupported codecs (AC3/DTS/HEVC).
-      // If detected, transparently swap to the companion transcode URL.
-      // Skips probe for local companion streams (already served from disk).
-      if (src.startsWith('http') && !src.includes(':7842/')) {
-        const codecs = await probeCodecs(src)
-        const { needed, transcodeVideo } = needsTranscode(codecs)
-        if (needed) {
-          console.log(`[player] Auto-transcoding — video: ${codecs.videoCodec}, audio: ${codecs.audioCodec}`)
-          src = transcodeUrl(src, 0, transcodeVideo)
-          setTranscoding(true)
-        }
-      }
+      const isCompanion = src.includes(':7842/')
+      const isRemote    = src.startsWith('http') && !isCompanion
 
-      // Companion URLs (port 7842) are cross-origin — need crossOrigin for Web Audio.
-      if (src.includes(':7842/')) {
+      // Companion URLs need crossOrigin="anonymous" for the Web Audio API.
+      // External URLs must NOT have it set — CORS headers on stream servers
+      // are inconsistent and setting crossOrigin causes many streams to fail.
+      if (isCompanion) {
         video.crossOrigin = 'anonymous'
       } else {
         video.removeAttribute('crossOrigin')
       }
 
-      const isHls = src.includes('.m3u8') || src.includes('manifest')
+      // ── Start playback immediately — don't wait for codec probe ──────────
+      // Probing via companion takes 1-6s. If we await it before calling
+      // video.play(), Chromium's autoplay policy expires the user-gesture
+      // context and play() silently rejects (NotAllowedError). Instead, start
+      // playing the raw URL now, then swap to a transcode URL in the background
+      // if the probe finds an unsupported codec.
+      function startPlayback(url) {
+        const isHls = url.includes('.m3u8') || url.includes('manifest')
 
-      if (isHls && Hls.isSupported()) {
-        const hls = new Hls({
-          maxBufferLength: 60,
-          maxMaxBufferLength: 120,
-          startLevel: -1,           // auto quality
-          abrEwmaDefaultEstimate: 5000000,
-        })
-        hlsRef.current = hls
-        hls.loadSource(src)
-        hls.attachMedia(video)
-
-        hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
-          setQualities([{ height: 0, label: 'Auto' }, ...data.levels.map(l => ({ height: l.height, label: `${l.height}p` }))])
-          video.play().catch(() => {})
-        })
-
-        hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
-          setAudioTracks(data.audioTracks.map(t => ({ id: t.id, name: t.name || t.lang || `Track ${t.id + 1}` })))
-        })
-
-        hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
-          if (!data.subtitleTracks?.length) return
-          const hlsSubs = data.subtitleTracks.map((t, i) => ({
-            id:    `hls_${i}`,
-            label: t.name || t.lang || `Subtitle ${i + 1}`,
-            lang:  t.lang || '',
-            hlsIdx: i,   // use hls.subtitleTrack = hlsIdx
-          }))
-          setSubTracks(prev => {
-            // Merge: HLS embedded tracks + addon-fetched tracks (no dupes by id)
-            const existing = prev.filter(s => !s.hlsIdx && s.url)
-            return [...hlsSubs, ...existing]
+        if (isHls && Hls.isSupported()) {
+          const hls = new Hls({
+            maxBufferLength: 60,
+            maxMaxBufferLength: 120,
+            startLevel: -1,
+            abrEwmaDefaultEstimate: 5_000_000,
           })
-        })
+          hlsRef.current = hls
+          hls.loadSource(url)
+          hls.attachMedia(video)
 
-        hls.on(Hls.Events.ERROR, (_, data) => {
-          if (data.fatal) setError(`Stream error: ${data.details}`)
-        })
-      } else {
-        video.src = src
-        video.play().catch(() => {})
+          hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+            setQualities([{ height: 0, label: 'Auto' }, ...data.levels.map(l => ({ height: l.height, label: `${l.height}p` }))])
+            video.play().catch(() => {})
+          })
+
+          hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
+            setAudioTracks(data.audioTracks.map(t => ({ id: t.id, name: t.name || t.lang || `Track ${t.id + 1}` })))
+          })
+
+          hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
+            if (!data.subtitleTracks?.length) return
+            const hlsSubs = data.subtitleTracks.map((t, i) => ({
+              id: `hls_${i}`, label: t.name || t.lang || `Subtitle ${i + 1}`,
+              lang: t.lang || '', hlsIdx: i,
+            }))
+            setSubTracks(prev => {
+              const existing = prev.filter(s => !s.hlsIdx && s.url)
+              return [...hlsSubs, ...existing]
+            })
+          })
+
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) setError(`Stream error: ${data.details}`)
+          })
+        } else {
+          video.src = url
+          video.play().catch(() => {})
+        }
       }
 
+      startPlayback(src)
       if (session.startTime) video.currentTime = session.startTime
+
+      // ── Background codec probe — swap to transcode if needed ─────────────
+      // Runs after playback has already started. If the companion is offline
+      // this resolves to null quickly and we do nothing. If codecs are bad,
+      // we seamlessly restart at the current timestamp via the transcode URL.
+      if (isRemote) {
+        probeCodecs(src).then(codecs => {
+          if (!codecs) return  // companion offline — native playback continues
+          const { needed, transcodeVideo } = needsTranscode(codecs)
+          if (!needed) return
+
+          console.log(`[player] Swapping to transcode — audio:${codecs.audioCodec} video:${codecs.videoCodec}`)
+          const seekTo  = Math.floor(video.currentTime || 0)
+          const tUrl    = transcodeUrl(src, seekTo, transcodeVideo)
+
+          // Tear down HLS if active, swap src to transcode stream
+          if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+          video.crossOrigin = 'anonymous'
+          video.src = tUrl
+          video.play().catch(() => {})
+          setTranscoding(true)
+        }).catch(() => {})  // probe fetch error — ignore, native playback continues
+      }
     }
 
     load()

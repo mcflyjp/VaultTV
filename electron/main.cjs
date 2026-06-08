@@ -14,6 +14,12 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 // Must be called before app 'ready' event.
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport')
 
+// Remove Chromium's autoplay restriction so video.play() works without
+// requiring it to be called synchronously inside a user-gesture handler.
+// Without this, any async work before play() (e.g. codec probing) causes
+// play() to reject with NotAllowedError and the video never starts.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 // ── Single instance + deep-link (custom protocol) ────────────────────
 // vaulttv:// is registered so the OS can redirect the Supabase Google
 // OAuth callback back into this window after the user approves in the
