@@ -14,7 +14,8 @@ import { useTrakt } from '../context/TraktContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useAuth } from '../context/AuthContext'
 import { useAddons } from '../context/AddonsContext'
-import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff, FiUser, FiLogOut, FiLogIn, FiCloud } from 'react-icons/fi'
+import { useLanguage } from '../context/LanguageContext'
+import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff, FiUser, FiLogOut, FiLogIn, FiCloud, FiGlobe } from 'react-icons/fi'
 
 export default function Settings() {
   const { enabled, maxRating, pin, save, RATING_ORDER } = useParental()
@@ -23,6 +24,7 @@ export default function Settings() {
   const trakt = useTrakt()
   const local = useLocalLibrary()
   const auth  = useAuth()
+  const lang  = useLanguage()
   const { syncing, syncError } = useAddons()
 
   const [form, setForm] = useState({ enabled, maxRating, pin, confirmPin: pin })
@@ -108,6 +110,92 @@ export default function Settings() {
               <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{sub}</p>
             </button>
           ))}
+        </div>
+      </Card>
+
+      {/* Language Preferences */}
+      <Card title="Language Preferences" icon={<FiGlobe />}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: '0 0 1.25rem', lineHeight: 1.6 }}>
+          Set your preferred subtitle and audio language. The player will automatically select matching
+          tracks when available. If no subtitles are found in a stream, VaultTV will download them
+          automatically from OpenSubtitles (requires the companion server to be running).
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+          {/* Subtitle language */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+              Preferred Subtitle Language
+            </label>
+            <select
+              value={lang.subLang}
+              onChange={e => lang.savePrefs({ subLang: e.target.value })}
+              style={{
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', color: 'var(--text-primary)',
+                padding: '0.55rem 0.85rem', fontSize: '0.88rem', cursor: 'pointer', minWidth: 200,
+              }}
+            >
+              {lang.LANGUAGES.map(l => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
+              When streams include multiple subtitle tracks, the matching language is selected automatically.
+            </p>
+          </div>
+
+          {/* Audio language */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+              Preferred Audio Language
+            </label>
+            <select
+              value={lang.audioLang}
+              onChange={e => lang.savePrefs({ audioLang: e.target.value })}
+              style={{
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', color: 'var(--text-primary)',
+                padding: '0.55rem 0.85rem', fontSize: '0.88rem', cursor: 'pointer', minWidth: 200,
+              }}
+            >
+              <option value="">No preference</option>
+              {lang.LANGUAGES.map(l => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
+              Applies to HLS streams with multiple audio tracks (e.g. dubbed vs. original).
+            </p>
+          </div>
+
+          {/* Auto-fetch toggle */}
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+              <div
+                onClick={() => lang.savePrefs({ autoFetchSubs: !lang.autoFetchSubs })}
+                style={{
+                  width: 44, height: 24, borderRadius: 12,
+                  background: lang.autoFetchSubs ? 'var(--accent)' : 'var(--border)',
+                  position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 2, left: lang.autoFetchSubs ? 22 : 2,
+                  width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.2s',
+                }} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>
+                  Auto-download subtitles
+                </p>
+                <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  When a stream has no built-in subtitles, automatically fetch them from OpenSubtitles.org
+                  in your preferred language via the companion server.
+                </p>
+              </div>
+            </label>
+          </div>
         </div>
       </Card>
 

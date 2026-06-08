@@ -15,6 +15,9 @@ const cors     = require('cors')
 const chokidar = require('chokidar')
 const path     = require('path')
 const fs       = require('fs')
+const https    = require('https')
+const http     = require('http')
+const zlib     = require('zlib')
 const { spawn } = require('child_process')
 
 // ── Config ────────────────────────────────────────────────────────────
@@ -442,6 +445,117 @@ app.get('/transcode', (req, res) => {
   req.on('close', () => {
     if (!ff.killed) ff.kill('SIGKILL')
   })
+})
+
+// ── Subtitle proxy endpoint ───────────────────────────────────────────
+// Fetches subtitles from OpenSubtitles.org (no API key required) and
+// returns them as a WebVTT file the player can load directly as a <track>.
+//
+// Usage:
+//   GET /subtitles?imdb_id=tt1234567&lang=en&type=movie
+//   GET /subtitles?imdb_id=tt1234567:1:3&lang=en&type=series  (episode)
+//   GET /subtitles?query=Inception&year=2010&lang=en           (title search)
+//
+// Returns: text/vtt  — or 404/500 JSON on failure
+
+/** Follow redirects and return { status, body (Buffer), headers } */
+function httpGet(url, reqHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    const lib     = url.startsWith('https') ? https : http
+    const options = { headers: { 'User-Agent': 'VaultTV v1.0', ...reqHeaders } }
+    const req = lib.get(url, options, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return httpGet(res.headers.location, reqHeaders).then(resolve).catch(reject)
+      }
+      const chunks = []
+      res.on('data', d => chunks.push(d))
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks), headers: res.headers }))
+    })
+    req.on('error', reject)
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('request timeout')) })
+  })
+}
+
+/** Convert SRT text → WebVTT (add header, replace comma decimals) */
+function srtToVtt(srt) {
+  const fixed = srt
+    .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')  // 00:00:01,234 → 00:00:01.234
+  return 'WEBVTT\n\n' + fixed.trim() + '\n'
+}
+
+app.get('/subtitles', async (req, res) => {
+  try {
+    const { imdb_id, lang = 'en', query, year } = req.query
+    if (!imdb_id && !query) return res.status(400).json({ error: 'imdb_id or query required' })
+
+    const OS_AGENT = 'VaultTV v1.0'
+
+    // ── Build OpenSubtitles.org search URL ────────────────────────────
+    let searchUrl
+    if (imdb_id) {
+      // Strip "tt" prefix; handle episode IDs like "tt1234567:1:3"
+      const [rawId, season, episode] = imdb_id.split(':')
+      const bareId = rawId.replace(/^tt/i, '')
+      let path = `/search/imdbid-${bareId}/sublanguageid-${lang}`
+      if (season && episode) path += `/season-${season}/episode-${episode}`
+      searchUrl = `https://rest.opensubtitles.org${path}`
+    } else {
+      // Title search
+      const q = encodeURIComponent(query).replace(/%20/g, '+')
+      searchUrl = `https://rest.opensubtitles.org/search/query-${q}${year ? `/year-${year}` : ''}/sublanguageid-${lang}`
+    }
+
+    // ── Search ────────────────────────────────────────────────────────
+    const searchResp = await httpGet(searchUrl, { 'X-User-Agent': OS_AGENT })
+    if (searchResp.status !== 200) {
+      return res.status(404).json({ error: 'OpenSubtitles returned ' + searchResp.status })
+    }
+
+    let results
+    try { results = JSON.parse(searchResp.body.toString()) } catch {
+      return res.status(500).json({ error: 'Invalid JSON from OpenSubtitles' })
+    }
+    if (!Array.isArray(results) || !results.length) {
+      return res.status(404).json({ error: 'No subtitles found' })
+    }
+
+    // Sort by download count — highest = best quality / most popular
+    results.sort((a, b) => parseInt(b.SubDownloadsCnt || 0) - parseInt(a.SubDownloadsCnt || 0))
+    const best = results[0]
+    if (!best.SubDownloadLink) return res.status(404).json({ error: 'No download link in result' })
+
+    // ── Download gzip'd SRT ────────────────────────────────────────────
+    const dlResp = await httpGet(best.SubDownloadLink, { 'X-User-Agent': OS_AGENT })
+    if (dlResp.status !== 200) {
+      return res.status(502).json({ error: 'Subtitle download failed: HTTP ' + dlResp.status })
+    }
+
+    // Decompress — OpenSubtitles wraps SRTs in gzip
+    const isGzip = dlResp.headers['content-encoding'] === 'gzip'
+                || best.SubDownloadLink.includes('.gz')
+                || (dlResp.body[0] === 0x1f && dlResp.body[1] === 0x8b) // gzip magic bytes
+    let srtBuffer
+    if (isGzip) {
+      srtBuffer = await new Promise((resolve, reject) =>
+        zlib.gunzip(dlResp.body, (err, buf) => err ? reject(err) : resolve(buf))
+      )
+    } else {
+      srtBuffer = dlResp.body
+    }
+
+    const srt = srtBuffer.toString('utf8')
+    const vtt = srtToVtt(srt)
+
+    console.log(`[subtitles] ${best.LanguageName} · ${imdb_id || query} · ${parseInt(best.SubDownloadsCnt || 0).toLocaleString()} downloads`)
+
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8')
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.send(vtt)
+  } catch (e) {
+    console.error('[subtitles] Error:', e.message)
+    if (!res.headersSent) res.status(500).json({ error: e.message })
+  }
 })
 
 // ── Library data endpoints ─────────────────────────────────────────────

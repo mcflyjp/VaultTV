@@ -18,6 +18,7 @@ import { TraktProvider } from './context/TraktContext'
 import { PlayerProvider } from './context/PlayerContext'
 import { LocalLibraryProvider } from './context/LocalLibraryContext'
 import { AuthProvider } from './context/AuthContext'
+import { LanguageProvider } from './context/LanguageContext'
 import './index.css'
 import App from './App.jsx'
 
@@ -29,6 +30,7 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+      <LanguageProvider>
       <ThemeProvider>
         <LayoutProvider>
           <DashboardProvider>
@@ -62,6 +64,7 @@ createRoot(document.getElementById('root')).render(
           </DashboardProvider>
         </LayoutProvider>
       </ThemeProvider>
+      </LanguageProvider>
       </AuthProvider>
     </QueryClientProvider>
   </StrictMode>,

@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
+import { useLanguage } from '../context/LanguageContext'
 import Hls from 'hls.js'
 import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode } from '../lib/companion'
+import { fetchCompanionSub } from '../lib/subtitles'
 import {
   FiPlay, FiPause, FiVolume2, FiVolumeX, FiVolume1,
   FiMaximize, FiMinimize, FiX, FiSettings, FiChevronLeft,
@@ -43,6 +45,7 @@ function fmt(s) {
 
 export default function VideoPlayer() {
   const { session, closePlayer } = usePlayer()
+  const { subLang, audioLang, autoFetchSubs } = useLanguage()
 
   const videoRef     = useRef(null)
   const containerRef = useRef(null)
@@ -67,10 +70,11 @@ export default function VideoPlayer() {
   const [audioTracks,  setAudioTracks]  = useState([])
   const [audioTrack,   setAudioTrack]   = useState(0)
   const [audioDelay,    setAudioDelay]    = useState(0)    // ms
-  const [subTracks,     setSubTracks]     = useState([])   // [{id,label,url,lang}]
-  const [activeSub,     setActiveSub]     = useState(-1)   // index into subTracks, -1=off
-  const [subOffset,     setSubOffset]     = useState(0)    // seconds
-  const [manualSubUrl,  setManualSubUrl]  = useState('')
+  const [subTracks,       setSubTracks]       = useState([])   // [{id,label,url,lang}]
+  const [activeSub,       setActiveSub]       = useState(-1)   // index into subTracks, -1=off
+  const [subOffset,       setSubOffset]       = useState(0)    // seconds
+  const [manualSubUrl,    setManualSubUrl]     = useState('')
+  const [autoSubFetching, setAutoSubFetching] = useState(false) // fetching from companion
   const [playbackRate,  setPlaybackRate]  = useState(1)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab,  setSettingsTab]  = useState('quality')
@@ -91,17 +95,21 @@ export default function VideoPlayer() {
     setBuffered(0); setError(''); setAudioWarning(''); setQualities([]); setQuality(-1)
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
-    setSettingsOpen(false); setTranscoding(false)
+    setSettingsOpen(false); setTranscoding(false); setAutoSubFetching(false)
     rawUrlRef.current = session.url || ''
 
-    // Auto-select subtitle: prefer English, fallback to first available
+    // Auto-select subtitle track by preferred language, fall back to English then first
     const tracks = session.subtitleTracks || []
     setSubTracks(tracks)
     if (tracks.length > 0) {
+      const preferred = tracks.findIndex(t =>
+        t.lang?.toLowerCase().startsWith(subLang) ||
+        t.label?.toLowerCase().includes(subLang)
+      )
       const engIdx = tracks.findIndex(t =>
         /^en/i.test(t.lang || '') || /english/i.test(t.label || '')
       )
-      const autoIdx = engIdx >= 0 ? engIdx : 0
+      const autoIdx = preferred >= 0 ? preferred : engIdx >= 0 ? engIdx : 0
       setActiveSub(autoIdx)
       setManualSubUrl(tracks[autoIdx]?.url || '')
     } else {
@@ -169,7 +177,23 @@ export default function VideoPlayer() {
           })
 
           hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
-            setAudioTracks(data.audioTracks.map(t => ({ id: t.id, name: t.name || t.lang || `Track ${t.id + 1}` })))
+            const tracks = data.audioTracks.map(t => ({
+              id:   t.id,
+              name: t.name || t.lang || `Track ${t.id + 1}`,
+              lang: t.lang || '',
+            }))
+            setAudioTracks(tracks)
+            // Auto-select preferred audio language
+            if (audioLang) {
+              const preferredIdx = tracks.findIndex(t =>
+                t.lang?.toLowerCase().startsWith(audioLang) ||
+                t.name?.toLowerCase().includes(audioLang)
+              )
+              if (preferredIdx >= 0) {
+                hls.audioTrack = preferredIdx
+                setAudioTrack(preferredIdx)
+              }
+            }
           })
 
           hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
@@ -222,6 +246,44 @@ export default function VideoPlayer() {
 
     load()
   }, [session])
+
+  // ── Auto-fetch subtitles from companion when none provided ───────────
+  // Triggers when the session loads with empty subtitleTracks and the user
+  // has autoFetchSubs enabled. Uses the companion's OpenSubtitles proxy.
+  useEffect(() => {
+    if (!session) return
+    const tracks = session.subtitleTracks || []
+    if (tracks.length > 0) return            // already have subs from addon
+    if (!autoFetchSubs) return               // user disabled auto-fetch
+    if (!session.imdbId && !session.title) return  // nothing to search with
+
+    let revoked = false
+    let blobUrl = null
+
+    setAutoSubFetching(true)
+    fetchCompanionSub({
+      imdbId:    session.imdbId,
+      title:     session.title,
+      year:      session.year,
+      lang:      subLang,
+      mediaType: session.mediaType,
+      season:    session.season,
+      episode:   session.episode,
+    }).then(url => {
+      if (revoked || !url) { setAutoSubFetching(false); return }
+      blobUrl = url
+      const autoTrack = { id: 'auto_fetched', label: `Auto (${subLang.toUpperCase()})`, lang: subLang, url }
+      setSubTracks([autoTrack])
+      setActiveSub(0)
+      setManualSubUrl(url)
+      setAutoSubFetching(false)
+    }).catch(() => setAutoSubFetching(false))
+
+    return () => {
+      revoked = true
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+    }
+  }, [session?.imdbId, session?.title, subLang, autoFetchSubs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cleanup on close ──────────────────────────────────────────
   useEffect(() => {
@@ -762,10 +824,16 @@ export default function VideoPlayer() {
                       {t.url && !t.hlsIdx && <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>vtt</span>}
                     </SettingRow>
                   ))}
-                  {subTracks.length === 0 && (
+                  {subTracks.length === 0 && !autoSubFetching && (
                     <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.8rem', margin: '0.25rem 0' }}>
                       No subtitle tracks found for this stream.
                     </p>
+                  )}
+                  {autoSubFetching && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.65rem', background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1.5s ease-in-out infinite', flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)' }}>Fetching subtitles…</span>
+                    </div>
                   )}
                 </div>
 

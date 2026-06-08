@@ -237,6 +237,8 @@ export default function Detail() {
                       play={play}
                       title={title}
                       detail={detail}
+                      imdbId={imdbId}
+                      mediaType={type}
                       subtitleTracks={autoSubs}
                       setMusicDismissed={setMusicDismissed}
                       onProgress={(t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342'))}
@@ -330,6 +332,10 @@ export default function Detail() {
                             title: `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`,
                             poster: IMG(detail?.poster_path, 'w342'),
                             subtitleTracks: autoSubs,
+                            imdbId,
+                            mediaType: 'tv',
+                            season: selectedSeason,
+                            episode: ep.episode_number,
                             onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
@@ -350,6 +356,10 @@ export default function Detail() {
                             year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
                             poster: IMG(detail?.poster_path, 'w342'),
                             subtitleTracks: stream?._subtitles || [],
+                            imdbId,
+                            mediaType: 'tv',
+                            season: selectedSeason,
+                            episode: ep.episode_number,
                             onProgress: (t, d) => updateProgress(Number(id), 'tv', t, d, title, IMG(detail?.poster_path, 'w342')),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
@@ -377,6 +387,8 @@ export default function Detail() {
                   year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
                   poster: IMG(detail?.poster_path, 'w342'),
                   subtitleTracks: stream?._subtitles || [],
+                  imdbId,
+                  mediaType: type,
                   onProgress: (t, d) => updateProgress(Number(id), type, t, d, title, IMG(detail?.poster_path, 'w342')),
                 })
                 startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
@@ -556,7 +568,7 @@ function LoadingState() {
 }
 
 /** Split-button: plays best version by default; ▼ reveals version picker */
-function LocalPlayButton({ versions, getFileUrl, play, title, detail, subtitleTracks = [], setMusicDismissed, onProgress, onStartWatching }) {
+function LocalPlayButton({ versions, getFileUrl, play, title, detail, imdbId, mediaType, subtitleTracks = [], setMusicDismissed, onProgress, onStartWatching }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const ref = useState(null)
@@ -574,6 +586,8 @@ function LocalPlayButton({ versions, getFileUrl, play, title, detail, subtitleTr
         year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
         poster: IMG(detail?.poster_path, 'w342'),
         subtitleTracks,
+        imdbId,
+        mediaType,
         onProgress,
       })
       onStartWatching()
