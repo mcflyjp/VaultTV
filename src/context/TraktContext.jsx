@@ -45,11 +45,12 @@ export function TraktProvider({ children }) {
         .eq('user_id', session.user.id)
         .single()
       if (!data) return
-      if (data.trakt_creds && !loadJson(LS_CREDS, null)) {
+      // Cloud always wins on sign-in — overwrite whatever is in localStorage
+      if (data.trakt_creds) {
         setCreds(data.trakt_creds)
         localStorage.setItem(LS_CREDS, JSON.stringify(data.trakt_creds))
       }
-      if (data.trakt_auth && !loadJson(LS_AUTH, null)) {
+      if (data.trakt_auth) {
         setAuth(data.trakt_auth)
         localStorage.setItem(LS_AUTH, JSON.stringify(data.trakt_auth))
       }
@@ -57,7 +58,7 @@ export function TraktProvider({ children }) {
     loadFromCloud()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN') loadFromCloud()
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') loadFromCloud()
     })
     return () => subscription.unsubscribe()
   }, [])
