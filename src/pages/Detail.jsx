@@ -114,8 +114,9 @@ export default function Detail() {
     : null
 
   async function handleWatch(season, episode) {
-    // Toggle: clicking same episode closes the stream tray
-    if (streamEp?.season === season && streamEp?.episode === episode) {
+    // Toggle: clicking same episode/movie closes the stream tray
+    // Must check streamEp !== null first — null?.season === undefined === season(undefined) for movies
+    if (streamEp !== null && streamEp?.season === season && streamEp?.episode === episode) {
       setStreamEp(null); setStreams(null); return
     }
     setStreamEp({ season, episode })

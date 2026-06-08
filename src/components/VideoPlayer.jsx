@@ -81,6 +81,7 @@ export default function VideoPlayer() {
   const [error,        setError]        = useState('')
   const [audioWarning, setAudioWarning] = useState('')   // codec/no-audio warning
   const [transcoding,  setTranscoding]  = useState(false) // currently using companion transcode
+  const [buffering,    setBuffering]    = useState(true)  // true while video is loading/stalled
   const rawUrlRef = useRef('')                             // original URL before transcoding
   const [hoverTime,    setHoverTime]    = useState(null)  // for progress tooltip
   const [hoverX,       setHoverX]       = useState(0)
@@ -96,6 +97,7 @@ export default function VideoPlayer() {
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
     setSettingsOpen(false); setTranscoding(false); setAutoSubFetching(false)
+    setBuffering(true)
     rawUrlRef.current = session.url || ''
 
     // Auto-select subtitle track by preferred language, fall back to English then first
@@ -295,27 +297,44 @@ export default function VideoPlayer() {
   }, [session])
 
   // ── Web Audio pipeline (lazy init on first play) ───────────────
+  const analyserRef = useRef(null)
+  const silenceTimer = useRef(null)
+
   function initAudio() {
     const video = videoRef.current
     if (!video || audioCtxRef.current) return
     try {
-      const ctx    = new AudioContext()
-      const source = ctx.createMediaElementSource(video)
-      const gain   = ctx.createGain()
-      const delay  = ctx.createDelay(5.0)
+      const ctx      = new AudioContext()
+      const source   = ctx.createMediaElementSource(video)
+      const gain     = ctx.createGain()
+      const delay    = ctx.createDelay(5.0)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
       gain.gain.value       = muted ? 0 : volume
       delay.delayTime.value = 0
       source.connect(gain)
       gain.connect(delay)
-      delay.connect(ctx.destination)
+      delay.connect(analyser)
+      analyser.connect(ctx.destination)
       audioCtxRef.current = ctx
       gainRef.current     = gain
       delayRef.current    = delay
-      // Chrome creates AudioContext in suspended state — must resume on user gesture
+      analyserRef.current = analyser
       ctx.resume().catch(() => {})
+
+      // After 4s of play, check if audio is actually producing signal.
+      // Silent = all frequency bins near zero → likely unsupported codec.
+      clearTimeout(silenceTimer.current)
+      silenceTimer.current = setTimeout(() => {
+        if (!analyserRef.current || muted || volume === 0) return
+        const data = new Uint8Array(analyserRef.current.frequencyBinCount)
+        analyserRef.current.getByteFrequencyData(data)
+        const avg = data.reduce((a, b) => a + b, 0) / data.length
+        if (avg < 1) {
+          setAudioWarning('No audio detected — stream may use AC3/DTS codec.')
+        }
+      }, 4000)
     } catch (e) {
-      // createMediaElementSource throws SecurityError for cross-origin video without
-      // crossOrigin="anonymous". We fall back to native video volume in that case.
       console.warn('[audio] Web Audio pipeline failed, using native volume:', e.message)
     }
   }
@@ -331,9 +350,11 @@ export default function VideoPlayer() {
     session?.onProgress?.(v.currentTime, v.duration)
   }
 
-  function onPlay()  { setPlaying(true) }
-  function onPause() { setPlaying(false) }
-  function onEnded() { setPlaying(false) }
+  function onPlay()    { setPlaying(true);  setBuffering(false) }
+  function onPause()   { setPlaying(false) }
+  function onEnded()   { setPlaying(false) }
+  function onWaiting() { setBuffering(true) }
+  function onCanPlay() { setBuffering(false) }
 
   function onLoadedMetadata(e) {
     const v = e.currentTarget
@@ -549,6 +570,9 @@ export default function VideoPlayer() {
         onEnded={onEnded}
         onLoadedMetadata={onLoadedMetadata}
         onError={onError}
+        onWaiting={onWaiting}
+        onCanPlay={onCanPlay}
+        onPlaying={onCanPlay}
         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         playsInline
       />
@@ -566,9 +590,51 @@ export default function VideoPlayer() {
         </div>
       )}
 
+      {/* ── Buffering overlay — poster with slow pulse ── */}
+      {buffering && !error && session?.poster && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.75)', pointerEvents: 'none', zIndex: 5,
+        }}>
+          <img
+            src={session.poster}
+            alt=""
+            style={{
+              height: '55%', maxHeight: 320, borderRadius: 8,
+              boxShadow: '0 8px 40px rgba(0,0,0,0.9)',
+              animation: 'bufferPulse 1.8s ease-in-out infinite',
+            }}
+          />
+        </div>
+      )}
+      {buffering && !error && !session?.poster && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none', zIndex: 5,
+        }}>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', border: '4px solid rgba(255,255,255,0.15)', borderTopColor: 'var(--accent)', animation: 'spin 0.9s linear infinite' }} />
+        </div>
+      )}
+
+      {/* ── Audio warning + Fix Audio button ── */}
+      {audioWarning && !transcoding && (
+        <div style={{
+          position: 'absolute', bottom: '5rem', left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.88)', border: '1px solid rgba(251,191,36,0.5)',
+          borderRadius: 8, padding: '0.6rem 1rem', display: 'flex', alignItems: 'center',
+          gap: '0.75rem', zIndex: 20, whiteSpace: 'nowrap',
+        }}>
+          <span style={{ color: '#fbbf24', fontSize: '0.82rem' }}>⚠ {audioWarning}</span>
+          <button
+            onClick={fixAudio}
+            style={{ background: '#fbbf24', border: 'none', borderRadius: 6, color: '#000', cursor: 'pointer', padding: '0.3rem 0.75rem', fontSize: '0.8rem', fontWeight: 700 }}
+          >Fix Audio</button>
+        </div>
+      )}
+
       {/* ── Error overlay ── */}
       {error && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', pointerEvents: 'none', zIndex: 10 }}>
           <p style={{ color: '#f87171', fontSize: '1rem', fontWeight: 600, textAlign: 'center', maxWidth: 400, margin: 0 }}>{error}</p>
         </div>
       )}
@@ -951,6 +1017,16 @@ export default function VideoPlayer() {
           </div>
         </div>
       )}
+
+      <style>{`
+        @keyframes bufferPulse {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0.35; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   )
 }
