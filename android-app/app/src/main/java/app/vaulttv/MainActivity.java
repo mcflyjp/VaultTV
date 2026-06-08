@@ -66,23 +66,35 @@ public class MainActivity extends Activity {
         +   "best.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
         +   "return true;"
         + "}"
-        // Arrow key handler — only fires if no text input is focused
+        // Scroll amount when no focusable target exists in that direction
+        + "var SCROLL_STEP=220;"
+        // Arrow key handler — always intercepts arrows so WebView never does its
+        // own page-jump scroll (Android WebView treats DPAD up/down as Home/End)
         + "document.addEventListener('keydown',function(e){"
         +   "var tag=document.activeElement?document.activeElement.tagName:'BODY';"
         +   "if(tag==='INPUT'||tag==='TEXTAREA')return;"
         +   "var dir=null;"
-        +   "if(e.keyCode===39||e.keyCode===228)dir='right';"   // ArrowRight / DPAD_RIGHT
-        +   "if(e.keyCode===37||e.keyCode===225)dir='left';"    // ArrowLeft  / DPAD_LEFT
-        +   "if(e.keyCode===40||e.keyCode===227)dir='down';"    // ArrowDown  / DPAD_DOWN
-        +   "if(e.keyCode===38||e.keyCode===226)dir='up';"      // ArrowUp    / DPAD_UP
-        +   "if(dir&&navigate(dir))e.preventDefault();"
-        // Enter / DPAD_CENTER = click focused element + trigger React synthetic click
+        +   "if(e.keyCode===39||e.keyCode===228)dir='right';"
+        +   "if(e.keyCode===37||e.keyCode===225)dir='left';"
+        +   "if(e.keyCode===40||e.keyCode===227)dir='down';"
+        +   "if(e.keyCode===38||e.keyCode===226)dir='up';"
+        +   "if(dir){"
+        // Always stop WebView from doing its own scroll
+        +     "e.preventDefault();"
+        +     "e.stopPropagation();"
+        +     "if(!navigate(dir)){"
+        // No focusable target — scroll the page manually instead
+        +       "var scroller=document.querySelector('main')||document.scrollingElement||document.documentElement;"
+        +       "if(dir==='down')scroller.scrollTop+=SCROLL_STEP;"
+        +       "else if(dir==='up')scroller.scrollTop-=SCROLL_STEP;"
+        +       "else if(dir==='right')scroller.scrollLeft+=SCROLL_STEP;"
+        +       "else if(dir==='left')scroller.scrollLeft-=SCROLL_STEP;"
+        +     "}"
+        +   "}"
+        // Enter / DPAD_CENTER = click focused element
         +   "if(e.keyCode===13||e.keyCode===23){"
         +     "var el=document.activeElement;"
-        +     "if(el&&el!==document.body){"
-        +       "el.click();"
-        +       "e.preventDefault();"
-        +     "}"
+        +     "if(el&&el!==document.body){el.click();e.preventDefault();}"
         +   "}"
         + "},true);"
         // Re-run makeFocusable when DOM changes (React route changes add new cards)
