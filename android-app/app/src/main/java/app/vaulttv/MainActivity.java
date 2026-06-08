@@ -24,120 +24,140 @@ public class MainActivity extends Activity {
     // ─────────────────────────────────────────────────────────────────────
 
     // ── Spatial navigation JS ─────────────────────────────────────────────
-    // Reinitialise spatial nav — called on first load and after OAuth return.
-    // Setting window.__snav=false before evaluating lets us re-run safely.
+    // Spatial nav — injected on every page load and after OAuth return.
+    // window.__snav guards against duplicate keydown listeners, but CSS and
+    // MutationObserver are idempotent and safe to re-run.
     private static final String SPATIAL_NAV_JS = "(function(){"
-        + "if(window.__snav)return;"
-        + "window.__snav=true;"
 
-        // ── Inject focus-highlight CSS once ──────────────────────────────────
-        // Covers every focusable element type: cards, buttons, nav items, etc.
+        // ── Focus-highlight CSS (injected once, survives theme changes) ────────
         + "if(!window.__snavCss){"
         +   "window.__snavCss=true;"
-        +   "var st=document.createElement('style');"
+        +   "var st=document.createElement('style');st.id='snav-style';"
+        // Visible purple outline on EVERY element type in every theme
         +   "st.textContent="
         +     "'.snav-focused{"
-        +       "outline:3px solid #7c3aed!important;"
-        +       "outline-offset:3px!important;"
-        +       "z-index:100!important;"
+        +       "outline:4px solid #7c3aed!important;"
+        +       "outline-offset:2px!important;"
+        +       "box-shadow:0 0 0 4px rgba(124,58,237,0.4)!important;"
+        +       "border-radius:4px!important;"
         +       "position:relative!important;"
-        +       "box-shadow:0 0 0 3px #7c3aed,0 8px 32px rgba(0,0,0,0.7)!important;"
-        +       "border-radius:6px!important;"
+        +       "z-index:9999!important;"
         +     "}';"
         +   "document.head.appendChild(st);"
         + "}"
 
-        // ── Focusable selector ────────────────────────────────────────────────
-        + "var SEL='button:not([disabled]),input:not([disabled]),select:not([disabled]),"
-        +         "[data-card],[tabindex=\"0\"],[role=button],a[href]';"
+        // Only install the keydown listener once
+        + "if(window.__snav)return;"
+        + "window.__snav=true;"
 
-        // Give [data-card] elements a tabindex so they can receive focus
+        // ── Selector: everything a user might want to activate ─────────────────
+        // Note: does NOT use offsetParent check — that excludes position:fixed
+        // elements (sidebar, player controls, top nav) which are always visible.
+        + "var SEL='button:not([disabled]),a[href],[data-card],"
+        +         "input:not([disabled]),select:not([disabled]),[tabindex=\"0\"]';"
+
+        // ── Visibility: use viewport bounds, not offsetParent ─────────────────
+        // offsetParent===null for position:fixed elements even when fully visible.
+        + "function isVisible(el){"
+        +   "if(el.disabled)return false;"
+        +   "var r=el.getBoundingClientRect();"
+        +   "return r.width>0&&r.height>0"
+        +     "&&r.bottom>0&&r.top<window.innerHeight"
+        +     "&&r.right>0&&r.left<window.innerWidth;"
+        + "}"
+
+        + "function visEls(scope){"
+        +   "var root=scope||document;"
+        +   "return Array.from(root.querySelectorAll(SEL)).filter(isVisible);"
+        + "}"
+
+        // ── Stamp tabindex on data-card elements ──────────────────────────────
         + "function stamp(){"
         +   "document.querySelectorAll('[data-card]').forEach(function(el){"
-        +     "if(!el.getAttribute('tabindex')||el.getAttribute('tabindex')<0)"
-        +       "el.setAttribute('tabindex','0');"
+        +     "if(!el.hasAttribute('tabindex'))el.setAttribute('tabindex','0');"
         +   "});"
         + "}"
 
-        // Set focus + highlight on an element
+        // ── Focus an element and mark it ──────────────────────────────────────
         + "function doFocus(el){"
-        +   "document.querySelectorAll('.snav-focused').forEach(function(e){e.classList.remove('snav-focused');});"
-        +   "el.focus({preventScroll:false});"
+        +   "document.querySelectorAll('.snav-focused').forEach(function(e){"
+        +     "e.classList.remove('snav-focused');"
+        +   "});"
+        +   "el.focus({preventScroll:true});"
         +   "el.classList.add('snav-focused');"
         +   "el.scrollIntoView({block:'nearest',inline:'nearest',behavior:'smooth'});"
         + "}"
 
-        // All currently visible focusable elements
-        + "function visEls(){"
-        +   "return Array.from(document.querySelectorAll(SEL)).filter(function(e){"
-        +     "if(e.disabled||e.offsetParent===null)return false;"
-        +     "var r=e.getBoundingClientRect();"
-        +     "return r.width>0&&r.height>0;"
-        +   "});"
-        + "}"
-
-        // ── Modal focus trap ──────────────────────────────────────────────────
-        // If a modal/dialog/overlay is open, restrict navigation to elements
-        // inside it so the background page is not affected.
+        // ── Detect the active modal/overlay scope ─────────────────────────────
+        // If a full-screen overlay (player, settings panel, dialog) is open,
+        // lock D-pad focus inside it so the background page is unaffected.
         + "function getScope(){"
-        +   "var modal=document.querySelector("
-        +     "'[role=dialog],[data-modal],[data-overlay],"
-        +     ".modal-backdrop,.settings-panel,.context-menu-open'"
-        +   ");"
-        +   "if(modal)return modal;"
-        // Also treat any element with position:fixed that is visible and tall
-        // (likely an overlay) as the scope boundary
-        +   "var fixed=Array.from(document.querySelectorAll('[style*=\"position: fixed\"],[style*=\"position:fixed\"]')).filter(function(el){"
+        // Explicit React portals / dialogs
+        +   "var dlg=document.querySelector('[role=dialog]');"
+        +   "if(dlg&&isVisible(dlg))return dlg;"
+        // Full-screen fixed overlays (VideoPlayer, ArtworkPicker, etc.)
+        // Identify by covering >80% of both dimensions
+        +   "var overlays=Array.from(document.querySelectorAll('*')).filter(function(el){"
+        +     "var s=window.getComputedStyle(el);"
+        +     "if(s.position!=='fixed'&&s.position!=='absolute')return false;"
         +     "var r=el.getBoundingClientRect();"
-        +     "return r.height>window.innerHeight*0.3&&r.width>window.innerWidth*0.3&&el.offsetParent!==null;"
+        +     "return r.width>window.innerWidth*0.8&&r.height>window.innerHeight*0.8&&r.top<=10;"
         +   "});"
-        +   "return fixed.length?fixed[fixed.length-1]:document;"
+        +   "if(overlays.length)return overlays[overlays.length-1];"
+        +   "return null;"
         + "}"
 
-        // ── Strict beam-based directional move ────────────────────────────────
-        // Phase 1: find candidates strictly in the beam (true column/row overlap).
-        // Phase 2: only if no beam candidates, fall back to nearest in direction.
-        // This means up/down NEVER goes left/right and vice versa.
+        // ── Strict beam-based move ────────────────────────────────────────────
+        // Up/down: candidates MUST have horizontal pixel overlap with current.
+        // Left/right: candidates MUST have vertical pixel overlap with current.
+        // If nothing in the beam, scroll instead of jumping sideways.
         + "function move(dir){"
         +   "var cur=document.activeElement;"
-        +   "var hasFocus=cur&&cur!==document.body&&cur!==document.documentElement;"
+        +   "var noFocus=!cur||cur===document.body||cur===document.documentElement;"
         +   "var scope=getScope();"
-        +   "var els=visEls().filter(function(el){"
-        +     "return scope===document||scope.contains(el);"
-        +   "});"
-        +   "if(!hasFocus){if(els.length)doFocus(els[0]);return;}"
+        +   "var els=visEls(scope);"
+        // If scope found but current element is outside it, reset focus inside
+        +   "if(scope&&cur&&!scope.contains(cur)){"
+        +     "if(els.length)doFocus(els[0]);"
+        +     "return;"
+        +   "}"
+        +   "if(noFocus){if(els.length)doFocus(els[0]);return;}"
         +   "var cr=cur.getBoundingClientRect();"
-        // Phase 1: strictly in-beam candidates only
-        +   "var beam=[];"
+        +   "var cands=[];"
         +   "els.forEach(function(el){"
         +     "if(el===cur)return;"
         +     "var r=el.getBoundingClientRect();"
-        +     "if(dir==='down'||dir==='up'){"
-        // For up/down: element must have horizontal overlap with current element
-        +       "var overlap=Math.min(r.right,cr.right)-Math.max(r.left,cr.left);"
-        +       "if(overlap<=0)return;"  // no horizontal overlap → skip entirely
-        +       "if(dir==='down'&&r.top<cr.bottom-5)return;"
-        +       "if(dir==='up'&&r.bottom>cr.top+5)return;"
-        +       "beam.push({el:el,d:dir==='down'?r.top-cr.bottom:cr.top-r.bottom});"
-        +     "}else{"
-        // For left/right: element must have vertical overlap with current element
-        +       "var overlap=Math.min(r.bottom,cr.bottom)-Math.max(r.top,cr.top);"
-        +       "if(overlap<=0)return;"  // no vertical overlap → skip entirely
-        +       "if(dir==='right'&&r.left<cr.right-5)return;"
-        +       "if(dir==='left'&&r.right>cr.left+5)return;"
-        +       "beam.push({el:el,d:dir==='right'?r.left-cr.right:cr.left-r.right});"
+        +     "var d,overlap;"
+        +     "if(dir==='down'){"
+        +       "if(r.top<cr.bottom-5)return;"   // not below
+        +       "overlap=Math.min(r.right,cr.right)-Math.max(r.left,cr.left);"
+        +       "if(overlap<=2)return;"           // not in horizontal beam
+        +       "d=r.top-cr.bottom;"
+        +     "}else if(dir==='up'){"
+        +       "if(r.bottom>cr.top+5)return;"   // not above
+        +       "overlap=Math.min(r.right,cr.right)-Math.max(r.left,cr.left);"
+        +       "if(overlap<=2)return;"
+        +       "d=cr.top-r.bottom;"
+        +     "}else if(dir==='right'){"
+        +       "if(r.left<cr.right-5)return;"   // not to the right
+        +       "overlap=Math.min(r.bottom,cr.bottom)-Math.max(r.top,cr.top);"
+        +       "if(overlap<=2)return;"           // not in vertical beam
+        +       "d=r.left-cr.right;"
+        +     "}else{"                            // left
+        +       "if(r.right>cr.left+5)return;"   // not to the left
+        +       "overlap=Math.min(r.bottom,cr.bottom)-Math.max(r.top,cr.top);"
+        +       "if(overlap<=2)return;"
+        +       "d=cr.left-r.right;"
         +     "}"
+        +     "if(d<0)d=0;"
+        +     "cands.push({el:el,d:d});"
         +   "});"
-        +   "beam.sort(function(a,b){return a.d-b.d;});"
-        +   "var best=beam.length?beam[0].el:null;"
-        // Phase 2: no beam match → scroll (don't jump sideways)
-        +   "if(!best){"
-        +     "var s=document.querySelector('main')||document.scrollingElement;"
-        +     "if(dir==='down')s.scrollTop+=180;"
-        +     "else if(dir==='up')s.scrollTop-=180;"
-        +     "return;"
-        +   "}"
-        +   "doFocus(best);"
+        +   "cands.sort(function(a,b){return a.d-b.d;});"
+        +   "if(cands.length){doFocus(cands[0].el);return;}"
+        // Nothing in beam — scroll the page
+        +   "var scroller=document.querySelector('main')||document.scrollingElement;"
+        +   "if(dir==='down')scroller.scrollTop+=160;"
+        +   "else if(dir==='up')scroller.scrollTop-=160;"
         + "}"
 
         // ── Keydown handler ───────────────────────────────────────────────────
@@ -146,22 +166,40 @@ public class MainActivity extends Activity {
         +   "var isText=tag==='TEXTAREA'||(tag==='INPUT'"
         +     "&&!/checkbox|radio|submit|button/i.test((document.activeElement||{}).type||''));"
         +   "var k=e.keyCode;"
+        // FireTV remote: DPAD_DOWN=40,227  DPAD_UP=38,226  DPAD_RIGHT=39,228  DPAD_LEFT=37,225
         +   "var dir=k===40||k===227?'down':k===38||k===226?'up'"
         +            ":k===39||k===228?'right':k===37||k===225?'left':null;"
         +   "if(isText&&(dir==='left'||dir==='right'))return;"
         +   "if(dir){e.preventDefault();e.stopPropagation();move(dir);return;}"
+        // SELECT/ENTER: click the focused element
         +   "if((k===13||k===23)&&!isText){"
         +     "var el=document.activeElement;"
         +     "if(el&&el!==document.body){el.click();e.preventDefault();}"
         +   "}"
         + "},true);"
 
-        // Re-stamp whenever React adds new cards to the DOM
-        + "new MutationObserver(stamp).observe(document.body,{childList:true,subtree:true});"
+        // ── MutationObserver: stamp new cards + restore focus if lost ─────────
+        + "var _lastFocused=null;"
+        + "new MutationObserver(function(){"
+        +   "stamp();"
+        // If focus fell back to body (e.g. after React re-render), restore it
+        +   "var cur=document.activeElement;"
+        +   "if(cur&&cur!==document.body&&cur!==document.documentElement){"
+        +     "_lastFocused=cur;"
+        +   "}else if(_lastFocused&&isVisible(_lastFocused)){"
+        +     "_lastFocused.classList.add('snav-focused');"
+        +     "_lastFocused.focus({preventScroll:true});"
+        +   "}"
+        + "}).observe(document.body,{childList:true,subtree:true,attributes:false});"
+
         + "stamp();"
 
-        // Initial focus — wait for React to finish first render
-        + "setTimeout(function(){var all=visEls();if(all.length)doFocus(all[0]);},800);"
+        // Initial focus after React's first render
+        + "setTimeout(function(){"
+        +   "var all=visEls(null);"
+        +   "if(all.length){doFocus(all[0]);_lastFocused=all[0];}"
+        + "},1000);"
+
         + "})();";
     // ─────────────────────────────────────────────────────────────────────
 
