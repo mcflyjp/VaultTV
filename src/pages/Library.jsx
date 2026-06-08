@@ -341,6 +341,8 @@ export default function Library() {
   )
 }
 
+const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
+
 function LibraryCard({ item, onNavigate, onRemove }) {
   const { show: showMenu } = useContextMenu()
   const { getPoster } = useArtwork()
@@ -367,15 +369,18 @@ function LibraryCard({ item, onNavigate, onRemove }) {
   return (
     <div style={{ width: 150, position: 'relative' }}>
       <div
+        data-card
+        tabIndex={0}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick?.() } }}
         style={{
           borderRadius: 'var(--radius)', overflow: 'hidden', background: 'var(--bg-card)',
           cursor: (canNavigate || isUnmatched) ? 'pointer' : 'default',
           transition: 'transform 0.2s', position: 'relative',
           opacity: isUnmatched ? 0.85 : 1,
         }}
-        className={(canNavigate || isUnmatched) ? 'card-hover' : undefined}
+        className={(canNavigate || isUnmatched) ? 'card-hover focusable-card' : undefined}
       >
         {poster
           ? <img src={poster} alt={item.title} style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }} />
@@ -413,8 +418,8 @@ function LibraryCard({ item, onNavigate, onRemove }) {
         </div>
       </div>
 
-      {/* Remove from saved-library button */}
-      {onRemove && (
+      {/* Remove button — hidden on FireTV (use context menu / long-press instead) */}
+      {onRemove && !IS_FIRETV && (
         <button
           onClick={e => { e.stopPropagation(); onRemove() }}
           title="Remove from library"
