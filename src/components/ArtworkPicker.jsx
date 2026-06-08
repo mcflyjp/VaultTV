@@ -33,16 +33,19 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
 
   // 'poster' or 'backdrop' — can be toggled inside the modal
   const [slot,      setSlot]      = useState(initialSlot)
-  // 'tmdb' or 'custom'
-  const [tab,       setTab]       = useState('tmdb')
+  // 'tmdb' or 'custom' — default to 'custom' for unmatched local files
+  const [tab,       setTab]       = useState(initialSlot === 'poster' && !item.id?.toString().startsWith('local_') ? 'tmdb' : 'custom')
   const [customUrl, setCustomUrl] = useState('')
 
   const current = getArtwork(item.id, type, slot)
   const isPoster = slot === 'poster'
+  // Unmatched local files don't have a numeric TMDB ID — skip TMDB image fetch
+  const hasTmdbId = item.id && /^\d+$/.test(String(item.id))
 
   const { data: images = { posters: [], backdrops: [] }, isLoading } = useQuery({
     queryKey: ['images', type, item.id],
     queryFn:  () => fetchImages(type, item.id),
+    enabled:  hasTmdbId,
   })
 
   const candidates = isPoster ? images.posters : images.backdrops
@@ -116,7 +119,7 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
 
         {/* ── Source tabs (TMDB / Custom URL) ───────────────────────── */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-          {[['tmdb', 'TMDB Library'], ['custom', 'Custom URL']].map(([id, label]) => (
+          {(hasTmdbId ? [['tmdb', 'TMDB Library'], ['custom', 'Custom URL']] : [['custom', 'Custom URL']]).map(([id, label]) => (
             <button
               key={id}
               onClick={() => setTab(id)}

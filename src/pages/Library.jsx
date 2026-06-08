@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useContextMenu } from '../context/ContextMenuContext'
+import { useArtwork } from '../context/ArtworkContext'
+import { usePlayer } from '../context/PlayerContext'
 import { IMG } from '../lib/tmdb'
 import { FiTrash2, FiFilm, FiTv, FiBookmark, FiHardDrive, FiAlertCircle, FiArrowUp, FiArrowDown, FiChevronDown } from 'react-icons/fi'
 import MediaCard from '../components/MediaCard'
@@ -266,23 +268,39 @@ export default function Library() {
 
 function LibraryCard({ item, onNavigate, onRemove }) {
   const { show: showMenu } = useContextMenu()
-  const poster = item.poster || IMG(item.poster_path, 'w342')
+  const { getPoster } = useArtwork()
+  const { getFileUrl } = useLocalLibrary()
+  const { play } = usePlayer()
   const isLocal = item._source === 'local' || item._source === 'both'
   const isUnmatched = item._matched === false && item._source === 'local'
   const canNavigate = item.id && !String(item.id).startsWith('local_')
+  // Custom artwork overrides apply to unmatched items too (keyed by local_ id)
+  const poster = getPoster(item.id, item.type) || item.poster || IMG(item.poster_path, 'w342')
+
+  // Left-click on unmatched: play the file directly
+  async function playUnmatched() {
+    if (!item._filename) return
+    try {
+      const url = await getFileUrl(item._filename)
+      play({ url, title: item.title, poster, subtitleTracks: [] })
+    } catch (e) { alert('Could not open file: ' + e.message) }
+  }
+
+  const handleClick = canNavigate ? onNavigate : (isUnmatched ? playUnmatched : undefined)
+  const handleContextMenu = e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) }
 
   return (
     <div style={{ width: 150, position: 'relative' }}>
       <div
-        onClick={canNavigate ? onNavigate : undefined}
-        onContextMenu={canNavigate ? e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) } : undefined}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
         style={{
           borderRadius: 'var(--radius)', overflow: 'hidden', background: 'var(--bg-card)',
-          cursor: canNavigate ? 'pointer' : 'default',
+          cursor: (canNavigate || isUnmatched) ? 'pointer' : 'default',
           transition: 'transform 0.2s', position: 'relative',
-          opacity: isUnmatched ? 0.7 : 1,
+          opacity: isUnmatched ? 0.85 : 1,
         }}
-        className={canNavigate ? 'card-hover' : undefined}
+        className={(canNavigate || isUnmatched) ? 'card-hover' : undefined}
       >
         {poster
           ? <img src={poster} alt={item.title} style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }} />

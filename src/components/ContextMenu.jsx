@@ -51,6 +51,8 @@ export default function ContextMenu() {
   const queued = isQueued(item.id, type)
   const rating = getRating(item.id, type)
   const year   = (item.release_date || item.first_air_date || '').slice(0, 4)
+  // Unmatched local file — id is 'local_xxx', no TMDB detail page
+  const isUnmatched = String(item.id || '').startsWith('local_') || item._matched === false
 
   // Position: keep menu in viewport
   const vw = window.innerWidth, vh = window.innerHeight
@@ -73,6 +75,17 @@ export default function ContextMenu() {
       hide()
     } catch (e) {
       alert(e.message)
+    }
+  }
+
+  async function playUnmatchedFile() {
+    if (!item._filename) return
+    try {
+      const url = await getFileUrl(item._filename)
+      play({ url, title, poster: item.poster || null, subtitleTracks: [] })
+      hide()
+    } catch (e) {
+      alert('Could not open file: ' + e.message)
     }
   }
 
@@ -123,10 +136,13 @@ export default function ContextMenu() {
       <div style={{ padding: '0.35rem 0' }}>
 
         <MenuSection label="Playback" />
-        <MenuItem icon={<FiPlay />} label="Play Now" accent onClick={() => action(() => navigate(`/detail/${type}/${item.id}`))} />
+        {isUnmatched
+          ? <MenuItem icon={<FiPlay />} label="Play File" accent onClick={playUnmatchedFile} />
+          : <MenuItem icon={<FiPlay />} label="Play Now" accent onClick={() => action(() => navigate(`/detail/${type}/${item.id}`))} />
+        }
 
-        {/* Local versions — movie cards only */}
-        {localVersions.length > 0 && (
+        {/* Local versions — movie cards only, matched items */}
+        {!isUnmatched && localVersions.length > 0 && (
           <>
             <MenuItem
               icon={<FiHardDrive />}
@@ -176,40 +192,50 @@ export default function ContextMenu() {
           </>
         )}
 
-        <MenuItem
-          icon={<FiList />}
-          label={queued ? 'Remove from Queue' : 'Add to Queue'}
-          onClick={() => action(() => queued ? removeFromQueue(item.id, type) : addToQueue(libraryItem))}
-          active={queued}
-        />
+        {!isUnmatched && (
+          <MenuItem
+            icon={<FiList />}
+            label={queued ? 'Remove from Queue' : 'Add to Queue'}
+            onClick={() => action(() => queued ? removeFromQueue(item.id, type) : addToQueue(libraryItem))}
+            active={queued}
+          />
+        )}
 
         <Divider />
         <MenuSection label="My Library" />
-        <MenuItem
-          icon={<FiBookmark />}
-          label={saved ? 'Remove from Library' : 'Save to Library'}
-          onClick={() => action(() => toggleSave(libraryItem))}
-          active={saved}
-        />
-        <MenuItem
-          icon={<FiStar />}
-          label={rating ? `My Rating: ${rating}/10` : 'Rate This…'}
-          onClick={() => setSubModal('rating')}
-          active={!!rating}
-        />
-        <MenuItem
-          icon={<FiCheck />}
-          label="Mark as Watched"
-          onClick={() => action(() => startWatching({ ...libraryItem, durationSec: 1, progressSec: 1 }))}
-        />
+        {!isUnmatched && (
+          <>
+            <MenuItem
+              icon={<FiBookmark />}
+              label={saved ? 'Remove from Library' : 'Save to Library'}
+              onClick={() => action(() => toggleSave(libraryItem))}
+              active={saved}
+            />
+            <MenuItem
+              icon={<FiStar />}
+              label={rating ? `My Rating: ${rating}/10` : 'Rate This…'}
+              onClick={() => setSubModal('rating')}
+              active={!!rating}
+            />
+            <MenuItem
+              icon={<FiCheck />}
+              label="Mark as Watched"
+              onClick={() => action(() => startWatching({ ...libraryItem, durationSec: 1, progressSec: 1 }))}
+            />
+          </>
+        )}
 
         <Divider />
         <MenuSection label="Organize" />
-        <MenuItem icon={<FiPlusSquare />} label="Add to Playlist…" onClick={() => setSubModal('playlist')} />
-        <MenuItem icon={<FiImage />}      label="Change Artwork…"  onClick={() => setSubModal('artwork')} />
+        {!isUnmatched && <MenuItem icon={<FiPlusSquare />} label="Add to Playlist…" onClick={() => setSubModal('playlist')} />}
+        <MenuItem icon={<FiImage />} label="Change Artwork…" onClick={() => setSubModal('artwork')} />
 
-        <Divider />
-        <MenuItem icon={<FiInfo />} label="More Info" onClick={() => action(() => navigate(`/detail/${type}/${item.id}`))} muted />
+        {!isUnmatched && (
+          <>
+            <Divider />
+            <MenuItem icon={<FiInfo />} label="More Info" onClick={() => action(() => navigate(`/detail/${type}/${item.id}`))} muted />
+          </>
+        )}
 
       </div>
     </div>
