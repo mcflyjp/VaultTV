@@ -244,8 +244,8 @@ export function LocalLibraryProvider({ children }) {
         if (seenKeys.has(fileKey)) { setProgress(p => ({ ...p, done: i + 1 })); continue }
         seenKeys.add(fileKey)
 
-        // Reuse cached TMDB match if file hasn't changed
-        if (existingByKey[fileKey]) {
+        // Reuse cached TMDB match if already matched; re-attempt if previously unmatched
+        if (existingByKey[fileKey] && existingByKey[fileKey].matched !== false) {
           results.push({ ...existingByKey[fileKey], companionPath: filePath })
           setProgress(p => ({ ...p, done: i + 1 }))
           continue
@@ -414,9 +414,12 @@ export function LocalLibraryProvider({ children }) {
         seenIds.add(fileId)
 
         if (existingByKey[fileKey]) {
-          results.push(existingByKey[fileKey])
-          setProgress(p => ({ ...p, done: i + 1 }))
-          continue
+          // Re-attempt TMDB match for previously unmatched files; skip re-scan for already-matched ones
+          if (existingByKey[fileKey].matched !== false) {
+            results.push(existingByKey[fileKey])
+            setProgress(p => ({ ...p, done: i + 1 }))
+            continue
+          }
         }
 
         const parsed = parseFilename(name)
