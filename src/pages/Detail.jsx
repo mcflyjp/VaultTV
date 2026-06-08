@@ -419,7 +419,10 @@ export default function Detail() {
                             onProgress: makeProgressHandler(id, 'tv'),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
-                        } catch (e) { alert(e.message) }
+                        } catch (e) {
+                          // Local file unavailable — fall back to stream list
+                          handleWatch(selectedSeason, ep.episode_number)
+                        }
                       }}
                     />
                     {/* ── Inline stream tray — opens below the clicked episode ── */}
@@ -1016,10 +1019,15 @@ function VersionItem({ file, isBest, onClick }) {
 }
 
 /** TV episode row with local version awareness */
+const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
+
 function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal }) {
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const best = localVersions[0]
+  // On FireTV local files come via companion stream URL — always show stream list
+  // so user can pick a stream and benefit from auto-transcode if needed
+  const handlePrimary = () => (!IS_FIRETV && hasLocal) ? onPlayLocal(best) : onWatch()
 
   return (
     <div
@@ -1031,8 +1039,8 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
         data-card
         style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', padding: '0.75rem', cursor: 'pointer' }}
         tabIndex={0}
-        onClick={() => hasLocal ? onPlayLocal(best) : onWatch()}
-        onKeyDown={e => { if (e.key === 'Enter') hasLocal ? onPlayLocal(best) : onWatch() }}
+        onClick={handlePrimary}
+        onKeyDown={e => { if (e.key === 'Enter') handlePrimary() }}
       >
         {ep.still_path && <img src={IMG(ep.still_path, 'w300')} alt="" style={{ width: 120, borderRadius: 4, flexShrink: 0, aspectRatio: '16/9', objectFit: 'cover' }} />}
         <div style={{ flex: 1, minWidth: 0 }}>
