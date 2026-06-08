@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiMenu } from 'react-icons/fi'
+import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
@@ -55,119 +55,7 @@ export default function Sidebar() {
   // ── Library item order ──
   const [libOrder, setLibOrder] = useState(loadLibOrder)
 
-  function saveLibOrder(order) {
-    setLibOrder(order)
-    localStorage.setItem('vt-lib-order', JSON.stringify(order))
-  }
-  function reorderLib(fromIdx, toIdx) {
-    if (fromIdx === toIdx || toIdx < 0 || toIdx >= libOrder.length) return
-    const next = [...libOrder]
-    const [item] = next.splice(fromIdx, 1)
-    next.splice(toIdx, 0, item)
-    saveLibOrder(next)
-  }
-
-  // ── Desktop drag state ──
-  const [dragFrom, setDragFrom] = useState(null)
-  const [dragOver, setDragOver] = useState(null)
-
-  function onDragStart(e, idx) {
-    setDragFrom(idx)
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setDragImage(e.currentTarget, 20, 20)
-  }
-  function onDragOver(e, idx) {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setDragOver(idx)
-  }
-  function onDragLeave(e) {
-    if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null)
-  }
-  function onDrop(e, idx) {
-    e.preventDefault()
-    if (dragFrom !== null) reorderLib(dragFrom, idx)
-    setDragFrom(null)
-    setDragOver(null)
-  }
-  function onDragEnd() { setDragFrom(null); setDragOver(null) }
-
-  // ── Mobile: long-press (2s) then drag ──
-  const pressTimer = useRef(null)
-  const [mobileActive, setMobileActive] = useState(false) // true once long-press fires
-  const touchFromIdx = useRef(null)
-  const navRef = useRef(null)
-
-  function onTouchStart(e, idx) {
-    touchFromIdx.current = idx
-    setMobileActive(false)
-    pressTimer.current = setTimeout(() => {
-      setDragFrom(idx)
-      setMobileActive(true)
-      navigator.vibrate?.(60)
-    }, 2000)
-  }
-
-  // touchmove must be non-passive to call preventDefault — attach via ref
-  const handleTouchMove = useCallback((e) => {
-    if (!mobileActive) { clearTimeout(pressTimer.current); return }
-    e.preventDefault()
-    const touch = e.touches[0]
-    const el = document.elementFromPoint(touch.clientX, touch.clientY)
-    const row = el?.closest('[data-lib-idx]')
-    if (row) setDragOver(Number(row.dataset.libIdx))
-  }, [mobileActive])
-
-  useEffect(() => {
-    const el = navRef.current
-    if (!el) return
-    el.addEventListener('touchmove', handleTouchMove, { passive: false })
-    return () => el.removeEventListener('touchmove', handleTouchMove)
-  }, [handleTouchMove])
-
-  function onTouchEnd() {
-    clearTimeout(pressTimer.current)
-    if (mobileActive && dragFrom !== null && dragOver !== null) reorderLib(dragFrom, dragOver)
-    setDragFrom(null)
-    setDragOver(null)
-    setMobileActive(false)
-    touchFromIdx.current = null
-  }
-
-  // ── Fire TV / Keyboard: hold Enter/Space 2s → move mode, arrow keys to move ──
-  const keyTimer = useRef(null)
-  const [kbMovingIdx, setKbMovingIdx] = useState(null)
-
-  function onKeyDown(e, idx) {
-    // Arrow keys while in move mode
-    if (kbMovingIdx !== null) {
-      if (e.key === 'ArrowUp')   { e.preventDefault(); reorderLib(kbMovingIdx, kbMovingIdx - 1); setKbMovingIdx(i => i - 1); return }
-      if (e.key === 'ArrowDown') { e.preventDefault(); reorderLib(kbMovingIdx, kbMovingIdx + 1); setKbMovingIdx(i => i + 1); return }
-      if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setKbMovingIdx(null); return }
-    }
-    // Start hold timer on Enter/Space (ignore key repeats)
-    if ((e.key === 'Enter' || e.key === ' ') && !e.repeat && kbMovingIdx === null) {
-      keyTimer.current = setTimeout(() => {
-        setKbMovingIdx(idx)
-        navigator.vibrate?.(60)
-        keyTimer.current = null
-      }, 2000)
-    }
-  }
-  function onKeyUp(e) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      clearTimeout(keyTimer.current)
-      keyTimer.current = null
-    }
-  }
-
-  // Dismiss kb move mode on click elsewhere
-  useEffect(() => {
-    if (kbMovingIdx === null) return
-    const dismiss = () => setKbMovingIdx(null)
-    document.addEventListener('mousedown', dismiss)
-    return () => document.removeEventListener('mousedown', dismiss)
-  }, [kbMovingIdx])
+  // Drag/reorder removed — My Library items are static nav links
 
   // ── Badges ──
   const badges = {
@@ -219,95 +107,32 @@ export default function Sidebar() {
       <Divider />
 
       {/* Nav */}
-      <nav ref={navRef} style={{ flex: 1, padding: '0.5rem 0.5rem 0', overflowY: 'auto' }}>
+      <nav style={{ flex: 1, padding: '0.5rem 0.5rem 0', overflowY: 'auto' }}>
 
         {/* Browse */}
         <SectionLabel>Browse</SectionLabel>
         <NavItem to="/"       icon={<FiHome size={14} />}   label="Home"   active={location.pathname === '/'} />
         <NavItem to="/search" icon={<FiSearch size={14} />} label="Search" active={location.pathname === '/search'} />
 
-        {/* My Library — drag-reorderable */}
+        {/* My Library — static nav items */}
         <SectionLabel style={{ marginTop: '1rem' }}>My Library</SectionLabel>
 
-        {libOrder.map((id, idx) => {
+        {libOrder.map(id => {
           const meta = LIB_META[id]
           if (!meta) return null
           const Icon = meta.icon
           const badge = badges[id] || null
           const isActive = location.pathname === meta.to ||
             (id === 'playlists' && location.pathname.startsWith('/playlists'))
-          const isDragSrc    = dragFrom === idx
-          const isDragTarget = dragOver === idx && dragFrom !== idx
-          const isKbMoving   = kbMovingIdx === idx
-
           return (
-            <div
+            <NavItem
               key={id}
-              data-lib-idx={idx}
-              draggable={!IS_FIRETV}
-              onDragStart={IS_FIRETV ? undefined : e => onDragStart(e, idx)}
-              onDragOver={IS_FIRETV ? undefined : e => onDragOver(e, idx)}
-              onDragLeave={IS_FIRETV ? undefined : onDragLeave}
-              onDrop={IS_FIRETV ? undefined : e => onDrop(e, idx)}
-              onDragEnd={IS_FIRETV ? undefined : onDragEnd}
-              onTouchStart={IS_FIRETV ? undefined : e => onTouchStart(e, idx)}
-              onTouchEnd={IS_FIRETV ? undefined : onTouchEnd}
-              onKeyDown={IS_FIRETV ? undefined : e => onKeyDown(e, idx)}
-              onKeyUp={IS_FIRETV ? undefined : onKeyUp}
-              tabIndex={0}
-              style={{
-                display: 'flex', alignItems: 'center',
-                borderRadius: 'var(--radius)', marginBottom: 2,
-                opacity: isDragSrc ? 0.35 : 1,
-                background: isDragTarget ? 'rgba(124,58,237,0.13)' : isKbMoving ? 'rgba(124,58,237,0.2)' : 'transparent',
-                outline: isDragTarget || isKbMoving ? '1px solid var(--accent)' : 'none',
-                outlineOffset: -1,
-                transition: 'background 0.1s, opacity 0.15s',
-                cursor: IS_FIRETV ? 'pointer' : 'grab',
-                userSelect: 'none',
-              }}
-            >
-              {/* Drag handle — hidden on FireTV (no mouse/touch drag) */}
-              {!IS_FIRETV && (
-              <span style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: '0.5rem 0 0.5rem 0.45rem',
-                color: 'var(--text-secondary)', opacity: 0.35,
-                cursor: 'grab', flexShrink: 0,
-              }}>
-                <FiMenu size={11} />
-              </span>
-              )}
-
-              {/* Nav link — click navigates, drag doesn't */}
-              <Link
-                to={meta.to}
-                draggable={false}
-                onClick={e => {
-                  // If a drag just happened, swallow the click
-                  if (mobileActive) e.preventDefault()
-                }}
-                style={{
-                  flex: 1, display: 'flex', alignItems: 'center', gap: '0.6rem',
-                  padding: '0.5rem 0.75rem 0.5rem 0.3rem',
-                  color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  fontWeight: isActive ? 600 : 400, fontSize: '0.86rem',
-                  borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
-                  textDecoration: 'none',
-                  outline: 'none',
-                }}
-              >
-                <span style={{ color: isActive ? 'var(--accent)' : 'inherit', flexShrink: 0 }}>
-                  <Icon size={14} />
-                </span>
-                <span style={{ flex: 1 }}>{meta.label}</span>
-                {badge > 0 && (
-                  <span style={{ background: 'var(--accent)', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: '0.68rem', fontWeight: 700, flexShrink: 0 }}>
-                    {badge}
-                  </span>
-                )}
-              </Link>
-            </div>
+              to={meta.to}
+              icon={<Icon size={14} />}
+              label={meta.label}
+              active={isActive}
+              badge={badge > 0 ? badge : null}
+            />
           )
         })}
 
