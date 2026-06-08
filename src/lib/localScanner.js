@@ -129,6 +129,34 @@ function cleanTitle(raw) {
     .replace(/\b\w/g, c => c.toUpperCase())
 }
 
+/**
+ * Score a TMDB result against the query title.
+ * Returns a number 0–100; higher = better match.
+ */
+function titleScore(resultTitle, query) {
+  const norm = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+  const a = norm(resultTitle)
+  const b = norm(query)
+  if (a === b) return 100
+  // Word overlap: what fraction of query words appear in the result title
+  const queryWords  = b.split(' ').filter(Boolean)
+  const resultWords = new Set(a.split(' ').filter(Boolean))
+  const overlap = queryWords.filter(w => resultWords.has(w)).length
+  const precision = overlap / Math.max(queryWords.length, 1)
+  // Penalise length difference — "Dexter" is shorter than "Dexter New Blood"
+  const lenPenalty = Math.abs(a.length - b.length) / Math.max(a.length, b.length)
+  return Math.round((precision * 0.7 + (1 - lenPenalty) * 0.3) * 99)
+}
+
+/** Pick the best match from a TMDB results array for the given query */
+function bestResult(results, query) {
+  if (!results.length) return null
+  return results.reduce((best, r) => {
+    const s = titleScore(r.title || r.name || '', query)
+    return (!best || s > best._score) ? { ...r, _score: s } : best
+  }, null)
+}
+
 /** Match a parsed filename against TMDB — returns best result or null.
  *  forceType: 'movie' | 'tv' — overrides filename-parsed guess */
 export async function matchTmdb(parsed, tmdbKey, forceType) {
@@ -151,7 +179,8 @@ export async function matchTmdb(parsed, tmdbKey, forceType) {
       const r = (data2.results || []).find(r => r.media_type === 'movie' || r.media_type === 'tv')
       return r ? normalise(r, r.media_type) : null
     }
-    return normalise(results[0], type)
+    const best = bestResult(results, title)
+    return best ? normalise(best, type) : null
   } catch {
     return null
   }

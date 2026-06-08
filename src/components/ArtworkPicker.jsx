@@ -101,14 +101,14 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
   // Handle Ctrl+V — paste image from clipboard
   useEffect(() => {
     function onPaste(e) {
-      // Don't intercept if user is typing in the URL input
-      if (e.target?.tagName === 'INPUT') return
       const items = Array.from(e.clipboardData?.items || [])
       const imageItem = items.find(i => i.type.startsWith('image/'))
       if (imageItem) {
+        // Image in clipboard — always intercept, even if URL input is focused
         e.preventDefault()
         applyFile(imageItem.getAsFile())
       }
+      // No image → let the browser handle text paste normally (e.g. into the URL input)
     }
     document.addEventListener('paste', onPaste)
     return () => document.removeEventListener('paste', onPaste)
