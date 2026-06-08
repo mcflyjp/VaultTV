@@ -140,22 +140,16 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                // Google OAuth must open in Silk — Google blocks it in WebViews.
-                // We intercept here at the Java level (more reliable than JS window.open).
-                if (url.contains("accounts.google.com") || url.contains("google.com/o/oauth2")) {
+                // Intercept the Supabase OAuth authorize URL and open it in Silk.
+                // This must happen BEFORE Supabase can 302-redirect to accounts.google.com —
+                // Android's shouldOverrideUrlLoading does NOT fire on server-side redirects,
+                // so if we let the WebView load the Supabase URL, the WebView silently
+                // follows the redirect to Google and Google blocks it as an embedded browser.
+                // Opening the Supabase URL in Silk means the entire auth flow (Supabase →
+                // Google → back to Supabase → vaulttv://callback) stays in Silk.
+                if (url.contains("/auth/v1/authorize") || url.contains("accounts.google.com")) {
                     Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                     startActivity(intent);
-                    return true; // don't load in WebView
-                }
-                // Deep-link callback: vaulttv://auth/callback#tokens
-                // Silk finishes auth, Supabase redirects here, Android fires this intent.
-                // We extract the fragment and run it through Supabase in the WebView.
-                if (url.startsWith("vaulttv://auth/callback")) {
-                    String fragment = request.getUrl().getFragment();
-                    if (fragment != null && !fragment.isEmpty()) {
-                        String js = "window.__vaulttvAuthCallback && window.__vaulttvAuthCallback('" + fragment.replace("'", "\\'") + "');";
-                        webView.evaluateJavascript(js, null);
-                    }
                     return true;
                 }
                 return false;
@@ -194,6 +188,29 @@ public class MainActivity extends Activity {
         });
 
         webView.loadUrl(VAULTTV_URL);
+    }
+
+    // ── Deep-link callback from Silk after Google OAuth ───────────────────
+    // When Silk finishes OAuth it redirects to vaulttv://auth/callback#tokens.
+    // Android fires onNewIntent (not shouldOverrideUrlLoading) because the URL
+    // comes from an external app (Silk), not from within the WebView.
+    // singleTop launchMode ensures this activity is reused rather than recreated.
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        Uri data = intent.getData();
+        if (data != null && "vaulttv".equals(data.getScheme())) {
+            String fragment = data.getFragment();
+            String query    = data.getQuery();
+            String payload  = (fragment != null && !fragment.isEmpty()) ? fragment
+                            : (query    != null && !query.isEmpty())    ? query
+                            : "";
+            if (!payload.isEmpty()) {
+                String safe = payload.replace("\\", "\\\\").replace("'", "\\'");
+                String js   = "window.__vaulttvAuthCallback && window.__vaulttvAuthCallback('" + safe + "');";
+                webView.evaluateJavascript(js, null);
+            }
+        }
     }
 
     @Override
