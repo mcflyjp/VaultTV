@@ -360,7 +360,6 @@ export default function VideoPlayer() {
   function onPlay()    {
     setPlaying(true)
     setBuffering(false)
-    initAudio()
     // Show "No Audio?" hint 2s after playback starts, auto-hide after 8s
     clearTimeout(noAudioTimer.current)
     if (!transcoding) {

@@ -599,6 +599,7 @@ function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
   const [sortBy,      setSortBy]      = useState('default')
   const [filterLang,  setFilterLang]  = useState('')
   const [compatOnly,  setCompatOnly]  = useState(false)
+  const { companionOnline } = useLocalLibrary()
 
   const sorted = streams
     ? sortAndFilterStreams(streams, { sortBy, filterLang, compatOnly, preferredLang })
@@ -632,7 +633,7 @@ function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
             <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>No streams match the current filters.</p>
           ) : (
             <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.25rem' }} className="shelf-scroll">
-              {sorted.map((s, i) => <StreamCard key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} />)}
+              {sorted.map((s, i) => <StreamCard key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} companionOnline={companionOnline} />)}
             </div>
           )}
         </>
@@ -645,6 +646,7 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
   const [sortBy,      setSortBy]      = useState('default')
   const [filterLang,  setFilterLang]  = useState('')
   const [compatOnly,  setCompatOnly]  = useState(false)
+  const { companionOnline } = useLocalLibrary()
 
   const sorted = streams
     ? sortAndFilterStreams(streams, { sortBy, filterLang, compatOnly, preferredLang })
@@ -672,15 +674,14 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
           />
           {sorted.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams match the current filters.</p>
-          ) : sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} />)}
+          ) : sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} companionOnline={companionOnline} />)}
         </>
       )}
     </div>
   )
 }
 
-function StreamPanelRow({ stream: s, onSelect, preferredLang }) {
-  const { companionOnline } = useLocalLibrary()
+function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = false }) {
   const compat    = streamCompat(s)
   const badge     = compatBadge(compat)
   const dimmed    = compat === 'both-issues' && !companionOnline
@@ -694,8 +695,9 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang }) {
     if (!s.url) return
     if (hasIssue && companionOnline) {
       // Auto-transcode: convert bad audio→AAC and/or HEVC→H264
-      const { transcodeVideo } = parseStreamCodecs(s)
-      onSelect(transcodeUrl(s.url, 0, !!transcodeVideo), s)
+      const { videoCodec } = parseStreamCodecs(s)
+      const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
+      onSelect(transcodeUrl(s.url, 0, needsVideoTranscode), s)
     } else {
       onSelect(s.url, s)
     }
@@ -749,8 +751,7 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang }) {
 }
 
 /** Shared stream card used in the inline episode tray */
-function StreamCard({ stream: s, onSelect, preferredLang }) {
-  const { companionOnline } = useLocalLibrary()
+function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = false }) {
   const compat    = streamCompat(s)
   const badge     = compatBadge(compat)
   const hasIssue  = compat === 'audio-issue' || compat === 'video-issue' || compat === 'both-issues'
@@ -771,8 +772,9 @@ function StreamCard({ stream: s, onSelect, preferredLang }) {
   function handleClick() {
     if (!s.url) return
     if (hasIssue && companionOnline) {
-      const { transcodeVideo } = parseStreamCodecs(s)
-      onSelect(transcodeUrl(s.url, 0, !!transcodeVideo), s)
+      const { videoCodec } = parseStreamCodecs(s)
+      const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
+      onSelect(transcodeUrl(s.url, 0, needsVideoTranscode), s)
     } else {
       onSelect(s.url, s)
     }
