@@ -662,10 +662,12 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
             const langs     = parseStreamLanguages(s)
             const meta      = parseStreamMeta(s)
             const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
+            const rawTooltip = [s.name, s.title, badge?.title].filter(Boolean).join('\n─────\n')
             return (
               <div
                 key={i}
                 tabIndex={s.url ? 0 : -1}
+                title={rawTooltip}
                 onClick={() => s.url && onSelect(s.url, s)}
                 onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
                 style={{
@@ -733,18 +735,24 @@ function StreamCard({ stream: s, onSelect, preferredLang }) {
   const badge     = compatBadge(compat)
   const dimmed    = compat === 'both-issues'
   const langs     = parseStreamLanguages(s)
+  const meta      = parseStreamMeta(s)
   const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
   const qualMatch = (s.name || '').match(/4K|\d{3,4}p|HD|SD/i)
   const baseBorder = langMatch ? 'rgba(251,191,36,0.45)'
                    : compat === 'compatible' ? 'rgba(74,222,128,0.35)'
                    : 'var(--border)'
+
+  // Build a rich tooltip from all raw stream fields so users can see
+  // everything the addon sent, even when auto-detection missed something
+  const rawTooltip = [s.name, s.title, badge?.title].filter(Boolean).join('\n─────\n')
+
   return (
     <button
       onClick={() => s.url && onSelect(s.url, s)}
       disabled={!s.url}
-      title={badge?.title}
+      title={rawTooltip}
       style={{
-        flexShrink: 0, width: 168, opacity: dimmed ? 0.45 : 1,
+        flexShrink: 0, width: 176, opacity: dimmed ? 0.45 : 1,
         background: langMatch ? 'rgba(251,191,36,0.04)' : 'var(--bg-card)',
         border: `1px solid ${baseBorder}`,
         borderRadius: 'var(--radius)', padding: '0.65rem 0.75rem',
@@ -776,14 +784,24 @@ function StreamCard({ stream: s, onSelect, preferredLang }) {
         {s.name || s.title || 'Stream'}
       </p>
 
-      {/* Addon name */}
-      <p style={{ margin: '2px 0 4px', fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {s.addonName}
-      </p>
+      {/* Addon name + seeds + size */}
+      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', margin: '2px 0 4px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1 }}>
+          {s.addonName}
+        </span>
+        {meta.seeds != null && (
+          <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>👤{meta.seeds}</span>
+        )}
+        {meta.sizeGb != null && (
+          <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
+            💾{meta.sizeGb >= 1 ? `${meta.sizeGb.toFixed(1)}G` : `${(meta.sizeGb * 1024).toFixed(0)}M`}
+          </span>
+        )}
+      </div>
 
       {/* Language badges row */}
       {langs.length > 0 && (
-        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
           {langs.map(code => (
             <span
               key={code}

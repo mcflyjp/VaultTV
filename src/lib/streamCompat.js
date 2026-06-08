@@ -231,10 +231,30 @@ const ISO3_TO_CODE = {
 const ISO2_CODES = ['en','es','fr','de','it','pt','ja','ko','zh','ru','nl','pl','sv','tr','hi','ar']
 
 const WORD_TO_CODE = {
+  // English names
   english: 'en', spanish: 'es', french: 'fr', german: 'de',
   italian: 'it', portuguese: 'pt', japanese: 'ja', korean: 'ko',
   chinese: 'zh', russian: 'ru', dutch: 'nl', polish: 'pl',
   swedish: 'sv', turkish: 'tr', hindi: 'hi', arabic: 'ar',
+  // Native-language names (very common in release names)
+  deutsch: 'de', deutsche: 'de',             // German
+  'français': 'fr', francais: 'fr',          // French
+  'español': 'es', espanol: 'es',            // Spanish
+  italiano: 'it',                             // Italian
+  'português': 'pt', portugues: 'pt',        // Portuguese
+  'русский': 'ru',                            // Russian
+  // Common abbreviations in release filenames
+  ger: 'de', deu: 'de',                      // German
+  fre: 'fr', fra: 'fr',                      // French
+  spa: 'es', esp: 'es',                      // Spanish
+  ita: 'it',                                  // Italian
+  por: 'pt',                                  // Portuguese
+  jpn: 'ja', jap: 'ja',                      // Japanese
+  kor: 'ko',                                  // Korean
+  chi: 'zh', chs: 'zh', cht: 'zh',          // Chinese
+  rus: 'ru',                                  // Russian
+  // Dubbed / VO patterns
+  dubbed: null,  // not a language, skip
 }
 
 /** Display label for a language code */
@@ -273,13 +293,14 @@ export function parseStreamLanguages(stream) {
     if (new RegExp(`\\b${iso3}\\b`, 'i').test(text)) found.add(code)
   }
 
-  // 2-letter ISO codes — uppercase only to reduce false positives
+  // 2-letter ISO codes — match both uppercase and lowercase (EN/en, DE/de)
   for (const code of ISO2_CODES) {
-    if (new RegExp(`\\b${code.toUpperCase()}\\b`).test(text)) found.add(code)
+    if (new RegExp(`\\b${code}\\b`, 'i').test(text)) found.add(code)
   }
 
-  // Full language words
+  // Full language words / native spellings
   for (const [word, code] of Object.entries(WORD_TO_CODE)) {
+    if (!code) continue  // skip null entries (e.g. 'dubbed')
     if (new RegExp(`\\b${word}\\b`, 'i').test(text)) found.add(code)
   }
 
