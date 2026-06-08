@@ -1106,7 +1106,7 @@ export default function VideoPlayer() {
 
                 {/* Track list */}
                 <Label>Subtitle Track</Label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1rem', maxHeight: 180, overflowY: 'auto', overflowX: 'hidden' }}>
                   <SettingRow active={activeSub === -1} onClick={() => changeSubtitle(-1)}>
                     <MdSubtitles size={14} /> Off
                   </SettingRow>
