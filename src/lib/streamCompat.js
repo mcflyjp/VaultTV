@@ -94,6 +94,89 @@ export function sortStreamsByCompat(streams) {
   })
 }
 
+// ── Language detection ──────────────────────────────────────────────────
+
+/** Country flag emoji → ISO 639-1 code */
+const FLAG_TO_LANG = {
+  '🇬🇧': 'en', '🇺🇸': 'en', '🇦🇺': 'en', '🇨🇦': 'en', '🇮🇪': 'en',
+  '🇫🇷': 'fr', '🇩🇪': 'de', '🇦🇹': 'de', '🇨🇭': 'de',
+  '🇪🇸': 'es', '🇲🇽': 'es', '🇦🇷': 'es', '🇨🇴': 'es', '🇨🇱': 'es',
+  '🇮🇹': 'it', '🇵🇹': 'pt', '🇧🇷': 'pt',
+  '🇯🇵': 'ja', '🇰🇷': 'ko', '🇨🇳': 'zh', '🇹🇼': 'zh',
+  '🇷🇺': 'ru', '🇳🇱': 'nl', '🇧🇪': 'nl',
+  '🇵🇱': 'pl', '🇸🇪': 'sv', '🇹🇷': 'tr',
+  '🇮🇳': 'hi', '🇵🇰': 'hi',
+  '🇸🇦': 'ar', '🇦🇪': 'ar', '🇪🇬': 'ar',
+}
+
+/** ISO 639-2/B (3-letter) → ISO 639-1 (2-letter) */
+const ISO3_TO_CODE = {
+  ENG: 'en', SPA: 'es', FRE: 'fr', GER: 'de', ITA: 'it',
+  POR: 'pt', JPN: 'ja', KOR: 'ko', CHI: 'zh', RUS: 'ru',
+  DUT: 'nl', POL: 'pl', SWE: 'sv', TUR: 'tr', HIN: 'hi', ARA: 'ar',
+}
+
+const ISO2_CODES = ['en','es','fr','de','it','pt','ja','ko','zh','ru','nl','pl','sv','tr','hi','ar']
+
+const WORD_TO_CODE = {
+  english: 'en', spanish: 'es', french: 'fr', german: 'de',
+  italian: 'it', portuguese: 'pt', japanese: 'ja', korean: 'ko',
+  chinese: 'zh', russian: 'ru', dutch: 'nl', polish: 'pl',
+  swedish: 'sv', turkish: 'tr', hindi: 'hi', arabic: 'ar',
+}
+
+/** Display label for a language code */
+export const LANG_LABELS = {
+  en: 'EN', es: 'ES', fr: 'FR', de: 'DE', it: 'IT',
+  pt: 'PT', ja: 'JA', ko: 'KO', zh: 'ZH', ru: 'RU',
+  nl: 'NL', pl: 'PL', sv: 'SV', tr: 'TR', hi: 'HI', ar: 'AR',
+  MULTI: 'MULTI', DUAL: 'DUAL',
+}
+
+/**
+ * Parse a Stremio stream object for language indicators.
+ * Scans name, title, description, and behaviorHints.filename.
+ *
+ * Returns an array of lowercase ISO 639-1 codes e.g. ['en', 'fr'],
+ * ['MULTI'] for multi-language streams, or [] if nothing detected.
+ */
+export function parseStreamLanguages(stream) {
+  const text = [
+    stream.name, stream.title, stream.description,
+    stream.behaviorHints?.filename,
+  ].filter(Boolean).join('\n')
+
+  // Multi-language shortcut
+  if (/\bmulti([-\s]?(audio|lang|language|ingual))?\b/i.test(text)) return ['MULTI']
+
+  const found = new Set()
+
+  // Flag emojis (most reliable signal)
+  for (const [flag, code] of Object.entries(FLAG_TO_LANG)) {
+    if (text.includes(flag)) found.add(code)
+  }
+
+  // 3-letter ISO codes at word boundaries
+  for (const [iso3, code] of Object.entries(ISO3_TO_CODE)) {
+    if (new RegExp(`\\b${iso3}\\b`, 'i').test(text)) found.add(code)
+  }
+
+  // 2-letter ISO codes — uppercase only to reduce false positives
+  for (const code of ISO2_CODES) {
+    if (new RegExp(`\\b${code.toUpperCase()}\\b`).test(text)) found.add(code)
+  }
+
+  // Full language words
+  for (const [word, code] of Object.entries(WORD_TO_CODE)) {
+    if (new RegExp(`\\b${word}\\b`, 'i').test(text)) found.add(code)
+  }
+
+  // Dual audio — no specific lang detected
+  if (found.size === 0 && /\bdual\b/i.test(text)) return ['DUAL']
+
+  return [...found]
+}
+
 /** Human-readable compat label and colour for UI badges */
 export function compatBadge(compat) {
   switch (compat) {

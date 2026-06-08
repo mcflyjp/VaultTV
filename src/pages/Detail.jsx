@@ -9,9 +9,10 @@ import { usePlayer } from '../context/PlayerContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useArtwork } from '../context/ArtworkContext'
 import ArtworkPicker from '../components/ArtworkPicker'
+import { useLanguage } from '../context/LanguageContext'
 import MediaShelf from '../components/MediaShelf'
 import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage } from 'react-icons/fi'
-import { sortStreamsByCompat, streamCompat, compatBadge } from '../lib/streamCompat'
+import { sortStreamsByCompat, streamCompat, compatBadge, parseStreamLanguages, LANG_LABELS } from '../lib/streamCompat'
 import { platformLabel } from '../lib/platform'
 
 export default function Detail() {
@@ -22,6 +23,7 @@ export default function Detail() {
   const { play } = usePlayer()
   const { getLocalFile, getLocalVersions, getFileUrl } = useLocalLibrary()
   const { getPoster, getBackdrop } = useArtwork()
+  const { audioLang } = useLanguage()
   const [artPicker, setArtPicker]     = useState(null) // null | 'poster' | 'backdrop'
   const [posterHovered, setPosterHovered] = useState(false)
   const [streams, setStreams]         = useState(null)
@@ -408,6 +410,7 @@ export default function Detail() {
                       <InlineStreamTray
                         loading={loadingStreams}
                         streams={streams}
+                        preferredLang={audioLang}
                         onSelect={(url, stream) => {
                           setMusicDismissed(true)
                           const epTitle = `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`
@@ -440,6 +443,7 @@ export default function Detail() {
             <StreamPanel
               loading={loadingStreams}
               streams={streams}
+              preferredLang={audioLang}
               onSelect={(url, stream) => {
                 setMusicDismissed(true)
                 play({
@@ -497,7 +501,7 @@ function Pill({ children }) {
 }
 
 /** Horizontal stream tray that slides in below a clicked episode row */
-function InlineStreamTray({ loading, streams, onSelect }) {
+function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
   const sorted = streams ? sortStreamsByCompat(streams) : null
   return (
     <div style={{
@@ -521,7 +525,7 @@ function InlineStreamTray({ loading, streams, onSelect }) {
             Sorted for {platformLabel()} · {sorted.length} streams
           </p>
           <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.25rem' }} className="shelf-scroll">
-            {sorted.map((s, i) => <StreamCard key={i} stream={s} onSelect={onSelect} />)}
+            {sorted.map((s, i) => <StreamCard key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} />)}
           </div>
         </>
       )}
@@ -529,7 +533,7 @@ function InlineStreamTray({ loading, streams, onSelect }) {
   )
 }
 
-function StreamPanel({ loading, streams, onSelect }) {
+function StreamPanel({ loading, streams, onSelect, preferredLang }) {
   const sorted = streams ? sortStreamsByCompat(streams) : null
   return (
     <div style={{ background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(12px)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' }}>
@@ -544,22 +548,51 @@ function StreamPanel({ loading, streams, onSelect }) {
         <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams found. Make sure your add-ons are installed.</p>
       )}
       {!loading && sorted?.map((s, i) => {
-        const compat = streamCompat(s)
-        const badge  = compatBadge(compat)
-        const dimmed = compat === 'both-issues'
+        const compat   = streamCompat(s)
+        const badge    = compatBadge(compat)
+        const dimmed   = compat === 'both-issues'
+        const langs    = parseStreamLanguages(s)
+        const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
         return (
           <div
             key={i}
             tabIndex={s.url ? 0 : -1}
             onClick={() => s.url && onSelect(s.url, s)}
             onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
-            style={{ padding: '0.65rem 0.75rem', marginBottom: '0.4rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default', border: `1px solid ${compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: dimmed ? 0.5 : 1 }}
+            style={{
+              padding: '0.65rem 0.75rem', marginBottom: '0.4rem',
+              background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
+              borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
+              border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              opacity: dimmed ? 0.5 : 1,
+            }}
           >
             <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
               <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {/* Language badges */}
+              {langs.map(code => (
+                <span
+                  key={code}
+                  style={{
+                    fontSize: '0.6rem', borderRadius: 3, padding: '2px 5px', fontWeight: 700,
+                    background: code === 'MULTI' ? 'rgba(99,102,241,0.2)'
+                               : langMatch && code === preferredLang ? 'rgba(251,191,36,0.25)'
+                               : 'rgba(255,255,255,0.08)',
+                    color: code === 'MULTI' ? '#818cf8'
+                         : langMatch && code === preferredLang ? '#fbbf24'
+                         : 'rgba(255,255,255,0.55)',
+                    border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.4)'
+                              : langMatch && code === preferredLang ? 'rgba(251,191,36,0.5)'
+                              : 'rgba(255,255,255,0.12)'}`,
+                  }}
+                >
+                  {LANG_LABELS[code] || code.toUpperCase()}
+                </span>
+              ))}
               {badge && (
                 <span title={badge.title} style={{ fontSize: '0.62rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
                   {badge.label}
@@ -575,30 +608,36 @@ function StreamPanel({ loading, streams, onSelect }) {
 }
 
 /** Shared stream card used in the inline episode tray */
-function StreamCard({ stream: s, onSelect }) {
-  const compat = streamCompat(s)
-  const badge  = compatBadge(compat)
-  const dimmed = compat === 'both-issues'
+function StreamCard({ stream: s, onSelect, preferredLang }) {
+  const compat    = streamCompat(s)
+  const badge     = compatBadge(compat)
+  const dimmed    = compat === 'both-issues'
+  const langs     = parseStreamLanguages(s)
+  const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
   const qualMatch = (s.name || '').match(/4K|\d{3,4}p|HD|SD/i)
+  const baseBorder = langMatch ? 'rgba(251,191,36,0.45)'
+                   : compat === 'compatible' ? 'rgba(74,222,128,0.35)'
+                   : 'var(--border)'
   return (
     <button
       onClick={() => s.url && onSelect(s.url, s)}
       disabled={!s.url}
       title={badge?.title}
       style={{
-        flexShrink: 0, width: 160, opacity: dimmed ? 0.45 : 1,
-        background: 'var(--bg-card)',
-        border: `1px solid ${compat === 'compatible' ? 'rgba(74,222,128,0.35)' : 'var(--border)'}`,
+        flexShrink: 0, width: 168, opacity: dimmed ? 0.45 : 1,
+        background: langMatch ? 'rgba(251,191,36,0.04)' : 'var(--bg-card)',
+        border: `1px solid ${baseBorder}`,
         borderRadius: 'var(--radius)', padding: '0.65rem 0.75rem',
         cursor: s.url ? 'pointer' : 'default', textAlign: 'left',
         transition: 'border-color 0.15s, background 0.15s',
       }}
       onMouseEnter={e => { if (!dimmed) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.12)' }}}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = compat === 'compatible' ? 'rgba(74,222,128,0.35)' : 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = baseBorder; e.currentTarget.style.background = langMatch ? 'rgba(251,191,36,0.04)' : 'var(--bg-card)' }}
     >
+      {/* Top row: play icon + quality/compat badges */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <FiPlay size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-        <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 3, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {qualMatch && (
             <span style={{ fontSize: '0.58rem', background: 'var(--accent)', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>
               {qualMatch[0]}
@@ -611,12 +650,41 @@ function StreamCard({ stream: s, onSelect }) {
           )}
         </div>
       </div>
+
+      {/* Stream name */}
       <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
         {s.name || s.title || 'Stream'}
       </p>
-      <p style={{ margin: '2px 0 0', fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+
+      {/* Addon name */}
+      <p style={{ margin: '2px 0 4px', fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {s.addonName}
       </p>
+
+      {/* Language badges row */}
+      {langs.length > 0 && (
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
+          {langs.map(code => (
+            <span
+              key={code}
+              style={{
+                fontSize: '0.58rem', borderRadius: 3, padding: '1px 5px', fontWeight: 700,
+                background: code === 'MULTI' ? 'rgba(99,102,241,0.18)'
+                           : langMatch && code === preferredLang ? 'rgba(251,191,36,0.2)'
+                           : 'rgba(255,255,255,0.07)',
+                color: code === 'MULTI' ? '#818cf8'
+                     : langMatch && code === preferredLang ? '#fbbf24'
+                     : 'rgba(255,255,255,0.5)',
+                border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.35)'
+                          : langMatch && code === preferredLang ? 'rgba(251,191,36,0.45)'
+                          : 'rgba(255,255,255,0.1)'}`,
+              }}
+            >
+              {LANG_LABELS[code] || code.toUpperCase()}
+            </span>
+          ))}
+        </div>
+      )}
     </button>
   )
 }
