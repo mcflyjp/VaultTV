@@ -94,6 +94,118 @@ export function sortStreamsByCompat(streams) {
   })
 }
 
+// ── Stream metadata extraction ─────────────────────────────────────────
+
+/**
+ * Quality tier — higher number = better quality.
+ * Used for the Quality sort option.
+ */
+const QUALITY_TIERS = [
+  { tier: 5, re: /\b(4k|2160p|uhd)\b/i },
+  { tier: 4, re: /\b(1080p|fhd|full[\s-]?hd)\b/i },
+  { tier: 3, re: /\b(720p|hd)\b/i },
+  { tier: 2, re: /\b(480p|sd)\b/i },
+  { tier: 1, re: /\b(360p|240p)\b/i },
+]
+
+/**
+ * Parse a stream object for sortable metadata.
+ *
+ * Returns:
+ *   seeds       — integer seed count or null (Torrentio: "👤 42")
+ *   sizeGb      — file size in GB or null  (Torrentio: "💾 15.2 GB")
+ *   qualityTier — 0-5 quality tier (5 = 4K, 4 = 1080p, …)
+ */
+export function parseStreamMeta(stream) {
+  const text = [stream.name, stream.title, stream.description, stream.behaviorHints?.filename]
+    .filter(Boolean).join('\n')
+
+  // Seeds — Torrentio: "👤 42"  |  generic: "42 seeds/seeders"
+  let seeds = null
+  const seedsEmoji = text.match(/👤\s*(\d+)/)
+  const seedsWord  = text.match(/(\d+)\s*seed(?:er)?s?\b/i)
+  if (seedsEmoji)  seeds = parseInt(seedsEmoji[1], 10)
+  else if (seedsWord) seeds = parseInt(seedsWord[1], 10)
+
+  // Size — Torrentio: "💾 15.2 GB"  |  generic: "15.2 GB" / "2300 MB"
+  let sizeGb = null
+  const sizeEmoji = text.match(/💾\s*([\d.]+)\s*(GB|MB)/i)
+  const sizeWord  = text.match(/([\d.]+)\s*(GB|MB)\b/i)
+  const sizeMatch = sizeEmoji || sizeWord
+  if (sizeMatch) {
+    const val  = parseFloat(sizeMatch[1])
+    const unit = sizeMatch[2].toUpperCase()
+    sizeGb = unit === 'MB' ? val / 1024 : val
+  }
+
+  // Quality tier
+  let qualityTier = 0
+  for (const { tier, re } of QUALITY_TIERS) {
+    if (re.test(text)) { qualityTier = tier; break }
+  }
+
+  return { seeds, sizeGb, qualityTier }
+}
+
+/**
+ * Sort and filter an array of streams.
+ *
+ * @param {object[]} streams   — raw stream array
+ * @param {object}   opts
+ * @param {string}   opts.sortBy       — 'default'|'seeds'|'size-desc'|'size-asc'|'quality'|'language'
+ * @param {string}   opts.filterLang   — ISO 639-1 code to keep, or '' for all
+ * @param {boolean}  opts.compatOnly   — hide streams with both-issues compat
+ * @param {string}   opts.preferredLang— preferred language for 'language' sort
+ */
+export function sortAndFilterStreams(streams, { sortBy = 'default', filterLang = '', compatOnly = false, preferredLang = '' } = {}) {
+  let result = [...streams]
+
+  // ── Filter ────────────────────────────────────────────────────────────
+  if (compatOnly) {
+    result = result.filter(s => streamCompat(s) !== 'both-issues')
+  }
+  if (filterLang) {
+    result = result.filter(s => {
+      const langs = parseStreamLanguages(s)
+      return langs.includes('MULTI') || langs.includes(filterLang)
+    })
+  }
+
+  // ── Sort ──────────────────────────────────────────────────────────────
+  if (sortBy === 'default') {
+    // Existing compat-based sort
+    const ORDER = { compatible: 0, 'audio-issue': 1, 'video-issue': 2, 'both-issues': 3 }
+    result.sort((a, b) => (ORDER[streamCompat(a)] ?? 4) - (ORDER[streamCompat(b)] ?? 4))
+  } else if (sortBy === 'seeds') {
+    result.sort((a, b) => {
+      const ma = parseStreamMeta(a), mb = parseStreamMeta(b)
+      return (mb.seeds ?? -1) - (ma.seeds ?? -1)
+    })
+  } else if (sortBy === 'size-desc') {
+    result.sort((a, b) => {
+      const ma = parseStreamMeta(a), mb = parseStreamMeta(b)
+      return (mb.sizeGb ?? -1) - (ma.sizeGb ?? -1)
+    })
+  } else if (sortBy === 'size-asc') {
+    result.sort((a, b) => {
+      const ma = parseStreamMeta(a), mb = parseStreamMeta(b)
+      return (ma.sizeGb ?? Infinity) - (mb.sizeGb ?? Infinity)
+    })
+  } else if (sortBy === 'quality') {
+    result.sort((a, b) => parseStreamMeta(b).qualityTier - parseStreamMeta(a).qualityTier)
+  } else if (sortBy === 'language') {
+    // Preferred language first, then MULTI, then others
+    result.sort((a, b) => {
+      const la = parseStreamLanguages(a), lb = parseStreamLanguages(b)
+      const scoreA = la.includes(preferredLang) ? 2 : la.includes('MULTI') ? 1 : 0
+      const scoreB = lb.includes(preferredLang) ? 2 : lb.includes('MULTI') ? 1 : 0
+      return scoreB - scoreA
+    })
+  }
+
+  return result
+}
+
 // ── Language detection ──────────────────────────────────────────────────
 
 /** Country flag emoji → ISO 639-1 code */

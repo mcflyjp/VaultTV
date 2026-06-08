@@ -12,7 +12,7 @@ import ArtworkPicker from '../components/ArtworkPicker'
 import { useLanguage } from '../context/LanguageContext'
 import MediaShelf from '../components/MediaShelf'
 import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage } from 'react-icons/fi'
-import { sortStreamsByCompat, streamCompat, compatBadge, parseStreamLanguages, LANG_LABELS } from '../lib/streamCompat'
+import { sortAndFilterStreams, streamCompat, compatBadge, parseStreamLanguages, parseStreamMeta, LANG_LABELS } from '../lib/streamCompat'
 import { platformLabel } from '../lib/platform'
 
 export default function Detail() {
@@ -500,9 +500,93 @@ function Pill({ children }) {
   )
 }
 
+/** Collect all unique language codes present across a stream list */
+function streamLangOptions(streams) {
+  const seen = new Set()
+  for (const s of streams) {
+    for (const code of parseStreamLanguages(s)) {
+      if (code !== 'MULTI' && code !== 'DUAL') seen.add(code)
+    }
+  }
+  return [...seen].sort()
+}
+
+/** Compact sort/filter toolbar shared by both stream panels */
+function StreamSortBar({ streams, sortBy, setSortBy, filterLang, setFilterLang, compatOnly, setCompatOnly }) {
+  const langOptions = streamLangOptions(streams)
+  const selectStyle = {
+    background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 6, color: '#fff', padding: '0.25rem 0.5rem',
+    fontSize: '0.72rem', cursor: 'pointer',
+  }
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.75rem' }}>
+      {/* Sort */}
+      <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Sort</span>
+      {[
+        { value: 'default',   label: 'Best Match' },
+        { value: 'seeds',     label: '👤 Seeds'   },
+        { value: 'size-desc', label: '💾 Largest'  },
+        { value: 'size-asc',  label: '💾 Smallest' },
+        { value: 'quality',   label: '✨ Quality'  },
+        { value: 'language',  label: '🌐 Language' },
+      ].map(({ value, label }) => (
+        <button
+          key={value}
+          onClick={() => setSortBy(value)}
+          style={{
+            background: sortBy === value ? 'var(--accent)' : 'rgba(255,255,255,0.07)',
+            border: `1px solid ${sortBy === value ? 'var(--accent)' : 'rgba(255,255,255,0.12)'}`,
+            borderRadius: 6, color: sortBy === value ? '#fff' : 'rgba(255,255,255,0.65)',
+            padding: '0.25rem 0.55rem', fontSize: '0.72rem', cursor: 'pointer', fontWeight: sortBy === value ? 700 : 400,
+            transition: 'all 0.12s',
+          }}
+        >
+          {label}
+        </button>
+      ))}
+
+      {/* Language filter */}
+      {langOptions.length > 1 && (
+        <>
+          <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0, marginLeft: 4 }}>Lang</span>
+          <select value={filterLang} onChange={e => setFilterLang(e.target.value)} style={selectStyle}>
+            <option value=''>All</option>
+            {langOptions.map(code => (
+              <option key={code} value={code}>{LANG_LABELS[code] || code.toUpperCase()}</option>
+            ))}
+          </select>
+        </>
+      )}
+
+      {/* Compat-only toggle */}
+      <button
+        onClick={() => setCompatOnly(v => !v)}
+        style={{
+          marginLeft: 'auto',
+          background: compatOnly ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.05)',
+          border: `1px solid ${compatOnly ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.12)'}`,
+          borderRadius: 6, color: compatOnly ? '#4ade80' : 'rgba(255,255,255,0.45)',
+          padding: '0.25rem 0.6rem', fontSize: '0.72rem', cursor: 'pointer', fontWeight: compatOnly ? 700 : 400,
+          transition: 'all 0.12s', flexShrink: 0,
+        }}
+      >
+        ✓ Compatible only
+      </button>
+    </div>
+  )
+}
+
 /** Horizontal stream tray that slides in below a clicked episode row */
 function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
-  const sorted = streams ? sortStreamsByCompat(streams) : null
+  const [sortBy,      setSortBy]      = useState('default')
+  const [filterLang,  setFilterLang]  = useState('')
+  const [compatOnly,  setCompatOnly]  = useState(false)
+
+  const sorted = streams
+    ? sortAndFilterStreams(streams, { sortBy, filterLang, compatOnly, preferredLang })
+    : null
+
   return (
     <div style={{
       margin: '0 0 0.25rem',
@@ -516,17 +600,24 @@ function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
       {loading && (
         <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Querying add-ons…</p>
       )}
-      {!loading && sorted?.length === 0 && (
+      {!loading && streams?.length === 0 && (
         <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>No streams found. Make sure your add-ons are installed.</p>
       )}
-      {!loading && sorted?.length > 0 && (
+      {!loading && streams?.length > 0 && (
         <>
-          <p style={{ margin: '0 0 0.5rem', fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Sorted for {platformLabel()} · {sorted.length} streams
-          </p>
-          <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.25rem' }} className="shelf-scroll">
-            {sorted.map((s, i) => <StreamCard key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} />)}
-          </div>
+          <StreamSortBar
+            streams={streams}
+            sortBy={sortBy}       setSortBy={setSortBy}
+            filterLang={filterLang} setFilterLang={setFilterLang}
+            compatOnly={compatOnly} setCompatOnly={setCompatOnly}
+          />
+          {sorted.length === 0 ? (
+            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>No streams match the current filters.</p>
+          ) : (
+            <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.25rem' }} className="shelf-scroll">
+              {sorted.map((s, i) => <StreamCard key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} />)}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -534,75 +625,104 @@ function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
 }
 
 function StreamPanel({ loading, streams, onSelect, preferredLang }) {
-  const sorted = streams ? sortStreamsByCompat(streams) : null
+  const [sortBy,      setSortBy]      = useState('default')
+  const [filterLang,  setFilterLang]  = useState('')
+  const [compatOnly,  setCompatOnly]  = useState(false)
+
+  const sorted = streams
+    ? sortAndFilterStreams(streams, { sortBy, filterLang, compatOnly, preferredLang })
+    : null
+
   return (
     <div style={{ background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(12px)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
         <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Available Streams</h3>
-        {sorted?.length > 0 && (
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Sorted for {platformLabel()}</span>
+        {streams?.length > 0 && (
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{streams.length} total</span>
         )}
       </div>
       {loading && <p style={{ color: 'var(--text-secondary)', margin: 0 }}>Querying add-ons…</p>}
-      {!loading && sorted?.length === 0 && (
+      {!loading && streams?.length === 0 && (
         <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams found. Make sure your add-ons are installed.</p>
       )}
-      {!loading && sorted?.map((s, i) => {
-        const compat   = streamCompat(s)
-        const badge    = compatBadge(compat)
-        const dimmed   = compat === 'both-issues'
-        const langs    = parseStreamLanguages(s)
-        const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
-        return (
-          <div
-            key={i}
-            tabIndex={s.url ? 0 : -1}
-            onClick={() => s.url && onSelect(s.url, s)}
-            onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
-            style={{
-              padding: '0.65rem 0.75rem', marginBottom: '0.4rem',
-              background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
-              borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
-              border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              opacity: dimmed ? 0.5 : 1,
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
-              <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {/* Language badges */}
-              {langs.map(code => (
-                <span
-                  key={code}
-                  style={{
-                    fontSize: '0.6rem', borderRadius: 3, padding: '2px 5px', fontWeight: 700,
-                    background: code === 'MULTI' ? 'rgba(99,102,241,0.2)'
-                               : langMatch && code === preferredLang ? 'rgba(251,191,36,0.25)'
-                               : 'rgba(255,255,255,0.08)',
-                    color: code === 'MULTI' ? '#818cf8'
-                         : langMatch && code === preferredLang ? '#fbbf24'
-                         : 'rgba(255,255,255,0.55)',
-                    border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.4)'
-                              : langMatch && code === preferredLang ? 'rgba(251,191,36,0.5)'
-                              : 'rgba(255,255,255,0.12)'}`,
-                  }}
-                >
-                  {LANG_LABELS[code] || code.toUpperCase()}
-                </span>
-              ))}
-              {badge && (
-                <span title={badge.title} style={{ fontSize: '0.62rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
-                  {badge.label}
-                </span>
-              )}
-              {s.url && <FiPlay size={16} style={{ color: 'var(--accent)' }} />}
-            </div>
-          </div>
-        )
-      })}
+      {!loading && streams?.length > 0 && (
+        <>
+          <StreamSortBar
+            streams={streams}
+            sortBy={sortBy}         setSortBy={setSortBy}
+            filterLang={filterLang} setFilterLang={setFilterLang}
+            compatOnly={compatOnly} setCompatOnly={setCompatOnly}
+          />
+          {sorted.length === 0 ? (
+            <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams match the current filters.</p>
+          ) : sorted.map((s, i) => {
+            const compat    = streamCompat(s)
+            const badge     = compatBadge(compat)
+            const dimmed    = compat === 'both-issues'
+            const langs     = parseStreamLanguages(s)
+            const meta      = parseStreamMeta(s)
+            const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
+            return (
+              <div
+                key={i}
+                tabIndex={s.url ? 0 : -1}
+                onClick={() => s.url && onSelect(s.url, s)}
+                onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && s.url) onSelect(s.url, s) }}
+                style={{
+                  padding: '0.65rem 0.75rem', marginBottom: '0.4rem',
+                  background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
+                  borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
+                  border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  opacity: dimmed ? 0.5 : 1,
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
+                  <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</span>
+                    {meta.seeds != null && (
+                      <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>👤 {meta.seeds}</span>
+                    )}
+                    {meta.sizeGb != null && (
+                      <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>
+                        💾 {meta.sizeGb >= 1 ? `${meta.sizeGb.toFixed(1)} GB` : `${(meta.sizeGb * 1024).toFixed(0)} MB`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {langs.map(code => (
+                    <span
+                      key={code}
+                      style={{
+                        fontSize: '0.6rem', borderRadius: 3, padding: '2px 5px', fontWeight: 700,
+                        background: code === 'MULTI' ? 'rgba(99,102,241,0.2)'
+                                   : langMatch && code === preferredLang ? 'rgba(251,191,36,0.25)'
+                                   : 'rgba(255,255,255,0.08)',
+                        color: code === 'MULTI' ? '#818cf8'
+                             : langMatch && code === preferredLang ? '#fbbf24'
+                             : 'rgba(255,255,255,0.55)',
+                        border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.4)'
+                                  : langMatch && code === preferredLang ? 'rgba(251,191,36,0.5)'
+                                  : 'rgba(255,255,255,0.12)'}`,
+                      }}
+                    >
+                      {LANG_LABELS[code] || code.toUpperCase()}
+                    </span>
+                  ))}
+                  {badge && (
+                    <span title={badge.title} style={{ fontSize: '0.62rem', background: badge.color + '22', color: badge.color, border: `1px solid ${badge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>
+                      {badge.label}
+                    </span>
+                  )}
+                  {s.url && <FiPlay size={16} style={{ color: 'var(--accent)' }} />}
+                </div>
+              </div>
+            )
+          })}
+        </>
+      )}
     </div>
   )
 }
