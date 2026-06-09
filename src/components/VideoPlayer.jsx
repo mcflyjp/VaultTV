@@ -451,7 +451,9 @@ export default function VideoPlayer() {
   function onPlay()    {
     setPlaying(true)
     setBuffering(false)
+    setError('')
     // Show "No Audio?" hint 8s after playback starts, auto-hide after 30s
+    // Skip if already transcoding (codec was already auto-fixed)
     clearTimeout(noAudioTimer.current)
     if (!transcoding) {
       noAudioTimer.current = setTimeout(() => {
@@ -486,12 +488,19 @@ export default function VideoPlayer() {
     const v = e.currentTarget
     const code = v.error?.code
     // MediaError codes: 1=aborted, 2=network, 3=decode, 4=not supported
-    if (code === 4) {
-      setError('Format not supported. The video codec (HEVC/H.265) or audio codec (AC3/DTS) may not be supported by this browser.')
-    } else if (code === 3) {
-      setError('Decode error — the file may be corrupted or use an unsupported codec.')
+    if (code === 4 || code === 3) {
+      // Auto-transcode via companion — handles HEVC/H.265 video and AC3/DTS/EAC3 audio.
+      // Only show the error if we're already transcoding (companion also failed).
+      if (!transcoding) {
+        console.log('[player] Codec error — auto-transcoding via companion')
+        fixAudio()   // fixAudio always passes transcodeVideo=true, handles both codecs
+        return
+      }
+      setError('Format not supported even after transcoding. The companion server may be offline or the stream is DRM-protected.')
+    } else if (code === 2) {
+      setError('Network error — could not load the stream.')
     } else if (code) {
-      setError('Could not play this stream. The format may be unsupported.')
+      setError('Could not play this stream.')
     }
   }
 
