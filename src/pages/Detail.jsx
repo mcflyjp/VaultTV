@@ -14,7 +14,7 @@ import { useTrakt } from '../context/TraktContext'
 import MediaShelf from '../components/MediaShelf'
 import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage } from 'react-icons/fi'
 import { sortAndFilterStreams, streamCompat, compatBadge, parseStreamLanguages, parseStreamMeta, parseStreamCodecs, LANG_LABELS } from '../lib/streamCompat'
-import { platformLabel } from '../lib/platform'
+import { platformLabel, IS_ANDROID } from '../lib/platform'
 import { transcodeUrl } from '../lib/companion'
 
 export default function Detail() {
@@ -747,7 +747,8 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
 }
 
 function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = false }) {
-  const compat    = streamCompat(s)
+  // On FireTV, ExoPlayer handles all codecs natively — treat everything as compatible
+  const compat    = IS_FIRETV ? 'compatible' : streamCompat(s)
   const badge     = compatBadge(compat)
   const dimmed    = compat === 'both-issues' && !companionOnline
   const hasIssue  = compat === 'audio-issue' || compat === 'video-issue' || compat === 'both-issues'
@@ -818,7 +819,8 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
 
 /** Shared stream card used in the inline episode tray */
 function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = false }) {
-  const compat    = streamCompat(s)
+  // On FireTV, ExoPlayer handles all codecs natively — treat everything as compatible
+  const compat    = IS_FIRETV ? 'compatible' : streamCompat(s)
   const badge     = compatBadge(compat)
   const hasIssue  = compat === 'audio-issue' || compat === 'video-issue' || compat === 'both-issues'
   const dimmed    = compat === 'both-issues' && !companionOnline

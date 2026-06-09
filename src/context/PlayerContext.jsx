@@ -24,9 +24,10 @@ export function PlayerProvider({ children }) {
   }, [])
 
   function play(opts) {
-    // On FireTV: if the native ExoPlayer bridge is available, use it.
-    // ExoPlayer supports HEVC, AC3, DTS, HLS natively — no companion needed.
-    if (IS_FIRETV && window.vaulttvBridge?.playVideo) {
+    // On FireTV: route through native ExoPlayer bridge.
+    // ExoPlayer uses hardware MediaCodec — supports HEVC, AC3, DTS, HLS natively.
+    // Check typeof to handle Java bridge proxies that may not be truthy in all WebView versions.
+    if (IS_FIRETV && window.vaulttvBridge && typeof window.vaulttvBridge.playVideo !== 'undefined') {
       lastOptsRef.current = opts
       window.vaulttvBridge.playVideo(
         opts.url || '',
