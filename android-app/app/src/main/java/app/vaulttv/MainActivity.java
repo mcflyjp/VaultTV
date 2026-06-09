@@ -283,6 +283,7 @@ public class MainActivity extends Activity {
                 intent.putExtra("url",           url);
                 intent.putExtra("title",         title);
                 intent.putExtra("start_time_ms", (long)(startTimeSec * 1000));
+                //noinspection deprecation
                 startActivityForResult(intent, REQUEST_PLAY_VIDEO);
             });
         }
