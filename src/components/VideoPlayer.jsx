@@ -496,7 +496,7 @@ export default function VideoPlayer() {
         fixAudio()   // fixAudio always passes transcodeVideo=true, handles both codecs
         return
       }
-      setError('Format not supported even after transcoding. The companion server may be offline or the stream is DRM-protected.')
+      setError('Transcode failed — the stream may be DRM-protected or the companion lost connection mid-stream.')
     } else if (code === 2) {
       setError('Network error — could not load the stream.')
     } else if (code) {
@@ -505,16 +505,26 @@ export default function VideoPlayer() {
   }
 
   /** Re-load the stream through the companion's ffmpeg transcoder (full fix: audio + video) */
-  function fixAudio() {
+  async function fixAudio() {
     const video = videoRef.current
     if (!video) return
     const src = rawUrlRef.current || session?.url
     if (!src) return
-    // When manually triggered, always transcode both audio AND video to guarantee playback
+
+    // Check companion is reachable before attempting transcode
+    try {
+      const companionBase = transcodeUrl(src, 0, false).split('/transcode')[0]
+      await fetch(`${companionBase}/ping`, { signal: AbortSignal.timeout(3000) })
+    } catch {
+      setError('Companion server is offline. Open the VaultTV companion app on your PC — it re-encodes unsupported codecs (HEVC, AC3, DTS) on the fly.')
+      return
+    }
+
     const tUrl = transcodeUrl(src, Math.floor(video.currentTime || 0), true)
     setTranscoding(true)
     setAudioWarning('')
     setError('')
+    setShowNoAudio(false)
     video.crossOrigin = 'anonymous'
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
     video.src = tUrl
