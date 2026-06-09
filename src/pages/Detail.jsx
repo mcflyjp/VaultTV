@@ -1,4 +1,4 @@
-import { useState, useEffect, Component } from 'react'
+import { useState, useEffect, useRef, Component } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getDetail, getSeason, getSimilar, getVideos, IMG, getCertification, YT_EMBED, pickTrailer, pickTheme } from '../lib/tmdb'
@@ -21,10 +21,19 @@ export default function Detail() {
   const { type, id } = useParams()
   const { getStreams, getSubtitles } = useAddons()
   const { isSaved, toggle: toggleSave } = useLibrary()
-  const { startWatching, updateProgress } = useWatchHistory()
+  const { startWatching, updateProgress, history: watchHistory } = useWatchHistory()
   const { syncWatched: traktSyncWatched } = useTrakt()
   // Track whether we've already synced the current item as watched this session
   const watchSyncedRef = { current: false }
+
+  /** Return saved resume position (seconds) if between 3% and 92%, else 0 */
+  function getSavedProgress(itemId, itemType) {
+    const entry = watchHistory.find(h => h.id === Number(itemId) && h.type === itemType)
+    if (!entry || !entry.progressSec || !entry.durationSec) return 0
+    const pct = entry.progress ?? (entry.progressSec / entry.durationSec)
+    if (pct < 0.03 || pct > 0.92) return 0
+    return entry.progressSec
+  }
 
   /** Shared progress handler — fires Trakt watch sync at 90% completion */
   function makeProgressHandler(itemId, itemType) {
@@ -417,6 +426,7 @@ export default function Detail() {
                             season: selectedSeason,
                             episode: ep.episode_number,
                             onProgress: makeProgressHandler(id, 'tv'),
+                            startTime: getSavedProgress(id, 'tv'),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
                         } catch (e) {
@@ -452,6 +462,7 @@ export default function Detail() {
                             streamLangs: langs,
                             rawStreamUrl: stream?.url || null,
                             transcodeVideo: !!needsVideoTranscode,
+                            startTime: getSavedProgress(id, 'tv'),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
                         }}
@@ -490,6 +501,7 @@ export default function Detail() {
                   streamLangs: langs,
                   rawStreamUrl: stream?.url || null,
                   transcodeVideo: !!needsVideoTranscode,
+                  startTime: getSavedProgress(id, type),
                 })
                 startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
               }}
@@ -926,6 +938,7 @@ function LocalPlayButton({ versions, getFileUrl, play, title, detail, imdbId, me
         imdbId,
         mediaType,
         onProgress,
+        startTime: getSavedProgress(id, mediaType),
       })
       onStartWatching()
     } catch (e) {
@@ -1038,9 +1051,17 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const best = localVersions[0]
+  const lastFired = useRef(0)
   // On FireTV local files come via companion stream URL — always show stream list
-  // so user can pick a stream and benefit from auto-transcode if needed
-  const handlePrimary = () => (!IS_FIRETV && hasLocal) ? onPlayLocal(best) : onWatch()
+  // so user can pick a stream and benefit from auto-transcode if needed.
+  // Guard: debounce 300ms to prevent double-fire from spatial nav el.click()
+  // firing onClick AND the keydown event also reaching onKeyDown.
+  const handlePrimary = () => {
+    const now = Date.now()
+    if (now - lastFired.current < 300) return
+    lastFired.current = now
+    ;(!IS_FIRETV && hasLocal) ? onPlayLocal(best) : onWatch()
+  }
 
   return (
     <div
@@ -1080,6 +1101,15 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
               style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '0.25rem 0.4rem', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.7rem' }}
             >
               <FiLayers size={11} /> Versions
+            </button>
+          )}
+          {IS_FIRETV && hasLocal && (
+            <button
+              onClick={e => { e.stopPropagation(); onWatch() }}
+              title="Check for stream"
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, color: 'rgba(255,255,255,0.7)', cursor: 'pointer', padding: '0.25rem 0.4rem', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.7rem' }}
+            >
+              <FiPlay size={11} /> Stream
             </button>
           )}
           <FiPlay size={18} style={{ color: hasLocal ? '#16a34a' : 'var(--accent)' }} />

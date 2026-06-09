@@ -431,8 +431,17 @@ export default function VideoPlayer() {
 
   function onLoadedMetadata(e) {
     const v = e.currentTarget
-    setDuration(v.duration)
+    if (v.duration && isFinite(v.duration)) setDuration(v.duration)
+    // Apply resume position now that the video is seekable
+    if (session?.startTime && v.currentTime < session.startTime) {
+      v.currentTime = session.startTime
+    }
     setAudioWarning('')
+  }
+
+  function onDurationChange(e) {
+    const v = e.currentTarget
+    if (v.duration && isFinite(v.duration)) setDuration(v.duration)
   }
 
   function onError(e)  {
@@ -739,6 +748,7 @@ export default function VideoPlayer() {
         onPause={onPause}
         onEnded={onEnded}
         onLoadedMetadata={onLoadedMetadata}
+        onDurationChange={onDurationChange}
         onError={onError}
         onWaiting={onWaiting}
         onCanPlay={onCanPlay}
