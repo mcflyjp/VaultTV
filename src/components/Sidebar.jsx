@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
@@ -51,6 +51,20 @@ export default function Sidebar() {
   const [themeOpen, setThemeOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
+  const asideRef = useRef(null)
+
+  // FireTV: sidebar collapses when focus leaves it, expands on left-edge strip focus
+  const [sidebarOpen, setSidebarOpen] = useState(!IS_FIRETV)
+
+  // When sidebar opens on FireTV, focus the first nav item
+  useEffect(() => {
+    if (IS_FIRETV && sidebarOpen && asideRef.current) {
+      setTimeout(() => {
+        const first = asideRef.current?.querySelector('a, button')
+        first?.focus()
+      }, 50)
+    }
+  }, [sidebarOpen])
 
   // ── Library item order ──
   const [libOrder, setLibOrder] = useState(loadLibOrder)
@@ -73,10 +87,35 @@ export default function Sidebar() {
     if (query.trim()) { navigate(`/search?q=${encodeURIComponent(query.trim())}`); setQuery('') }
   }
 
+  // FireTV collapsed state — render a thin focusable strip at the left edge.
+  // Spatial nav beam will find it when the user presses Left from main content.
+  if (IS_FIRETV && !sidebarOpen) {
+    return (
+      <div
+        tabIndex={0}
+        aria-label="Open navigation"
+        onFocus={() => setSidebarOpen(true)}
+        style={{
+          width: 4, minWidth: 4, height: '100vh',
+          position: 'sticky', top: 0, flexShrink: 0,
+          background: 'rgba(255,255,255,0.04)',
+          outline: 'none', cursor: 'default',
+        }}
+      />
+    )
+  }
+
   return (
     <aside
+      ref={asideRef}
       onTouchMove={e => e.stopPropagation()}
       onWheel={e => e.stopPropagation()}
+      onBlur={e => {
+        // Collapse when focus moves outside the sidebar
+        if (IS_FIRETV && !asideRef.current?.contains(e.relatedTarget)) {
+          setSidebarOpen(false)
+        }
+      }}
       style={{
         width: 220, minWidth: 220,
         background: 'var(--bg-secondary)',
