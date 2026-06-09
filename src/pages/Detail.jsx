@@ -143,6 +143,58 @@ export default function Detail() {
   /* ArtworkPicker needs the full detail object so item can have a title */
   const artItem = detail ? { id: Number(id), title, poster_path: detail.poster_path, backdrop_path: detail.backdrop_path } : null
 
+  // ── FireTV D-pad navigation for Detail page ────────────────────────────
+  // The APK spatial nav uses a strict horizontal-beam algorithm that fails on
+  // this page's varied layout. We intercept on window capture (fires before
+  // the APK's document capture) and do explicit focus-next / focus-prev.
+  useEffect(() => {
+    if (!IS_FIRETV) return
+    const SEL = 'button:not([disabled]), [tabindex="0"], [data-card], a[href]'
+
+    function focusableEls() {
+      return Array.from(document.querySelectorAll(SEL)).filter(el => {
+        const r = el.getBoundingClientRect()
+        return r.width > 0 && r.height > 0
+      })
+    }
+
+    function doFocus(el) {
+      document.querySelectorAll('.snav-focused').forEach(e => e.classList.remove('snav-focused'))
+      el.focus({ preventScroll: false })
+      el.classList.add('snav-focused')
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+
+    function onKey(e) {
+      const k = e.keyCode
+      const isDown  = k === 40 || k === 227
+      const isUp    = k === 38 || k === 226
+      if (!isDown && !isUp) return
+
+      e.preventDefault()
+      e.stopImmediatePropagation() // prevent APK spatial nav from also handling
+
+      const els = focusableEls()
+      if (!els.length) return
+
+      const cur = document.activeElement
+      const idx = els.indexOf(cur)
+
+      if (isDown) {
+        const next = els[idx + 1]
+        if (next) { doFocus(next) }
+        else { window.scrollBy({ top: 200, behavior: 'smooth' }) }
+      } else {
+        const prev = els[idx - 1]
+        if (prev) { doFocus(prev) }
+        else { window.scrollBy({ top: -200, behavior: 'smooth' }) }
+      }
+    }
+
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [])
+
   return (
     <>
     {artPicker && artItem && (
