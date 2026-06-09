@@ -441,7 +441,9 @@ export default function VideoPlayer() {
 
   function onDurationChange(e) {
     const v = e.currentTarget
-    if (v.duration && isFinite(v.duration)) setDuration(v.duration)
+    if (v.duration && isFinite(v.duration)) {
+      setDuration(prev => v.duration > prev ? v.duration : prev)
+    }
   }
 
   function onError(e)  {
