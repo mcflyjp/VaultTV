@@ -103,9 +103,45 @@ export default function VideoPlayer() {
   const [backToast, setBackToast] = useState(false)
   const backToastTimer  = useRef(null)
   const backPressedOnce = useRef(false)
+  // FireTV scrubbing state
+  const [seekPreview,    setSeekPreview]    = useState(null) // null = not scrubbing, number = preview secs
+  const seekPreviewRef   = useRef(null)
+  const seekIntervalRef  = useRef(null)
+  const seekHoldStartRef = useRef(0)
 
   // Keep ref in sync so FireTV key handler (closure) always sees fresh value
   function setTimelineActive(v) { timelineActiveRef.current = v; setTimelineActiveState(v) }
+
+  // FireTV scrub helpers
+  function startScrub(dir) {
+    if (seekIntervalRef.current) return // already running
+    const video = videoRef.current; if (!video) return
+    seekPreviewRef.current = video.currentTime
+    seekHoldStartRef.current = Date.now()
+    seekIntervalRef.current = setInterval(() => {
+      const video = videoRef.current; if (!video) return
+      const held = (Date.now() - seekHoldStartRef.current) / 1000
+      // Accelerate: 3s/tick → 15s/tick → 30s/tick
+      const rate = held < 1 ? 3 : held < 3 ? 15 : 30
+      seekPreviewRef.current = Math.max(0, Math.min(
+        video.duration || 0,
+        (seekPreviewRef.current ?? video.currentTime) + (dir === 'right' ? rate : -rate)
+      ))
+      setSeekPreview(seekPreviewRef.current)
+    }, 100)
+  }
+
+  function commitScrub() {
+    if (!seekIntervalRef.current) return
+    clearInterval(seekIntervalRef.current)
+    seekIntervalRef.current = null
+    const video = videoRef.current
+    if (video && seekPreviewRef.current !== null) {
+      video.currentTime = seekPreviewRef.current
+    }
+    seekPreviewRef.current = null
+    setSeekPreview(null)
+  }
 
   // ── Source loading ──────────────────────────────────────────────
   useEffect(() => {
@@ -654,10 +690,11 @@ export default function VideoPlayer() {
       e.stopImmediatePropagation()
 
       if (timelineActiveRef.current) {
-        // Timeline/scrubber mode — L/R seeks, anything else exits
-        if (isLeft)  { seek(-SKIP_SECS); return }
-        if (isRight) { seek(+SKIP_SECS); return }
+        // Timeline/scrubber mode — L/R held scrubs, anything else exits
+        if (isLeft)  { startScrub('left');  return }
+        if (isRight) { startScrub('right'); return }
         // Up/Down/Select all exit timeline mode
+        commitScrub()
         setTimelineActive(false)
         if (isUp) closeBtnRef.current?.focus()
         return
@@ -686,8 +723,24 @@ export default function VideoPlayer() {
         }
       }
     }
-    window.addEventListener('keydown', onFireTVKey, { capture: true })
-    return () => window.removeEventListener('keydown', onFireTVKey, { capture: true })
+    function onFireTVKeyUp(e) {
+      const k = e.keyCode
+      const isLeft  = k === 37 || k === 225
+      const isRight = k === 39 || k === 228
+      if ((isLeft || isRight) && timelineActiveRef.current) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        commitScrub()
+      }
+    }
+
+    window.addEventListener('keydown', onFireTVKey,   { capture: true })
+    window.addEventListener('keyup',   onFireTVKeyUp, { capture: true })
+    return () => {
+      window.removeEventListener('keydown', onFireTVKey,   { capture: true })
+      window.removeEventListener('keyup',   onFireTVKeyUp, { capture: true })
+      commitScrub()
+    }
   }, [session, resetHideTimer]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Keyboard shortcuts ────────────────────────────────────────
@@ -726,7 +779,8 @@ export default function VideoPlayer() {
   if (!session) return null
 
   const title = session.title || 'Now Playing'
-  const playedPct  = duration > 0 ? (currentTime / duration) * 100 : 0
+  const displayTime = seekPreview !== null ? seekPreview : currentTime
+  const playedPct   = duration > 0 ? (displayTime / duration) * 100 : 0
 
   const VolumeIcon = muted || volume === 0 ? FiVolumeX : volume < 0.5 ? FiVolume1 : FiVolume2
 
@@ -783,6 +837,31 @@ export default function VideoPlayer() {
           animation: 'fadeInDown 0.2s ease',
         }}>
           Press back again to exit the player
+        </div>
+      )}
+
+      {/* ── FireTV scrub overlay — shown while holding L/R in timeline mode ── */}
+      {seekPreview !== null && (
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'rgba(0,0,0,0.88)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 14, padding: '1.1rem 2.2rem',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem',
+          pointerEvents: 'none', zIndex: 10000,
+        }}>
+          <span style={{ fontSize: '2.8rem', fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+            {fmt(seekPreview)}
+          </span>
+          <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.45)', fontVariantNumeric: 'tabular-nums' }}>
+            / {fmt(duration)}
+          </span>
+          <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.06em', marginTop: 2 }}>
+            {seekPreview > currentTime
+              ? `+${fmt(seekPreview - currentTime)}`
+              : `-${fmt(currentTime - seekPreview)}`}
+          </span>
         </div>
       )}
 
