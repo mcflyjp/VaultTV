@@ -109,11 +109,8 @@ export default function Detail() {
   const trailerKey  = pickTrailer(allVideos)
   const themeKey    = pickTheme(allVideos)
 
-  // Movies: show trailer as muted background video
-  // TV shows: no background video — theme audio only
-  const bgVideoUrl = type === 'movie' && trailerKey
-    ? `${YT_EMBED}/${trailerKey}?autoplay=1&mute=1&loop=1&playlist=${trailerKey}&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&rel=0&playsinline=1`
-    : null
+  // No background video — always use static backdrop to save bandwidth
+  const bgVideoUrl = null
 
   // TV shows: only play audio if a dedicated theme/score was found — never fall back
   // to the trailer (that would play the preview, not a theme song).
