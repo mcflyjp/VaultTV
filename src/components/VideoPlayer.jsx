@@ -98,6 +98,9 @@ export default function VideoPlayer() {
   const [hoverTime,      setHoverTime]      = useState(null)  // for progress tooltip
   const [hoverX,         setHoverX]         = useState(0)
   const [timelineActive, setTimelineActiveState] = useState(false)
+  const [backToast, setBackToast] = useState(false)
+  const backToastTimer  = useRef(null)
+  const backPressedOnce = useRef(false)
 
   // Keep ref in sync so FireTV key handler (closure) always sees fresh value
   function setTimelineActive(v) { timelineActiveRef.current = v; setTimelineActiveState(v) }
@@ -577,6 +580,38 @@ export default function VideoPlayer() {
 
   useEffect(() => () => clearTimeout(hideTimer.current), [])
 
+  // ── FireTV back button handler ────────────────────────────────
+  // The Activity calls window.__vaulttvBack() before doing goBack().
+  // First press shows "Press back again to exit" toast.
+  // Second press within 3s closes the player.
+  useEffect(() => {
+    if (!session) return
+    window.__vaulttvBack = () => {
+      if (backPressedOnce.current) {
+        // Second press — close player
+        clearTimeout(backToastTimer.current)
+        backPressedOnce.current = false
+        setBackToast(false)
+        closePlayer()
+      } else {
+        // First press — show toast
+        backPressedOnce.current = true
+        setBackToast(true)
+        clearTimeout(backToastTimer.current)
+        backToastTimer.current = setTimeout(() => {
+          backPressedOnce.current = false
+          setBackToast(false)
+        }, 3000)
+      }
+      // Tell the Activity we handled it (don't goBack)
+      window.vaulttvBridge?.backHandled()
+    }
+    return () => {
+      window.__vaulttvBack = null
+      clearTimeout(backToastTimer.current)
+    }
+  }, [session, closePlayer]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     if (!session) return
@@ -655,6 +690,20 @@ export default function VideoPlayer() {
         <div style={{ position: 'absolute', top: '1rem', right: '4rem', zIndex: 10, background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(74,222,128,0.4)', borderRadius: 6, padding: '0.3rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', animation: 'pulse 1.5s ease-in-out infinite' }} />
           <span style={{ color: '#4ade80', fontSize: '0.72rem', fontWeight: 600 }}>AAC transcode</span>
+        </div>
+      )}
+
+      {/* ── FireTV back-button toast ── */}
+      {backToast && (
+        <div style={{
+          position: 'absolute', top: '1.25rem', left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.88)', border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: 8, padding: '0.55rem 1.1rem',
+          color: '#fff', fontSize: '0.9rem', fontWeight: 600,
+          zIndex: 10000, whiteSpace: 'nowrap', pointerEvents: 'none',
+          animation: 'fadeInDown 0.2s ease',
+        }}>
+          Press back again to exit the player
         </div>
       )}
 
@@ -1242,6 +1291,10 @@ export default function VideoPlayer() {
           10%  { opacity: 1; transform: translateX(-50%) translateY(0); }
           80%  { opacity: 1; }
           100% { opacity: 0; }
+        }
+        @keyframes fadeInDown {
+          from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
       `}</style>
     </div>
