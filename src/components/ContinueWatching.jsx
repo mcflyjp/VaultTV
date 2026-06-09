@@ -177,7 +177,7 @@ function ContinueCard({ item, onPlay, onDismiss, onGoToDetail }) {
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}
         style={{ borderRadius: 'var(--radius)', overflow: 'hidden', background: 'var(--bg-card)', cursor: 'pointer', position: 'relative', outline: 'none' }}
-        className="card-hover"
+        className={`card-hover${IS_FIRETV ? ' firetv-card' : ''}`}
       >
         {/* Poster */}
         {poster

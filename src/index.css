@@ -288,6 +288,16 @@ a:not(.no-pop):hover,
   position: relative;
 }
 
+/* ── FireTV continue-watching card focus ── */
+.firetv-card:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  transform: scale(1.07);
+  box-shadow: 0 0 0 3px var(--accent), 0 12px 40px rgba(0,0,0,0.7);
+  z-index: 20;
+  position: relative;
+}
+
 /* ── Category tab focus ── */
 .cat-tab:focus-visible {
   outline: 3px solid var(--accent);
