@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
 import { useLanguage } from '../context/LanguageContext'
 import Hls from 'hls.js'
@@ -62,8 +62,10 @@ export default function VideoPlayer() {
   const skipBackBtnRef = useRef(null)
   const skipFwdBtnRef  = useRef(null)
   const playBtnRef     = useRef(null)
+  const fixItBtnRef    = useRef(null)
   const timelineActiveRef  = useRef(false)
   const settingsOpenRef    = useRef(false)
+  const showNoAudioRef     = useRef(false)
 
   const [playing,      setPlaying]      = useState(false)
   const [currentTime,  setCurrentTime]  = useState(0)
@@ -612,6 +614,71 @@ export default function VideoPlayer() {
     }
   }, [session, closePlayer]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep showNoAudioRef in sync
+  useEffect(() => { showNoAudioRef.current = showNoAudio }, [showNoAudio])
+  useEffect(() => { settingsOpenRef.current = settingsOpen }, [settingsOpen])
+
+  // ── FireTV directional remote handler ─────────────────────────
+  // Registered on window CAPTURE so it fires before the APK spatial nav
+  // (which is on document capture). stopImmediatePropagation prevents spatial
+  // nav from also acting on the same keypress.
+  useEffect(() => {
+    if (!session || !IS_FIRETV) return
+    function onFireTVKey(e) {
+      const k = e.keyCode
+      const isUp    = k === 38 || k === 226
+      const isDown  = k === 40 || k === 227
+      const isLeft  = k === 37 || k === 225
+      const isRight = k === 39 || k === 228
+      const isSelect = k === 13 || k === 23
+      if (!isUp && !isDown && !isLeft && !isRight && !isSelect) return
+
+      // Always show controls on remote activity
+      resetHideTimer()
+
+      // Let spatial nav handle navigation inside the settings panel
+      if (settingsOpenRef.current) return
+
+      e.preventDefault()
+      e.stopImmediatePropagation()
+
+      if (timelineActiveRef.current) {
+        // Timeline/scrubber mode — L/R seeks, anything else exits
+        if (isLeft)  { seek(-SKIP_SECS); return }
+        if (isRight) { seek(+SKIP_SECS); return }
+        // Up/Down/Select all exit timeline mode
+        setTimelineActive(false)
+        if (isUp) closeBtnRef.current?.focus()
+        return
+      }
+
+      // Normal mode
+      if (isUp) {
+        // If "No Audio?" toast is showing, Up goes to Fix It button
+        if (showNoAudioRef.current && fixItBtnRef.current) {
+          fixItBtnRef.current.focus()
+        } else {
+          closeBtnRef.current?.focus()
+        }
+        return
+      }
+      if (isDown)   { setTimelineActive(true); return }
+      if (isLeft)   { skipBackBtnRef.current?.focus(); return }
+      if (isRight)  { skipFwdBtnRef.current?.focus(); return }
+      if (isSelect) {
+        // Play/pause if nothing meaningful is focused
+        const el = document.activeElement
+        if (!el || el === document.body || el === containerRef.current) {
+          togglePlay()
+        } else {
+          el.click()
+        }
+      }
+    }
+    window.addEventListener('keydown', onFireTVKey, { capture: true })
+    return () => window.removeEventListener('keydown', onFireTVKey, { capture: true })
+  }, [session, resetHideTimer]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Keyboard shortcuts ────────────────────────────────────────
   useEffect(() => {
     if (!session) return
@@ -743,6 +810,7 @@ export default function VideoPlayer() {
         }}>
           <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem' }}>🔇 No audio?</span>
           <button
+            ref={fixItBtnRef}
             onClick={() => { setShowNoAudio(false); fixAudio() }}
             style={{ background: '#f97316', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '0.25rem 0.65rem', fontSize: '0.78rem', fontWeight: 700 }}
           >Fix It</button>
@@ -798,6 +866,7 @@ export default function VideoPlayer() {
             {session.year && <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)' }}>{session.year}</p>}
           </div>
           <button
+            ref={closeBtnRef}
             onClick={closePlayer}
             title="Close (Esc)"
             style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '50%', color: '#fff', cursor: 'pointer', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -819,13 +888,18 @@ export default function VideoPlayer() {
           padding: '1rem 1.5rem 1.25rem',
         }}>
 
-          {/* Progress bar */}
+          {/* Progress bar — glows when timeline mode active on FireTV */}
+          {timelineActive && (
+            <div style={{ textAlign: 'center', fontSize: '0.72rem', color: 'rgba(255,255,255,0.6)', marginBottom: '0.4rem', letterSpacing: '0.08em' }}>
+              ← REWIND &nbsp;|&nbsp; FAST FORWARD →
+            </div>
+          )}
           <div
             ref={progressRef}
             onClick={onProgressClick}
             onMouseMove={onProgressHover}
             onMouseLeave={() => setHoverTime(null)}
-            style={{ height: 4, background: 'rgba(255,255,255,0.2)', borderRadius: 2, cursor: 'pointer', position: 'relative', marginBottom: '0.85rem' }}
+            style={{ height: timelineActive ? 6 : 4, background: 'rgba(255,255,255,0.2)', borderRadius: 2, cursor: 'pointer', position: 'relative', marginBottom: '0.85rem', transition: 'height 0.15s, box-shadow 0.15s', boxShadow: timelineActive ? '0 0 0 3px rgba(124,58,237,0.5)' : 'none' }}
           >
             {/* Buffered */}
             <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'rgba(255,255,255,0.25)', width: `${buffered}%` }} />
@@ -845,7 +919,7 @@ export default function VideoPlayer() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
 
             {/* Skip back */}
-            <CtrlBtn onClick={() => seek(-SKIP_SECS)} title="-10s">
+            <CtrlBtn ref={skipBackBtnRef} onClick={() => seek(-SKIP_SECS)} title="-10s">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/>
                 <text x="12" y="14" textAnchor="middle" fontSize="6" fill="currentColor" stroke="none">10</text>
@@ -853,12 +927,12 @@ export default function VideoPlayer() {
             </CtrlBtn>
 
             {/* Play / Pause */}
-            <CtrlBtn onClick={togglePlay} title={playing ? 'Pause (Space)' : 'Play (Space)'} large>
+            <CtrlBtn ref={playBtnRef} onClick={togglePlay} title={playing ? 'Pause (Space)' : 'Play (Space)'} large>
               {playing ? <FiPause size={26} /> : <FiPlay size={26} />}
             </CtrlBtn>
 
             {/* Skip forward */}
-            <CtrlBtn onClick={() => seek(+SKIP_SECS)} title="+10s">
+            <CtrlBtn ref={skipFwdBtnRef} onClick={() => seek(+SKIP_SECS)} title="+10s">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-3.51"/>
                 <text x="12" y="14" textAnchor="middle" fontSize="6" fill="currentColor" stroke="none">10</text>
@@ -1303,9 +1377,10 @@ export default function VideoPlayer() {
 
 // ── Small helpers ──────────────────────────────────────────────
 
-function CtrlBtn({ onClick, title, children, large, active }) {
+const CtrlBtn = React.forwardRef(function CtrlBtn({ onClick, title, children, large, active }, ref) {
   return (
     <button
+      ref={ref}
       onClick={onClick}
       title={title}
       style={{
@@ -1321,7 +1396,7 @@ function CtrlBtn({ onClick, title, children, large, active }) {
       {children}
     </button>
   )
-}
+})
 
 function SettingRow({ onClick, active, children }) {
   return (
