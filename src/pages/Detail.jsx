@@ -153,7 +153,7 @@ export default function Detail() {
         onClose={() => setArtPicker(null)}
       />
     )}
-    <div style={{ position: 'relative', minHeight: IS_FIRETV ? '55vh' : '100vh', maxHeight: IS_FIRETV ? '55vh' : undefined, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', minHeight: IS_FIRETV ? '50vh' : '100vh', overflow: 'hidden' }}>
 
       {/* ── Background — trailer video OR static backdrop image ── */}
       <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
