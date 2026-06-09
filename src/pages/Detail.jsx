@@ -127,19 +127,40 @@ export default function Detail() {
       e.preventDefault()
       e.stopImmediatePropagation()
 
-      const els = focusableEls()
-      if (!els.length) return
-
       const cur = document.activeElement
-      const idx = els.indexOf(cur)
+      if (!cur) return
+      const curR = cur.getBoundingClientRect()
+      const els = focusableEls()
 
       if (isDown) {
-        const next = els[idx + 1]
-        if (next) doFocus(next)
+        // Find elements visually below the current one, sorted by distance
+        const candidates = els
+          .filter(el => {
+            if (el === cur) return false
+            const r = el.getBoundingClientRect()
+            return r.top > curR.bottom - 5
+          })
+          .sort((a, b) => {
+            const ar = a.getBoundingClientRect()
+            const br = b.getBoundingClientRect()
+            return ar.top !== br.top ? ar.top - br.top : ar.left - br.left
+          })
+        if (candidates.length) doFocus(candidates[0])
         else window.scrollBy({ top: 200, behavior: 'smooth' })
       } else {
-        const prev = els[idx - 1]
-        if (prev) doFocus(prev)
+        // Find elements visually above the current one, sorted by distance
+        const candidates = els
+          .filter(el => {
+            if (el === cur) return false
+            const r = el.getBoundingClientRect()
+            return r.bottom < curR.top + 5
+          })
+          .sort((a, b) => {
+            const ar = a.getBoundingClientRect()
+            const br = b.getBoundingClientRect()
+            return br.bottom - ar.bottom // closest above first
+          })
+        if (candidates.length) doFocus(candidates[0])
         else window.scrollBy({ top: -200, behavior: 'smooth' })
       }
     }
