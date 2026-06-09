@@ -43,6 +43,14 @@ export function WatchHistoryProvider({ children }) {
     save(next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 30))
   }
 
+  /** Save the stream URL used so resume can replay it directly */
+  function saveLastStream(id, type, streamData) {
+    const next = history.map(h =>
+      h.id === id && h.type === type ? { ...h, lastStream: streamData } : h
+    )
+    save(next)
+  }
+
   /** Remove a single item from history */
   function removeFromHistory(id, type) {
     save(history.filter(h => !(h.id === id && h.type === type)))
@@ -52,7 +60,7 @@ export function WatchHistoryProvider({ children }) {
   const inProgress = history.filter(h => h.progress < 0.95)
 
   return (
-    <WatchHistoryContext.Provider value={{ history, inProgress, startWatching, updateProgress, removeFromHistory }}>
+    <WatchHistoryContext.Provider value={{ history, inProgress, startWatching, updateProgress, saveLastStream, removeFromHistory }}>
       {children}
     </WatchHistoryContext.Provider>
   )

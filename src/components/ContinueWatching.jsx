@@ -1,12 +1,37 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWatchHistory } from '../context/WatchHistoryContext'
+import { usePlayer } from '../context/PlayerContext'
 import { FiPlay, FiX } from 'react-icons/fi'
 import { IMG, getDetail } from '../lib/tmdb'
 
 export default function ContinueWatching() {
-  const { inProgress, removeFromHistory } = useWatchHistory()
+  const { inProgress, removeFromHistory, updateProgress } = useWatchHistory()
+  const { play } = usePlayer()
   const navigate = useNavigate()
+
+  function handlePlay(item) {
+    const s = item.lastStream
+    if (s?.url) {
+      play({
+        url: s.url,
+        title: item.title,
+        poster: item.poster || null,
+        subtitleTracks: s.subtitleTracks || [],
+        imdbId: s.imdbId,
+        mediaType: s.mediaType || item.type,
+        season: s.season,
+        episode: s.episode,
+        streamLangs: s.streamLangs || [],
+        rawStreamUrl: s.rawStreamUrl || null,
+        transcodeVideo: s.transcodeVideo || false,
+        startTime: (item.progress > 0.03 && item.progress < 0.92) ? (item.progressSec || 0) : 0,
+        onProgress: (t, d) => updateProgress(item.id, item.type, t, d, item.title, item.poster),
+      })
+    } else {
+      navigate(`/detail/${item.type}/${item.id}`)
+    }
+  }
 
   if (!inProgress.length) return null
 
@@ -26,7 +51,7 @@ export default function ContinueWatching() {
           <ContinueCard
             key={`${item.id}-${item.type}`}
             item={item}
-            onPlay={() => navigate(`/detail/${item.type}/${item.id}`)}
+            onPlay={() => handlePlay(item)}
             onDismiss={() => removeFromHistory(item.id, item.type)}
           />
         ))}

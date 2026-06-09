@@ -21,7 +21,7 @@ export default function Detail() {
   const { type, id } = useParams()
   const { getStreams, getSubtitles } = useAddons()
   const { isSaved, toggle: toggleSave } = useLibrary()
-  const { startWatching, updateProgress, history: watchHistory } = useWatchHistory()
+  const { startWatching, updateProgress, saveLastStream, history: watchHistory } = useWatchHistory()
   const { syncWatched: traktSyncWatched } = useTrakt()
   // Track whether we've already synced the current item as watched this session
   const watchSyncedRef = { current: false }
@@ -462,6 +462,7 @@ export default function Detail() {
                             startTime: getSavedProgress(id, 'tv'),
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
+                          saveLastStream(Number(id), 'tv', { url, streamLangs: langs, rawStreamUrl: stream?.url || null, transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream?._subtitles || [], imdbId, season: selectedSeason, episode: ep.episode_number })
                         }}
                       />
                       </StreamErrorBoundary>
@@ -501,6 +502,7 @@ export default function Detail() {
                   startTime: getSavedProgress(id, type),
                 })
                 startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
+                saveLastStream(Number(id), type, { url, streamLangs: langs, rawStreamUrl: stream?.url || null, transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream?._subtitles || [], imdbId, mediaType: type })
               }}
             />
             </StreamErrorBoundary>
