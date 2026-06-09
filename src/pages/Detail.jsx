@@ -153,7 +153,7 @@ export default function Detail() {
         onClose={() => setArtPicker(null)}
       />
     )}
-    <div style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', minHeight: IS_FIRETV ? '55vh' : '100vh', maxHeight: IS_FIRETV ? '55vh' : undefined, overflow: 'hidden' }}>
 
       {/* ── Background — trailer video OR static backdrop image ── */}
       <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
@@ -254,7 +254,7 @@ export default function Detail() {
       <div style={{ position: 'relative', zIndex: 10 }}>
 
         {/* Poster + info hero */}
-        <div style={{ minHeight: 380, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '5rem 2rem 2rem' }}>
+        <div style={{ minHeight: IS_FIRETV ? 200 : 380, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: IS_FIRETV ? '2rem 2rem 1.5rem' : '5rem 2rem 2rem' }}>
           <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
 
             {/* Poster — hover to reveal "Change Poster" button */}
