@@ -43,12 +43,20 @@ export function WatchHistoryProvider({ children }) {
     save(next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 30))
   }
 
-  /** Save the stream URL used so resume can replay it directly */
+  /** Save the stream URL used so resume can replay it directly.
+   *  Reads from localStorage directly to avoid stale-state race with startWatching. */
   function saveLastStream(id, type, streamData) {
-    const next = history.map(h =>
-      h.id === id && h.type === type ? { ...h, lastStream: streamData } : h
-    )
-    save(next)
+    try {
+      const current = JSON.parse(localStorage.getItem('vt-history') || '[]')
+      const idx = current.findIndex(h => h.id === id && h.type === type)
+      if (idx >= 0) {
+        current[idx] = { ...current[idx], lastStream: streamData }
+      } else {
+        current.unshift({ id, type, lastStream: streamData, progress: 0, progressSec: 0, durationSec: 0, timestamp: Date.now() })
+      }
+      localStorage.setItem('vt-history', JSON.stringify(current))
+      setHistory(current)
+    } catch {}
   }
 
   /** Remove a single item from history */
