@@ -495,14 +495,17 @@ export default function VideoPlayer() {
     const code = v.error?.code
     // MediaError codes: 1=aborted, 2=network, 3=decode, 4=not supported
     if (code === 4 || code === 3) {
-      // Auto-transcode via companion — handles HEVC/H.265 video and AC3/DTS/EAC3 audio.
-      // Only show the error if we're already transcoding (companion also failed).
-      if (!transcoding) {
+      // On FireTV the companion is never available — ExoPlayer should handle codecs.
+      // If VideoPlayer is running on FireTV at all (bridge fallback), just show the error.
+      if (!transcoding && !IS_FIRETV) {
         console.log('[player] Codec error — auto-transcoding via companion')
-        fixAudio()   // fixAudio always passes transcodeVideo=true, handles both codecs
+        fixAudio()
         return
       }
-      setError('Transcode failed — the stream may be DRM-protected or the companion lost connection mid-stream.')
+      setError(IS_FIRETV
+        ? 'This stream could not be played. Try a different stream.'
+        : 'Transcode failed — the stream may be DRM-protected or the companion lost connection mid-stream.'
+      )
     } else if (code === 2) {
       setError('Network error — could not load the stream.')
     } else if (code) {
@@ -917,7 +920,7 @@ export default function VideoPlayer() {
       )}
 
       {/* ── "No Audio?" quick-fix hint (first 8s of every stream) ── */}
-      {showNoAudio && !transcoding && !audioWarning && (
+      {showNoAudio && !transcoding && !audioWarning && !IS_FIRETV && (
         <div style={{
           position: 'absolute', top: '1rem', left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(0,0,0,0.82)', border: '1px solid rgba(255,255,255,0.15)',
@@ -938,7 +941,7 @@ export default function VideoPlayer() {
       )}
 
       {/* ── Audio warning + Fix Audio button ── */}
-      {audioWarning && !transcoding && (
+      {audioWarning && !transcoding && !IS_FIRETV && (
         <div style={{
           position: 'absolute', bottom: '5rem', left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(0,0,0,0.88)', border: '1px solid rgba(251,191,36,0.5)',

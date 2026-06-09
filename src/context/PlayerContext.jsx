@@ -26,15 +26,17 @@ export function PlayerProvider({ children }) {
   function play(opts) {
     // On FireTV: route through native ExoPlayer bridge.
     // ExoPlayer uses hardware MediaCodec — supports HEVC, AC3, DTS, HLS natively.
-    // Check typeof to handle Java bridge proxies that may not be truthy in all WebView versions.
-    if (IS_FIRETV && window.vaulttvBridge && typeof window.vaulttvBridge.playVideo !== 'undefined') {
-      lastOptsRef.current = opts
-      window.vaulttvBridge.playVideo(
-        opts.url || '',
-        opts.title || '',
-        opts.startTime || 0
-      )
-      return
+    if (IS_FIRETV) {
+      const url = opts.url || ''
+      if (url && typeof window.vaulttvBridge !== 'undefined') {
+        try {
+          lastOptsRef.current = opts
+          window.vaulttvBridge.playVideo(url, opts.title || '', opts.startTime || 0)
+          return
+        } catch (e) {
+          console.warn('[player] ExoPlayer bridge failed, falling back to web player:', e)
+        }
+      }
     }
     // Web / Electron: use the JS player
     setSession(opts)
