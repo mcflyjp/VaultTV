@@ -5,8 +5,11 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -154,7 +157,51 @@ public class MainActivity extends Activity {
         +   "});"
         +   "cands.sort(function(a,b){return a.d-b.d;});"
         +   "if(cands.length){doFocus(cands[0].el);return;}"
-        // Nothing in beam — scroll the page
+        // Nothing in strict beam — fall back to nearest element in direction
+        // (ignores overlap requirement). Fixes Netflix theme where TopNav links
+        // are left-aligned and don't overlap horizontally with centred shelf cards.
+        +   "var fallback=[];"
+        +   "els.forEach(function(el){"
+        +     "if(el===cur)return;"
+        +     "var r=el.getBoundingClientRect();"
+        +     "var inDir=false;"
+        +     "if(dir==='down'&&r.top>=cr.bottom-5)inDir=true;"
+        +     "else if(dir==='up'&&r.bottom<=cr.top+5)inDir=true;"
+        +     "else if(dir==='right'&&r.left>=cr.right-5)inDir=true;"
+        +     "else if(dir==='left'&&r.right<=cr.left+5)inDir=true;"
+        +     "if(!inDir)return;"
+        +     "var cx1=(cr.left+cr.right)/2,cy1=(cr.top+cr.bottom)/2;"
+        +     "var cx2=(r.left+r.right)/2,cy2=(r.top+r.bottom)/2;"
+        +     "var dist=Math.sqrt((cx2-cx1)*(cx2-cx1)+(cy2-cy1)*(cy2-cy1));"
+        +     "fallback.push({el:el,d:dist});"
+        +   "});"
+        +   "fallback.sort(function(a,b){return a.d-b.d;});"
+        +   "if(fallback.length){doFocus(fallback[0].el);return;}"
+        // Still nothing in viewport — look for elements just off-screen in the
+        // direction of travel (up to 4 viewport-heights away), scroll to the
+        // nearest one and focus it once it's visible.
+        +   "var allOffscreen=Array.from((scope||document).querySelectorAll(SEL));"
+        +   "var scrollCands=[];"
+        +   "allOffscreen.forEach(function(el){"
+        +     "if(el===cur)return;"
+        +     "var r=el.getBoundingClientRect();"
+        +     "if(r.width<=0||r.height<=0)return;"
+        +     "var inDir=false;"
+        +     "if(dir==='down'&&r.top>=window.innerHeight&&r.top<window.innerHeight*5)inDir=true;"
+        +     "else if(dir==='up'&&r.bottom<=0&&r.bottom>-window.innerHeight*5)inDir=true;"
+        +     "if(!inDir)return;"
+        +     "var cx1=(cr.left+cr.right)/2,cy1=(cr.top+cr.bottom)/2;"
+        +     "var cx2=(r.left+r.right)/2,cy2=(r.top+r.bottom)/2;"
+        +     "var dist=Math.sqrt((cx2-cx1)*(cx2-cx1)+(cy2-cy1)*(cy2-cy1));"
+        +     "scrollCands.push({el:el,dist:dist});"
+        +   "});"
+        +   "scrollCands.sort(function(a,b){return a.dist-b.dist;});"
+        +   "if(scrollCands.length){"
+        +     "scrollCands[0].el.scrollIntoView({block:'nearest',behavior:'smooth'});"
+        +     "setTimeout(function(){doFocus(scrollCands[0].el);},320);"
+        +     "return;"
+        +   "}"
+        // Absolute last resort — just scroll
         +   "var scroller=document.querySelector('main')||document.scrollingElement;"
         +   "if(dir==='down')scroller.scrollTop+=160;"
         +   "else if(dir==='up')scroller.scrollTop-=160;"
@@ -207,6 +254,39 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ProgressBar progressBar;
+    private volatile boolean backHandledByWeb = false;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private static final int REQUEST_PLAY_VIDEO = 42;
+
+    // ── JavaScript bridge ────────────────────────────────────────────────────
+    public class VaultTVBridge {
+
+        /** Called by web when back button is consumed by the JS layer */
+        @JavascriptInterface
+        public void backHandled() {
+            backHandledByWeb = true;
+        }
+
+        /**
+         * Called by the web app to launch the native ExoPlayer.
+         * Runs on a background thread — post to main thread before starting Activity.
+         *
+         * @param url         Stream URL (HLS, MP4, etc.)
+         * @param title       Title shown in recents / task switcher
+         * @param startTimeSec Resume position in seconds (0 = from start)
+         */
+        @JavascriptInterface
+        public void playVideo(String url, String title, double startTimeSec) {
+            mainHandler.post(() -> {
+                Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
+                intent.putExtra("url",           url);
+                intent.putExtra("title",         title);
+                intent.putExtra("start_time_ms", (long)(startTimeSec * 1000));
+                startActivityForResult(intent, REQUEST_PLAY_VIDEO);
+            });
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -219,6 +299,9 @@ public class MainActivity extends Activity {
 
         // Hardware acceleration for smooth video decode on FireTV Stick
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
+        // Bridge so the web page can signal it consumed the back button
+        webView.addJavascriptInterface(new VaultTVBridge(), "vaulttvBridge");
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -312,9 +395,32 @@ public class MainActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (webView.canGoBack()) { webView.goBack(); return true; }
+            // Ask the web page first — if the player is open it will handle it
+            // and call vaulttvBridge.backHandled() to set the flag.
+            // Give JS 150ms to respond, then fall back to normal back navigation.
+            backHandledByWeb = false;
+            webView.evaluateJavascript("window.__vaulttvBack && window.__vaulttvBack()", null);
+            mainHandler.postDelayed(() -> {
+                if (!backHandledByWeb && webView.canGoBack()) {
+                    webView.goBack();
+                }
+            }, 150);
+            return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    // ── Native player finished — update JS watch history ────────────────────
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PLAY_VIDEO && resultCode == RESULT_OK && data != null) {
+            long posMs = data.getLongExtra("position_ms", 0);
+            long durMs = data.getLongExtra("duration_ms", 0);
+            String js = "window.__nativePlayerDone && window.__nativePlayerDone("
+                      + posMs + "," + durMs + ");";
+            webView.evaluateJavascript(js, null);
+        }
     }
 
     @Override

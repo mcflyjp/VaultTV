@@ -47,5 +47,14 @@
             </intent-filter>
 
         </activity>
+
+        <!-- Native ExoPlayer activity — launched by JS bridge when user hits play -->
+        <activity
+            android:name=".PlayerActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
     </application>
 </manifest>
