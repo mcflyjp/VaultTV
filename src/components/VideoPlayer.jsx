@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
 import { useLanguage } from '../context/LanguageContext'
 import Hls from 'hls.js'
-import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode } from '../lib/companion'
+import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode, pingCompanion } from '../lib/companion'
+import { IS_ELECTRON } from '../lib/platform'
 import { fetchCompanionSub } from '../lib/subtitles'
 import {
   FiPlay, FiPause, FiVolume2, FiVolumeX, FiVolume1,
@@ -295,10 +296,15 @@ export default function VideoPlayer() {
       if (isRemote) {
         probeCodecs(src).then(codecs => {
           if (!codecs) return  // companion offline — native playback continues
-          const { needed, transcodeVideo } = needsTranscode(codecs)
+          let { needed, transcodeVideo } = needsTranscode(codecs)
+          // Electron supports HEVC natively via Windows Media Foundation —
+          // only transcode audio (AC3/DTS), never re-encode video on desktop.
+          if (IS_ELECTRON) transcodeVideo = false
           if (!needed) return
+          // If Electron + only issue was video (HEVC), nothing to transcode
+          if (IS_ELECTRON && !needsTranscode({ ...codecs, videoCodec: null }).needed) return
 
-          console.log(`[player] Swapping to transcode — audio:${codecs.audioCodec} video:${codecs.videoCodec}`)
+          console.log(`[player] Swapping to transcode — audio:${codecs.audioCodec} video:${codecs.videoCodec} transcodeVideo:${transcodeVideo}`)
           const seekTo  = Math.floor(video.currentTime || 0)
           // Use preferred audio language so ffmpeg selects the right track by default
           const streamLangs = session.streamLangs || []
@@ -512,15 +518,15 @@ export default function VideoPlayer() {
     if (!src) return
 
     // Check companion is reachable before attempting transcode
-    try {
-      const companionBase = transcodeUrl(src, 0, false).split('/transcode')[0]
-      await fetch(`${companionBase}/ping`, { signal: AbortSignal.timeout(3000) })
-    } catch {
+    const online = await pingCompanion()
+    if (!online) {
       setError('Companion server is offline. Open the VaultTV companion app on your PC — it re-encodes unsupported codecs (HEVC, AC3, DTS) on the fly.')
       return
     }
 
-    const tUrl = transcodeUrl(src, Math.floor(video.currentTime || 0), true)
+    // On Electron, HEVC is supported natively — only transcode audio
+    const doTranscodeVideo = !IS_ELECTRON
+    const tUrl = transcodeUrl(src, Math.floor(video.currentTime || 0), doTranscodeVideo)
     setTranscoding(true)
     setAudioWarning('')
     setError('')
