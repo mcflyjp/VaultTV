@@ -172,9 +172,11 @@ public class MainActivity extends Activity {
         +   "if(isText&&(dir==='left'||dir==='right'))return;"
         +   "if(dir){e.preventDefault();e.stopPropagation();move(dir);return;}"
         // SELECT/ENTER: click the focused element
+        // stopPropagation prevents the event reaching React's onKeyDown too,
+        // which would double-fire and toggle the tray open then immediately closed.
         +   "if((k===13||k===23)&&!isText){"
         +     "var el=document.activeElement;"
-        +     "if(el&&el!==document.body){el.click();e.preventDefault();}"
+        +     "if(el&&el!==document.body){el.click();e.preventDefault();e.stopPropagation();}"
         +   "}"
         + "},true);"
 
@@ -214,6 +216,9 @@ public class MainActivity extends Activity {
 
         webView     = findViewById(R.id.webView);
         progressBar = findViewById(R.id.progressBar);
+
+        // Hardware acceleration for smooth video decode on FireTV Stick
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);

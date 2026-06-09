@@ -14,6 +14,7 @@ import {
 
 const HIDE_DELAY = 3000
 const SKIP_SECS  = 10
+const IS_FIRETV  = /VaultTV-FireTV/i.test(navigator.userAgent)
 
 /** Shift all VTT timestamps by `offsetSec` seconds */
 function shiftVtt(vtt, offsetSec) {
@@ -54,8 +55,15 @@ export default function VideoPlayer() {
   const audioCtxRef  = useRef(null)
   const gainRef      = useRef(null)
   const delayRef     = useRef(null)
-  const progressRef  = useRef(null)
-  const fileUrlRef   = useRef(null)
+  const progressRef    = useRef(null)
+  const fileUrlRef     = useRef(null)
+  // FireTV remote nav refs
+  const closeBtnRef    = useRef(null)
+  const skipBackBtnRef = useRef(null)
+  const skipFwdBtnRef  = useRef(null)
+  const playBtnRef     = useRef(null)
+  const timelineActiveRef  = useRef(false)
+  const settingsOpenRef    = useRef(false)
 
   const [playing,      setPlaying]      = useState(false)
   const [currentTime,  setCurrentTime]  = useState(0)
@@ -87,8 +95,12 @@ export default function VideoPlayer() {
   const [showNoAudio,  setShowNoAudio]  = useState(false) // "No audio?" hint for first 8s
   const noAudioTimer = useRef(null)
   const rawUrlRef = useRef('')                             // original URL before transcoding
-  const [hoverTime,    setHoverTime]    = useState(null)  // for progress tooltip
-  const [hoverX,       setHoverX]       = useState(0)
+  const [hoverTime,      setHoverTime]      = useState(null)  // for progress tooltip
+  const [hoverX,         setHoverX]         = useState(0)
+  const [timelineActive, setTimelineActiveState] = useState(false)
+
+  // Keep ref in sync so FireTV key handler (closure) always sees fresh value
+  function setTimelineActive(v) { timelineActiveRef.current = v; setTimelineActiveState(v) }
 
   // ── Source loading ──────────────────────────────────────────────
   useEffect(() => {
@@ -171,7 +183,10 @@ export default function VideoPlayer() {
         const urlPath = url.split('?')[0]
         const isHls = urlPath.includes('.m3u8') || urlPath.includes('manifest')
 
-        if (isHls && Hls.isSupported()) {
+        // On FireTV, Android WebView supports HLS natively via MediaPlayer/ExoPlayer
+        // with full hardware decode. HLS.js is pure JS demuxing and kills the CPU on
+        // a FireTV Stick. Skip HLS.js on FireTV and let the native video element handle it.
+        if (isHls && Hls.isSupported() && !IS_FIRETV) {
           const hls = new Hls({
             maxBufferLength: 60,
             maxMaxBufferLength: 120,
@@ -223,6 +238,7 @@ export default function VideoPlayer() {
             if (data.fatal) setError(`Stream error: ${data.details}`)
           })
         } else {
+          // Native playback: used for non-HLS, FireTV (native HLS), and fallback
           video.src = url
           video.play().catch(() => {})
         }
