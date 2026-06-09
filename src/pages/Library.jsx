@@ -123,7 +123,7 @@ export default function Library() {
         id:            f.tmdbId,
         type:          mediaType,
         title:         f.title,
-        poster:        f.poster_path ? `https://image.tmdb.org/t/p/w342${f.poster_path}` : null,
+        poster:        f.poster_path ? `https://image.tmdb.org/t/p/w500${f.poster_path}` : null,
         poster_path:   f.poster_path,
         vote_average:  f.vote_average || 0,
         year:          f.year || '',

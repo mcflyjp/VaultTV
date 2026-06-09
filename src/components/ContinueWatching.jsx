@@ -65,7 +65,7 @@ export default function ContinueWatching() {
 
 function ContinueCard({ item, onPlay, onDismiss, onGoToDetail }) {
   const [poster, setPoster] = useState(
-    item.poster || (item.poster_path ? IMG(item.poster_path, 'w342') : null)
+    item.poster || (item.poster_path ? IMG(item.poster_path, 'w500') : null)
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuIdx, setMenuIdx] = useState(0)
@@ -85,7 +85,7 @@ function ContinueCard({ item, onPlay, onDismiss, onGoToDetail }) {
   useEffect(() => {
     if (poster || !item.id || !item.type) return
     getDetail(item.type, item.id)
-      .then(d => { if (d?.poster_path) setPoster(IMG(d.poster_path, 'w342')) })
+      .then(d => { if (d?.poster_path) setPoster(IMG(d.poster_path, 'w500')) })
       .catch(() => {})
   }, [item.id, item.type]) // eslint-disable-line react-hooks/exhaustive-deps
 

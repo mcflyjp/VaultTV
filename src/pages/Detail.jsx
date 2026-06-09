@@ -100,7 +100,7 @@ export default function Detail() {
 
   const title         = detail?.title || detail?.name
   const tmdbBackdrop  = IMG(detail?.backdrop_path, 'original')
-  const tmdbPoster    = IMG(detail?.poster_path, 'w342')
+  const tmdbPoster    = IMG(detail?.poster_path, 'w500')
   const backdrop      = getBackdrop(Number(id), type) || tmdbBackdrop
   const poster        = getPoster(Number(id), type)   || tmdbPoster
   const certification = getCertification(detail, type)
@@ -381,18 +381,40 @@ export default function Detail() {
           <div style={{ padding: '0 2rem 2rem' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
               <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Episodes</h2>
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={selectedSeason}
-                  onChange={e => { setSelectedSeason(Number(e.target.value)); setStreamEp(null); setStreams(null) }}
-                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', padding: '0.4rem 2rem 0.4rem 0.75rem', cursor: 'pointer', appearance: 'none', fontSize: '0.88rem' }}
-                >
+              {IS_FIRETV ? (
+                /* FireTV: individual focusable season buttons */
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                   {Array.from({ length: detail.number_of_seasons }, (_, i) => (
-                    <option key={i+1} value={i+1}>Season {i+1}</option>
+                    <button
+                      key={i+1}
+                      onClick={() => { setSelectedSeason(i+1); setStreamEp(null); setStreams(null) }}
+                      style={{
+                        background: selectedSeason === i+1 ? 'var(--accent)' : 'var(--bg-card)',
+                        border: `1px solid ${selectedSeason === i+1 ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 'var(--radius)', color: '#fff',
+                        padding: '0.4rem 0.75rem', cursor: 'pointer',
+                        fontSize: '0.85rem', fontWeight: selectedSeason === i+1 ? 700 : 400,
+                      }}
+                    >
+                      S{i+1}
+                    </button>
                   ))}
-                </select>
-                <FiChevronDown style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }} />
-              </div>
+                </div>
+              ) : (
+                /* Desktop/web: native select */
+                <div style={{ position: 'relative' }}>
+                  <select
+                    value={selectedSeason}
+                    onChange={e => { setSelectedSeason(Number(e.target.value)); setStreamEp(null); setStreams(null) }}
+                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', padding: '0.4rem 2rem 0.4rem 0.75rem', cursor: 'pointer', appearance: 'none', fontSize: '0.88rem' }}
+                  >
+                    {Array.from({ length: detail.number_of_seasons }, (_, i) => (
+                      <option key={i+1} value={i+1}>Season {i+1}</option>
+                    ))}
+                  </select>
+                  <FiChevronDown style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }} />
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
