@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# VaultTV Server runtime config (contains JWT secret + user paths)
+server/config.json
+
 # Electron build output — never commit these
 C:/VaultTVBuild/
 VaultTV/
