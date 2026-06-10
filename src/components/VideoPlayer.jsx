@@ -59,11 +59,15 @@ export default function VideoPlayer() {
   const progressRef    = useRef(null)
   const fileUrlRef     = useRef(null)
   // FireTV remote nav refs
-  const closeBtnRef    = useRef(null)
-  const skipBackBtnRef = useRef(null)
-  const skipFwdBtnRef  = useRef(null)
-  const playBtnRef     = useRef(null)
-  const fixItBtnRef    = useRef(null)
+  const closeBtnRef      = useRef(null)
+  const skipBackBtnRef   = useRef(null)
+  const skipFwdBtnRef    = useRef(null)
+  const playBtnRef       = useRef(null)
+  const fixItBtnRef      = useRef(null)
+  const volumeBtnRef     = useRef(null)
+  const ccBtnRef         = useRef(null)
+  const settingsBtnRef   = useRef(null)
+  const fullscreenBtnRef = useRef(null)
   const timelineActiveRef  = useRef(false)
   const settingsOpenRef    = useRef(false)
   const showNoAudioRef     = useRef(false)
@@ -728,6 +732,17 @@ export default function VideoPlayer() {
         return
       }
 
+      // Control bar order — Left/Right navigate through this list
+      const ctrlBar = [
+        skipBackBtnRef,
+        playBtnRef,
+        skipFwdBtnRef,
+        volumeBtnRef,
+        ccBtnRef,
+        settingsBtnRef,
+        fullscreenBtnRef,
+      ]
+
       // Normal mode
       if (isUp) {
         // If "No Audio?" toast is showing, Up goes to Fix It button
@@ -738,9 +753,21 @@ export default function VideoPlayer() {
         }
         return
       }
-      if (isDown)   { setTimelineActive(true); return }
-      if (isLeft)   { skipBackBtnRef.current?.focus(); return }
-      if (isRight)  { skipFwdBtnRef.current?.focus(); return }
+      if (isDown) { setTimelineActive(true); return }
+      if (isLeft || isRight) {
+        const cur = document.activeElement
+        const refs = ctrlBar.map(r => r.current).filter(Boolean)
+        const idx = refs.indexOf(cur)
+        if (idx === -1) {
+          // Nothing from the bar is focused — jump to skipBack or fullscreen
+          const target = isLeft ? refs[0] : refs[refs.length - 1]
+          target?.focus()
+        } else {
+          const next = isLeft ? refs[idx - 1] : refs[idx + 1]
+          next?.focus()
+        }
+        return
+      }
       if (isSelect) {
         // Play/pause if nothing meaningful is focused
         const el = document.activeElement
@@ -815,6 +842,7 @@ export default function VideoPlayer() {
   return (
     <div
       ref={containerRef}
+      data-videoplayer
       onMouseMove={resetHideTimer}
       onMouseLeave={() => { if (playing) setShowControls(false) }}
       onClick={() => { if (!settingsOpen) togglePlay() }}
@@ -1067,7 +1095,7 @@ export default function VideoPlayer() {
 
             {/* Volume */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <CtrlBtn onClick={toggleMute} title="Mute (M)">
+              <CtrlBtn ref={volumeBtnRef} onClick={toggleMute} title="Mute (M)">
                 <VolumeIcon size={18} />
               </CtrlBtn>
               <input
@@ -1146,6 +1174,7 @@ export default function VideoPlayer() {
 
             {/* CC subtitle button — always visible; opens subs tab */}
             <button
+              ref={ccBtnRef}
               onClick={() => { setSettingsOpen(true); setSettingsTab('subtitles'); setAudioMenuOpen(false); setSubMenuOpen(false) }}
               title="Subtitles"
               style={{
@@ -1162,12 +1191,12 @@ export default function VideoPlayer() {
             </button>
 
             {/* Settings */}
-            <CtrlBtn onClick={() => { setSettingsOpen(o => !o); setAudioMenuOpen(false) }} title="Settings" active={settingsOpen}>
+            <CtrlBtn ref={settingsBtnRef} onClick={() => { setSettingsOpen(o => !o); setAudioMenuOpen(false) }} title="Settings" active={settingsOpen}>
               <FiSettings size={18} />
             </CtrlBtn>
 
             {/* Fullscreen */}
-            <CtrlBtn onClick={toggleFullscreen} title="Fullscreen (F)">
+            <CtrlBtn ref={fullscreenBtnRef} onClick={toggleFullscreen} title="Fullscreen (F)">
               {fullscreen ? <FiMinimize size={18} /> : <FiMaximize size={18} />}
             </CtrlBtn>
 

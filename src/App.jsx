@@ -17,12 +17,39 @@ import { FiChevronLeft, FiMaximize, FiMinimize } from 'react-icons/fi'
 import { useState, useEffect } from 'react'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
+const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
 export default function App() {
   const { theme } = useTheme()
   const { density } = useLayout()
   const useTopNav = TOP_NAV_THEMES.has(theme)
   const [isFullScreen, setIsFullScreen] = useState(false)
+  const navigate = useNavigate()
+
+  // After a theme switch on FireTV, React remounts Sidebar↔TopNav which drops focus.
+  // Re-focus the first visible element so D-pad nav recovers automatically.
+  useEffect(() => {
+    if (!IS_FIRETV) return
+    const t = setTimeout(() => {
+      if (document.activeElement === document.body || !document.activeElement) {
+        const first = Array.from(document.querySelectorAll('a[href], button:not([disabled])'))
+          .find(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 })
+        if (first) first.focus()
+      }
+    }, 600)
+    return () => clearTimeout(t)
+  }, [theme])
+
+  // Global FireTV back handler — navigate router history by default.
+  // VideoPlayer / ContinueWatching override this when they're open.
+  useEffect(() => {
+    if (!IS_FIRETV) return
+    window.__vaulttvBack = () => {
+      window.history.back()
+    }
+    // Clean up so VideoPlayer can take over when it mounts
+    return () => { window.__vaulttvBack = null }
+  }, [navigate])
 
   useEffect(() => {
     if (!IS_ELECTRON) return

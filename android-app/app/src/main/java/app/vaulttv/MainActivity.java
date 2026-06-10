@@ -229,15 +229,26 @@ public class MainActivity extends Activity {
 
         // ── MutationObserver: stamp new cards + restore focus if lost ─────────
         + "var _lastFocused=null;"
+        + "var _restoreTimer=null;"
         + "new MutationObserver(function(){"
         +   "stamp();"
-        // If focus fell back to body (e.g. after React re-render), restore it
+        // Track focus if on a real element; cancel any pending restore
         +   "var cur=document.activeElement;"
         +   "if(cur&&cur!==document.body&&cur!==document.documentElement){"
         +     "_lastFocused=cur;"
+        +     "if(_restoreTimer){clearTimeout(_restoreTimer);_restoreTimer=null;}"
         +   "}else if(_lastFocused&&isVisible(_lastFocused)){"
-        +     "_lastFocused.classList.add('snav-focused');"
-        +     "_lastFocused.focus({preventScroll:true});"
+        // Debounce 150ms: React briefly drops focus to body during re-renders.
+        // If a real element claims focus within the window, cancel the restore.
+        +     "if(_restoreTimer)clearTimeout(_restoreTimer);"
+        +     "_restoreTimer=setTimeout(function(){"
+        +       "_restoreTimer=null;"
+        +       "var cur2=document.activeElement;"
+        +       "if(cur2===document.body||cur2===document.documentElement){"
+        +         "_lastFocused.classList.add('snav-focused');"
+        +         "_lastFocused.focus({preventScroll:true});"
+        +       "}"
+        +     "},150);"
         +   "}"
         + "}).observe(document.body,{childList:true,subtree:true,attributes:false});"
 
@@ -268,6 +279,12 @@ public class MainActivity extends Activity {
             backHandledByWeb = true;
         }
 
+        /** Called by the Exit VaultTV button to close the app */
+        @JavascriptInterface
+        public void exitApp() {
+            mainHandler.post(() -> finishAndRemoveTask());
+        }
+
         /**
          * Called by the web app to launch the native ExoPlayer.
          * Runs on a background thread — post to main thread before starting Activity.
@@ -279,6 +296,9 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void playVideo(String url, String title, double startTimeSec) {
             mainHandler.post(() -> {
+                // Always try ExoPlayer first — hardware decode where supported.
+                // If ExoPlayer signals RESULT_RETRY_VLC (unsupported audio codec),
+                // onActivityResult silently relaunches with VLC.
                 Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
                 intent.putExtra("url",           url);
                 intent.putExtra("title",         title);
@@ -396,16 +416,10 @@ public class MainActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // Ask the web page first — if the player is open it will handle it
-            // and call vaulttvBridge.backHandled() to set the flag.
-            // Give JS 150ms to respond, then fall back to normal back navigation.
-            backHandledByWeb = false;
+            // Delegate back entirely to the web app's router.
+            // The web app calls window.history.back() or vaulttvBridge.backHandled() as needed.
+            // We never call webView.goBack() — the SPA manages its own history stack.
             webView.evaluateJavascript("window.__vaulttvBack && window.__vaulttvBack()", null);
-            mainHandler.postDelayed(() -> {
-                if (!backHandledByWeb && webView.canGoBack()) {
-                    webView.goBack();
-                }
-            }, 150);
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -415,13 +429,43 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_PLAY_VIDEO && resultCode == RESULT_OK && data != null) {
+        if (requestCode != REQUEST_PLAY_VIDEO || data == null) return;
+
+        if (resultCode == PlayerActivity.RESULT_RETRY_VLC) {
+            // ExoPlayer couldn't handle the audio codec — silently relaunch with VLC
+            String url        = data.getStringExtra("url");
+            long   startMs    = data.getLongExtra("start_time_ms", 0);
+            Intent vlcIntent  = new Intent(this, VlcPlayerActivity.class);
+            vlcIntent.putExtra("url",           url);
+            vlcIntent.putExtra("start_time_ms", startMs);
+            //noinspection deprecation
+            startActivityForResult(vlcIntent, REQUEST_PLAY_VIDEO);
+            return;
+        }
+
+        if (resultCode == RESULT_OK) {
             long posMs = data.getLongExtra("position_ms", 0);
             long durMs = data.getLongExtra("duration_ms", 0);
             String js = "window.__nativePlayerDone && window.__nativePlayerDone("
                       + posMs + "," + durMs + ");";
             webView.evaluateJavascript(js, null);
         }
+
+        // Re-focus WebView and restore D-pad navigation after returning from native player.
+        // WebView loses window focus when a child Activity is shown — without this,
+        // key events are not delivered and the app appears frozen.
+        webView.requestFocus();
+        mainHandler.postDelayed(() ->
+            webView.evaluateJavascript(
+                "(function(){" +
+                "  var sel='button:not([disabled]),a[href],[data-card],[tabindex=\"0\"]';" +
+                "  var el=Array.from(document.querySelectorAll(sel)).find(function(e){" +
+                "    var r=e.getBoundingClientRect();" +
+                "    return r.width>0&&r.height>0&&r.top>=0&&r.top<window.innerHeight;" +
+                "  });" +
+                "  if(el){el.focus();el.classList.add('snav-focused');}" +
+                "})()", null),
+        400);
     }
 
     @Override

@@ -27,7 +27,9 @@ export default function ContinueWatching() {
         streamLangs: s.streamLangs || [],
         rawStreamUrl: s.rawStreamUrl || null,
         transcodeVideo: s.transcodeVideo || false,
-        startTime: (item.progress > 0.03 && item.progress < 0.92) ? (item.progressSec || 0) : 0,
+        startTime: item.durationSec > 0
+          ? ((item.progress > 0.03 && item.progress < 0.92) ? (item.progressSec || 0) : 0)
+          : ((item.progressSec || 0) >= 30 ? (item.progressSec || 0) : 0),
         onProgress: (t, d) => updateProgress(item.id, item.type, t, d, item.title, item.poster),
       })
     } else {

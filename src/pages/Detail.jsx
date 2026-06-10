@@ -29,9 +29,15 @@ export default function Detail() {
   /** Return saved resume position (seconds) if between 3% and 92%, else 0 */
   function getSavedProgress(itemId, itemType) {
     const entry = watchHistory.find(h => h.id === Number(itemId) && h.type === itemType)
-    if (!entry || !entry.progressSec || !entry.durationSec) return 0
-    const pct = entry.progress ?? (entry.progressSec / entry.durationSec)
-    if (pct < 0.03 || pct > 0.92) return 0
+    if (!entry || !entry.progressSec) return 0
+    if (entry.durationSec > 0) {
+      // Duration known — use percentage window to skip trivial starts/ends
+      const pct = entry.progress ?? (entry.progressSec / entry.durationSec)
+      if (pct < 0.03 || pct > 0.92) return 0
+    } else {
+      // Duration unknown (e.g. HLS stream via native ExoPlayer) — skip only if < 30s
+      if (entry.progressSec < 30) return 0
+    }
     return entry.progressSec
   }
 
@@ -103,9 +109,12 @@ export default function Detail() {
   useEffect(() => {
     if (!IS_FIRETV) return
     const SEL = 'button:not([disabled]), [tabindex="0"], [data-card], a[href]'
+    const DPAD = new Set([37, 38, 39, 40, 225, 226, 227, 228, 13, 23])
 
     function focusableEls() {
+      const sidebar = document.querySelector('.sidebar-root')
       return Array.from(document.querySelectorAll(SEL)).filter(el => {
+        if (sidebar && sidebar.contains(el)) return false
         const r = el.getBoundingClientRect()
         return r.width > 0 && r.height > 0
       })
@@ -118,55 +127,102 @@ export default function Detail() {
       el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
 
+    function nearest(els, cur, dir) {
+      const curR = cur.getBoundingClientRect()
+      let candidates
+      if (dir === 'down') {
+        candidates = els
+          .filter(el => el !== cur && el.getBoundingClientRect().top > curR.bottom - 5)
+          .sort((a, b) => { const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect(); return ar.top !== br.top ? ar.top - br.top : ar.left - br.left })
+      } else if (dir === 'up') {
+        candidates = els
+          .filter(el => el !== cur && el.getBoundingClientRect().bottom < curR.top + 5)
+          .sort((a, b) => { const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect(); return br.bottom - ar.bottom })
+      } else if (dir === 'right') {
+        candidates = els
+          .filter(el => el !== cur && el.getBoundingClientRect().left > curR.right - 5)
+          .sort((a, b) => { const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect(); return ar.left !== br.left ? ar.left - br.left : ar.top - br.top })
+      } else {
+        candidates = els
+          .filter(el => el !== cur && el.getBoundingClientRect().right < curR.left + 5)
+          .sort((a, b) => { const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect(); return br.right - ar.right })
+      }
+      return candidates[0] || null
+    }
+
     function onKey(e) {
-      const k = e.keyCode
-      const isDown = k === 40 || k === 227
-      const isUp   = k === 38 || k === 226
-      if (!isDown && !isUp) return
+      if (!DPAD.has(e.keyCode)) return
+      if (document.querySelector('[data-videoplayer]')) return
 
       e.preventDefault()
       e.stopImmediatePropagation()
 
-      const cur = document.activeElement
-      if (!cur) return
-      const curR = cur.getBoundingClientRect()
-      const els = focusableEls()
+      const k = e.keyCode
+      const isDown   = k === 40 || k === 227
+      const isUp     = k === 38 || k === 226
+      const isLeft   = k === 37 || k === 225
+      const isRight  = k === 39 || k === 228
+      const isSelect = k === 13 || k === 23
 
-      if (isDown) {
-        // Find elements visually below the current one, sorted by distance
-        const candidates = els
-          .filter(el => {
-            if (el === cur) return false
-            const r = el.getBoundingClientRect()
-            return r.top > curR.bottom - 5
-          })
-          .sort((a, b) => {
-            const ar = a.getBoundingClientRect()
-            const br = b.getBoundingClientRect()
-            return ar.top !== br.top ? ar.top - br.top : ar.left - br.left
-          })
-        if (candidates.length) doFocus(candidates[0])
-        else window.scrollBy({ top: 200, behavior: 'smooth' })
-      } else {
-        // Find elements visually above the current one, sorted by distance
-        const candidates = els
-          .filter(el => {
-            if (el === cur) return false
-            const r = el.getBoundingClientRect()
-            return r.bottom < curR.top + 5
-          })
-          .sort((a, b) => {
-            const ar = a.getBoundingClientRect()
-            const br = b.getBoundingClientRect()
-            return br.bottom - ar.bottom // closest above first
-          })
-        if (candidates.length) doFocus(candidates[0])
-        else window.scrollBy({ top: -200, behavior: 'smooth' })
+      const els = focusableEls()
+      const cur = document.activeElement
+      const sidebar = document.querySelector('.sidebar-root')
+      const curIsOut = !cur || cur === document.body || cur === document.documentElement || (sidebar && sidebar.contains(cur))
+
+      // Select / Enter — click whatever is focused
+      if (isSelect) {
+        if (cur && cur !== document.body) cur.click()
+        return
       }
+
+      // If nothing in main content is focused, land on first element
+      if (curIsOut || !els.length) {
+        if (els.length) doFocus(els[0])
+        return
+      }
+
+      // Stream row: Left/Right navigates between sibling stream cards
+      if ((isLeft || isRight) && cur.closest('[data-stream-row]')) {
+        const cards = Array.from(cur.closest('[data-stream-row]').querySelectorAll('[data-card]'))
+        const idx = cards.indexOf(cur)
+        const next = cards[idx + (isRight ? 1 : -1)]
+        if (next) doFocus(next)
+        return
+      }
+
+      // Season buttons: Left/Right cycles seasons, Down jumps to episodes
+      if (cur.dataset.seasonBtn !== undefined) {
+        if (isLeft || isRight) {
+          const btns = Array.from(document.querySelectorAll('[data-season-btn]'))
+          const next = btns[btns.indexOf(cur) + (isRight ? 1 : -1)]
+          if (next) doFocus(next)
+        } else if (isDown) {
+          const ep = document.querySelector('[data-card]')
+          if (ep) doFocus(ep)
+        } else {
+          const t = nearest(els, cur, 'up')
+          if (t) doFocus(t)
+        }
+        return
+      }
+
+      const dir = isDown ? 'down' : isUp ? 'up' : isRight ? 'right' : 'left'
+      const target = nearest(els, cur, dir)
+      if (target) doFocus(target)
     }
 
     window.addEventListener('keydown', onKey, { capture: true })
-    return () => window.removeEventListener('keydown', onKey, { capture: true })
+
+    // Override APK's 1s focus-to-sidebar by focusing first main content el at 1.3s
+    const initTimer = setTimeout(() => {
+      const els = focusableEls()
+      if (els.length) doFocus(els[0])
+    }, 1300)
+
+    return () => {
+      window.removeEventListener('keydown', onKey, { capture: true })
+      clearTimeout(initTimer)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) return <LoadingState />
@@ -262,8 +318,8 @@ export default function Detail() {
         }} />
       </div>
 
-      {/* ── Change Banner button — top-right of viewport ── */}
-      <button
+      {/* ── Change Banner button — top-right of viewport (hidden on FireTV) ── */}
+      {!IS_FIRETV && <button
         onClick={() => setArtPicker('backdrop')}
         title="Change backdrop / banner"
         style={{
@@ -278,7 +334,7 @@ export default function Detail() {
         onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.55)'; e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
       >
         <FiImage size={13} /> Change Banner
-      </button>
+      </button>}
 
       {/* ── Hidden theme audio iframe ── */}
       {themeAudioUrl && !musicDismissed && musicPlaying && (
@@ -460,6 +516,7 @@ export default function Detail() {
                   {Array.from({ length: detail.number_of_seasons }, (_, i) => (
                     <button
                       key={i+1}
+                      data-season-btn
                       onClick={() => { setSelectedSeason(i+1); setStreamEp(null); setStreams(null) }}
                       style={{
                         background: selectedSeason === i+1 ? 'var(--accent)' : 'var(--bg-card)',
@@ -812,6 +869,10 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
           />
           {sorted.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams match the current filters.</p>
+          ) : IS_FIRETV ? (
+            <div data-stream-row style={{ display: 'flex', flexDirection: 'row', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
+              {sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} companionOnline={companionOnline} horizontal />)}
+            </div>
           ) : sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} companionOnline={companionOnline} />)}
         </>
       )}
@@ -819,7 +880,7 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
   )
 }
 
-function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = false }) {
+function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = false, horizontal = false }) {
   // On FireTV, ExoPlayer handles all codecs natively — treat everything as compatible
   const compat    = IS_FIRETV ? 'compatible' : streamCompat(s)
   const badge     = compatBadge(compat)
@@ -847,6 +908,34 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
   const effectiveBadge = hasIssue && companionOnline
     ? { label: '⚡ Auto', color: '#4ade80', title: 'Will be transcoded automatically via companion' }
     : badge
+
+  if (horizontal) {
+    return (
+      <div
+        tabIndex={s.url ? 0 : -1}
+        data-card
+        onClick={handleClick}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
+        style={{
+          flexShrink: 0, width: 180, padding: '0.6rem 0.75rem',
+          background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
+          borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
+          border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : 'rgba(74,222,128,0.25)'}`,
+          opacity: dimmed ? 0.5 : 1, display: 'flex', flexDirection: 'column', gap: '0.3rem',
+        }}
+      >
+        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {s.name || s.title || 'Stream'}
+        </p>
+        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {s.addonName}
+        </span>
+        {meta.resolution && (
+          <span style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 700 }}>{meta.resolution}</span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic } from 'react-icons/fi'
+import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
@@ -125,14 +125,14 @@ export default function Sidebar() {
         overflow: 'hidden', flexShrink: 0,
       }}>
       {/* Logo */}
-      <div style={{ padding: '0.75rem 1rem' }}>
+      <div style={{ padding: IS_FIRETV ? '0.4rem 1rem' : '0.75rem 1rem' }}>
         <Link to="/" style={{ display: 'flex', alignItems: 'center' }}>
-          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="VaultTV" style={{ width: '100%', height: 'auto', maxHeight: 80, objectFit: 'contain', objectPosition: 'left center' }} />
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="VaultTV" style={{ width: '100%', height: 'auto', maxHeight: IS_FIRETV ? 44 : 80, objectFit: 'contain', objectPosition: 'left center' }} />
         </Link>
       </div>
 
       {/* Search */}
-      <div style={{ padding: '0 0.75rem 0.75rem' }}>
+      <div style={{ padding: IS_FIRETV ? '0 0.75rem 0.4rem' : '0 0.75rem 0.75rem' }}>
         <form onSubmit={handleSearch}>
           <div style={{ position: 'relative' }}>
             <FiSearch style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none', fontSize: '0.8rem' }} />
@@ -148,16 +148,16 @@ export default function Sidebar() {
 
       <Divider />
 
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: '0.5rem 0.5rem 0', overflowY: 'auto' }}>
+      {/* Nav — FireTV: no overflow so all items are always in viewport and D-pad findable */}
+      <nav style={{ flex: 1, padding: IS_FIRETV ? '0.25rem 0.5rem 0' : '0.5rem 0.5rem 0', overflowY: IS_FIRETV ? 'visible' : 'auto' }}>
 
         {/* Browse */}
         <SectionLabel>Browse</SectionLabel>
-        <NavItem to="/"       icon={<FiHome size={14} />}   label="Home"   active={location.pathname === '/'} />
-        <NavItem to="/search" icon={<FiSearch size={14} />} label="Search" active={location.pathname === '/search'} />
+        <NavItem to="/"       icon={<FiHome size={14} />}   label="Home"   active={location.pathname === '/'} compact={IS_FIRETV} />
+        <NavItem to="/search" icon={<FiSearch size={14} />} label="Search" active={location.pathname === '/search'} compact={IS_FIRETV} />
 
         {/* My Library — static nav items */}
-        <SectionLabel style={{ marginTop: '1rem' }}>My Library</SectionLabel>
+        <SectionLabel style={{ marginTop: IS_FIRETV ? '0.4rem' : '1rem' }}>My Library</SectionLabel>
 
         {libOrder.map(id => {
           const meta = LIB_META[id]
@@ -174,15 +174,35 @@ export default function Sidebar() {
               label={meta.label}
               active={isActive}
               badge={badge > 0 ? badge : null}
+              compact={IS_FIRETV}
             />
           )
         })}
 
         {/* Manage */}
-        <SectionLabel style={{ marginTop: '1rem' }}>Manage</SectionLabel>
-        <NavItem to="/addons"   icon={<FiGrid size={14} />}     label="Add-ons"  active={location.pathname === '/addons'} />
-        <NavItem to="/settings" icon={<FiSettings size={14} />} label="Settings" active={location.pathname === '/settings'} />
+        <SectionLabel style={{ marginTop: IS_FIRETV ? '0.4rem' : '1rem' }}>Manage</SectionLabel>
+        <NavItem to="/addons"   icon={<FiGrid size={14} />}     label="Add-ons"  active={location.pathname === '/addons'}   compact={IS_FIRETV} />
+        <NavItem to="/settings" icon={<FiSettings size={14} />} label="Settings" active={location.pathname === '/settings'} compact={IS_FIRETV} />
       </nav>
+
+      {/* Exit button — FireTV only */}
+      {IS_FIRETV && (
+        <div style={{ padding: '0.5rem 0.75rem', borderTop: '1px solid var(--border)' }}>
+          <button
+            onClick={() => window.vaulttvBridge?.exitApp()}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: '0.6rem',
+              padding: '0.5rem 0.75rem', borderRadius: 'var(--radius)',
+              background: 'transparent', border: 'none',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              fontSize: '0.86rem', fontWeight: 400,
+            }}
+          >
+            <FiLogOut size={14} />
+            Exit VaultTV
+          </button>
+        </div>
+      )}
 
       {/* Theme picker */}
       <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border)', position: 'relative' }}>
@@ -214,14 +234,15 @@ export default function Sidebar() {
   )
 }
 
-function NavItem({ to, icon, label, active, badge }) {
+function NavItem({ to, icon, label, active, badge, compact }) {
   return (
     <Link to={to} style={{
       display: 'flex', alignItems: 'center', gap: '0.6rem',
-      padding: '0.5rem 0.75rem', borderRadius: 'var(--radius)',
+      padding: compact ? '0.28rem 0.75rem' : '0.5rem 0.75rem',
+      borderRadius: 'var(--radius)',
       color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
       background: active ? 'var(--bg-card)' : 'transparent',
-      fontSize: '0.86rem', fontWeight: active ? 600 : 400,
+      fontSize: compact ? '0.8rem' : '0.86rem', fontWeight: active ? 600 : 400,
       transition: 'all 0.15s', marginBottom: '0.1rem',
       borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
       textDecoration: 'none',

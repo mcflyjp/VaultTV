@@ -3,7 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
-import { FiSearch, FiSettings, FiChevronDown } from 'react-icons/fi'
+import { FiSearch, FiSettings, FiChevronDown, FiLogOut } from 'react-icons/fi'
+
+const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
 // Themes that use the top nav layout (no sidebar)
 export const TOP_NAV_THEMES = new Set(['vaultflix', 'vaultplus'])
@@ -189,6 +191,16 @@ export default function TopNav() {
 
         {/* Settings */}
         <button onClick={() => navigate('/settings')} style={iconBtn}><FiSettings size={18} /></button>
+
+        {/* Exit — FireTV only */}
+        {IS_FIRETV && (
+          <button
+            onClick={() => window.vaulttvBridge?.exitApp()}
+            style={{ ...iconBtn, display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}
+          >
+            <FiLogOut size={16} /> Exit
+          </button>
+        )}
       </div>
     </nav>
 

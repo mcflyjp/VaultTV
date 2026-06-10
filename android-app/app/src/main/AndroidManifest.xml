@@ -48,9 +48,17 @@
 
         </activity>
 
-        <!-- Native ExoPlayer activity — launched by JS bridge when user hits play -->
+        <!-- ExoPlayer activity — FireTV only (hardware AC3/DTS decoders) -->
         <activity
             android:name=".PlayerActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- VLC player activity — non-FireTV Android devices (universal codec support) -->
+        <activity
+            android:name=".VlcPlayerActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:screenOrientation="landscape"
