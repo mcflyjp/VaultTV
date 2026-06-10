@@ -959,6 +959,10 @@ function ServerAdminCard() {
         </div>
       )}
 
+      {local.error && (
+        <p style={{ color: '#f87171', fontSize: '0.85rem', margin: '0 0 1rem' }}>⚠ {local.error}</p>
+      )}
+
       {/* Scan progress */}
       {local.scanning && (
         <div style={{ marginBottom: '1rem' }}>

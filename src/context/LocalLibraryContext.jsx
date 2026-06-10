@@ -551,6 +551,27 @@ export function LocalLibraryProvider({ children }) {
   // ── Rescan a source ───────────────────────────────────────────────────
   const rescanSource = useCallback(async (id) => {
     let source = sources.find(s => s.id === id)
+    // Server mode: source may not be in state yet if auto-load hasn't synced.
+    // Fetch directly from the server and register it on the fly.
+    if (!source && window.__VAULTTV_SERVER) {
+      try {
+        const r = await fetch('/folders')
+        if (r.ok) {
+          const serverFolders = await r.json()
+          const sf = serverFolders.find(f => f.id === id)
+          if (sf) {
+            source = { id: sf.id, name: sf.name, type: sf.type, dirName: sf.name, folderPath: sf.folderPath }
+            // Add to state so future rescans are instant
+            setSources(prev => {
+              if (prev.find(s => s.id === id)) return prev
+              const merged = [...prev, source]
+              localStorage.setItem(LS_SOURCES, JSON.stringify(merged))
+              return merged
+            })
+          }
+        }
+      } catch { /* server unreachable */ }
+    }
     if (!source) return
 
     if (IS_ELECTRON) {
