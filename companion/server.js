@@ -30,8 +30,13 @@ const DATA_DIR = (process.env.APPDATA || process.env.HOME
   : __dirname)
 try { require('fs').mkdirSync(DATA_DIR, { recursive: true }) } catch {}
 
-const STATE_FILE   = path.join(DATA_DIR, 'watched-folders.json')
-const LIBRARY_FILE = path.join(DATA_DIR, 'library.json')
+const STATE_FILE    = path.join(DATA_DIR, 'watched-folders.json')
+const LIBRARY_FILE  = path.join(DATA_DIR, 'library.json')
+const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json')
+
+// Optional auth — set AUTH_TOKEN in environment or config.json to require a
+// matching X-VaultTV-Token header on all requests except GET / and GET /events.
+const AUTH_TOKEN = process.env.AUTH_TOKEN || userConfig.authToken || null
 
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts'])
 
@@ -80,6 +85,18 @@ const pendingChanges = {}
 const app = express()
 app.use(cors(CORS_OPTS))
 app.use(express.json({ limit: '50mb' }))
+
+// ── Auth middleware ────────────────────────────────────────────────────
+// When AUTH_TOKEN is set every route except the health check and SSE stream
+// requires a matching X-VaultTV-Token header.
+app.use((req, res, next) => {
+  if (!AUTH_TOKEN) return next()
+  const open = (req.method === 'GET' && (req.path === '/' || req.path === '/events'))
+  if (open) return next()
+  const token = req.headers['x-vaulttv-token'] || req.query.token
+  if (token !== AUTH_TOKEN) return res.status(401).json({ error: 'Unauthorized' })
+  next()
+})
 
 // Health check
 app.get('/', (req, res) => {
@@ -612,6 +629,70 @@ app.put('/library', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
+})
+
+// ── Progress sync endpoints ───────────────────────────────────────────
+// Server-side watch progress store — enables cross-device resume sync.
+// Each entry key is "<type>:<id>" e.g. "movie:12345", "tv:67890".
+// The client PATCH merges individual entries (most-recent timestamp wins).
+
+function loadProgress() {
+  try {
+    if (fs.existsSync(PROGRESS_FILE)) return JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf8'))
+  } catch (e) {
+    console.warn('[progress] Could not load progress.json:', e.message)
+  }
+  return {}
+}
+
+function saveProgress(data) {
+  try {
+    fs.writeFileSync(PROGRESS_FILE, JSON.stringify(data, null, 2), 'utf8')
+  } catch (e) {
+    console.warn('[progress] Could not save progress.json:', e.message)
+  }
+}
+
+// GET /progress — return all entries as an array
+app.get('/progress', (req, res) => {
+  const data = loadProgress()
+  res.json(Object.values(data))
+})
+
+// PATCH /progress — merge an array of entries (most-recent timestamp wins per item)
+app.patch('/progress', (req, res) => {
+  const incoming = req.body
+  if (!Array.isArray(incoming)) return res.status(400).json({ error: 'body must be an array of progress entries' })
+
+  const data = loadProgress()
+  let changed = 0
+
+  for (const entry of incoming) {
+    if (!entry.id || !entry.type) continue
+    const key = `${entry.type}:${entry.id}`
+    const existing = data[key]
+    // Keep whichever entry has the more recent timestamp
+    if (!existing || (entry.timestamp || 0) >= (existing.timestamp || 0)) {
+      data[key] = entry
+      changed++
+    }
+  }
+
+  if (changed) saveProgress(data)
+  console.log(`[progress] PATCH — ${changed}/${incoming.length} entries updated`)
+  res.json({ ok: true, updated: changed })
+})
+
+// DELETE /progress/:key — remove one entry (e.g. user dismissed from Continue Watching)
+app.delete('/progress/:key', (req, res) => {
+  const data = loadProgress()
+  const key = req.params.key   // e.g. "movie:12345" or "tv:67890"
+  if (data[key]) {
+    delete data[key]
+    saveProgress(data)
+    console.log(`[progress] Removed: ${key}`)
+  }
+  res.json({ ok: true })
 })
 
 // ── State persistence (runtime additions via API) ──────────────────────

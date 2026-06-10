@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useEffect, useRef } from 'react'
+import { fetchProgress, pushProgress, deleteProgress } from '../lib/companion'
 
 const WatchHistoryContext = createContext(null)
 
@@ -7,12 +8,40 @@ function load() {
   catch { return [] }
 }
 
+/** Merge two history arrays — most-recent timestamp wins per (id, type) pair */
+function merge(local, remote) {
+  const map = new Map()
+  for (const item of local)  map.set(`${item.type}:${item.id}`, item)
+  for (const item of remote) {
+    const key = `${item.type}:${item.id}`
+    const existing = map.get(key)
+    if (!existing || (item.timestamp || 0) > (existing.timestamp || 0)) map.set(key, item)
+  }
+  return Array.from(map.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 30)
+}
+
 export function WatchHistoryProvider({ children }) {
   const [history, setHistory] = useState(load)
+  const pushTimerRef = useRef(null)
+
+  // On mount: pull server progress and merge with localStorage
+  useEffect(() => {
+    fetchProgress().then(remote => {
+      if (!remote?.length) return
+      setHistory(current => {
+        const merged = merge(current, remote)
+        localStorage.setItem('vt-history', JSON.stringify(merged))
+        return merged
+      })
+    })
+  }, [])
 
   function save(next) {
     setHistory(next)
     localStorage.setItem('vt-history', JSON.stringify(next))
+    // Debounce server push — at most once every 10 seconds
+    clearTimeout(pushTimerRef.current)
+    pushTimerRef.current = setTimeout(() => pushProgress(next), 10_000)
   }
 
   /** Call when user starts playing something */
@@ -63,6 +92,7 @@ export function WatchHistoryProvider({ children }) {
   /** Remove a single item from history */
   function removeFromHistory(id, type) {
     save(history.filter(h => !(h.id === id && h.type === type)))
+    deleteProgress(id, type)
   }
 
   /** Items with < 95% progress (still "in progress") */

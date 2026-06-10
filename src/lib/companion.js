@@ -207,3 +207,60 @@ export function subscribeToChanges(onChanged) {
     es?.close()
   }
 }
+
+// ── Auth token helper ─────────────────────────────────────────────────
+function authHeaders() {
+  const token = localStorage.getItem('vt-companion-token')
+  return token ? { 'X-VaultTV-Token': token } : {}
+}
+
+// ── Progress sync ─────────────────────────────────────────────────────
+
+/**
+ * Fetch all watch-progress entries from the companion server.
+ * Returns an array of history entries, or null if the companion is offline.
+ */
+export async function fetchProgress() {
+  try {
+    const r = await fetch(`${BASE}/progress`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(4000),
+    })
+    if (!r.ok) return null
+    return r.json()   // array of { id, type, title, poster, progressSec, durationSec, progress, timestamp, lastStream? }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Push an array of progress entries to the companion (merge by timestamp).
+ * Fire-and-forget — errors are silently swallowed.
+ * @param {Array} entries
+ */
+export async function pushProgress(entries) {
+  if (!entries?.length) return
+  try {
+    await fetch(`${BASE}/progress`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(entries),
+      signal: AbortSignal.timeout(5000),
+    })
+  } catch { /* offline — ignore */ }
+}
+
+/**
+ * Remove a single progress entry from the companion by its "<type>:<id>" key.
+ * @param {number|string} id
+ * @param {'movie'|'tv'} type
+ */
+export async function deleteProgress(id, type) {
+  try {
+    await fetch(`${BASE}/progress/${type}:${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(4000),
+    })
+  } catch { /* offline — ignore */ }
+}

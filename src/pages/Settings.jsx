@@ -427,16 +427,21 @@ export default function Settings() {
             </p>
             <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
               {local.companionOnline
-                ? 'Auto-sync is active. VaultTV will prompt you to rescan when new files are detected in your folders.'
+                ? 'Auto-sync active — file changes and watch progress sync across all your devices.'
                 : IS_ELECTRON
                   ? 'The companion server starts automatically with the app. If it stays offline, try restarting VaultTV.'
                   : IS_FIRETV
                     ? 'Enter your PC\'s LAN IP below so the FireTV can reach the companion server.'
                     : <>
-                        Auto-sync is unavailable. Run <code style={{ background: 'var(--bg-card)', padding: '1px 5px', borderRadius: 4 }}>cd companion &amp;&amp; npm install &amp;&amp; node server.js</code> in the VaultTV folder to enable it. Stop it any time — the library keeps working.
+                        Auto-sync is unavailable. Run <code style={{ background: 'var(--bg-card)', padding: '1px 5px', borderRadius: 4 }}>cd companion &amp;&amp; npm start</code> in the VaultTV folder to enable it. Watch progress and library changes will then sync to all your devices automatically.
                       </>
               }
             </p>
+            {local.companionOnline && (
+              <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', color: 'rgba(74,222,128,0.7)', lineHeight: 1.5 }}>
+                ✓ Watch progress syncing — resume from any device
+              </p>
+            )}
             {/* Companion host override — shown on FireTV or when loaded from hosted URL */}
             {(IS_FIRETV || !['localhost', '127.0.0.1'].includes(window.location.hostname) && !window.location.hostname.match(/^192\.|^10\.|^172\./)) && (
               <CompanionHostInput />
@@ -661,11 +666,13 @@ function ResyncLibraryButton() {
 
 function CompanionHostInput() {
   const local = useLocalLibrary()
-  const [val, setVal] = useState(() => localStorage.getItem('vt-companion-host') || '')
+  const [val,   setVal]   = useState(() => localStorage.getItem('vt-companion-host') || '')
+  const [token, setToken] = useState(() => localStorage.getItem('vt-companion-token') || '')
   const [status, setStatus] = useState(null) // null | 'testing' | 'online' | 'offline'
 
   async function saveAndTest() {
-    localStorage.setItem('vt-companion-host', val.trim())
+    localStorage.setItem('vt-companion-host',  val.trim())
+    localStorage.setItem('vt-companion-token', token.trim())
     setStatus('testing')
     const online = await local.recheckCompanion()
     setStatus(online ? 'online' : 'offline')
@@ -679,32 +686,30 @@ function CompanionHostInput() {
   const btnColor = status === 'online' ? '#16a34a' : status === 'offline' ? '#ef4444' : 'var(--accent)'
 
   return (
-    <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+    <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {/* IP / host row */}
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          data-card tabIndex={0} type="text"
+          placeholder="192.168.1.xxx  (your PC's LAN IP)"
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') saveAndTest() }}
+          style={{ flex: 1, minWidth: 200, padding: '0.4rem 0.7rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', fontSize: '0.82rem' }}
+        />
+        <button data-card tabIndex={0} onClick={saveAndTest} disabled={status === 'testing'}
+          style={{ padding: '0.4rem 0.85rem', background: btnColor, border: 'none', borderRadius: 'var(--radius)', color: '#fff', cursor: 'pointer', fontSize: '0.82rem', transition: 'background 0.2s' }}
+        >{btnLabel}</button>
+      </div>
+      {/* Auth token row — optional, only needed when AUTH_TOKEN is set on the server */}
       <input
-        data-card
-        tabIndex={0}
-        type="text"
-        placeholder="192.168.1.xxx  (your PC's LAN IP)"
-        value={val}
-        onChange={e => setVal(e.target.value)}
+        data-card tabIndex={0} type="password"
+        placeholder="Auth token (optional — only needed if you set authToken in config.json)"
+        value={token}
+        onChange={e => setToken(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') saveAndTest() }}
-        style={{
-          flex: 1, minWidth: 200, padding: '0.4rem 0.7rem',
-          background: 'var(--bg-card)', border: '1px solid var(--border)',
-          borderRadius: 'var(--radius)', color: 'var(--text-primary)', fontSize: '0.82rem',
-        }}
+        style={{ padding: '0.4rem 0.7rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', fontSize: '0.82rem' }}
       />
-      <button
-        data-card
-        tabIndex={0}
-        onClick={saveAndTest}
-        disabled={status === 'testing'}
-        style={{
-          padding: '0.4rem 0.85rem', background: btnColor,
-          border: 'none', borderRadius: 'var(--radius)', color: '#fff',
-          cursor: 'pointer', fontSize: '0.82rem', transition: 'background 0.2s',
-        }}
-      >{btnLabel}</button>
     </div>
   )
 }
