@@ -468,6 +468,70 @@ app.get('/subtitles', async (req, res) => {
   }
 })
 
+// ── Admin settings page ───────────────────────────────────────────────────────
+app.get('/__admin', (req, res) => {
+  if (!isSetupDone()) return res.redirect('/__setup')
+  const token = req.cookies?.vt_session
+  if (!token || !verifyToken(token)) return res.redirect('/__login')
+  res.send(adminPage())
+})
+
+// Save general settings (serverName, tmdbKey, sessionDays)
+app.post('/__admin/settings', (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  const { serverName, tmdbKey, sessionDays } = req.body || {}
+  const updated = { ...config }
+  if (serverName !== undefined) updated.serverName = serverName.trim()
+  if (tmdbKey    !== undefined) updated.tmdbKey    = tmdbKey.trim()
+  if (sessionDays !== undefined && parseInt(sessionDays) > 0) updated.sessionDays = parseInt(sessionDays)
+  config = updated
+  try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') }
+  catch (e) { return res.status(500).json({ error: e.message }) }
+  res.json({ ok: true })
+})
+
+// Add a folder
+app.post('/__admin/folders', (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  const { folderPath, type, name } = req.body || {}
+  if (!folderPath || !type) return res.status(400).json({ error: 'folderPath and type required' })
+  if (!['movie', 'tv'].includes(type)) return res.status(400).json({ error: 'type must be movie or tv' })
+  if (!fs.existsSync(folderPath)) return res.status(404).json({ error: `Path not found: ${folderPath}` })
+  const id = name ? name.toLowerCase().replace(/\s+/g, '_') : path.basename(folderPath).toLowerCase().replace(/\s+/g, '_')
+  const entry = { id, folderPath, type, name: name || path.basename(folderPath) }
+  watchedFolders = watchedFolders.filter(f => f.id !== id)
+  watchedFolders.push(entry)
+  saveJson(STATE_FILE, watchedFolders)
+  config.folders = watchedFolders.map(f => ({ id: f.id, path: f.folderPath, type: f.type, name: f.name }))
+  try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') } catch {}
+  startWatcher(entry)
+  res.json({ ok: true, folder: entry })
+})
+
+// Remove a folder
+app.delete('/__admin/folders/:id', (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  stopWatcher(req.params.id)
+  watchedFolders = watchedFolders.filter(f => f.id !== req.params.id)
+  saveJson(STATE_FILE, watchedFolders)
+  config.folders = watchedFolders.map(f => ({ id: f.id, path: f.folderPath, type: f.type, name: f.name }))
+  try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') } catch {}
+  res.json({ ok: true })
+})
+
+// Change password
+app.post('/__admin/password', async (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  const { current, newPassword } = req.body || {}
+  const auth = loadAuth()
+  const ok = await bcrypt.compare(current || '', auth.passwordHash)
+  if (!ok) return res.status(401).json({ error: 'Current password is incorrect' })
+  if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' })
+  const hash = await bcrypt.hash(newPassword, 12)
+  saveAuth({ passwordHash: hash })
+  res.json({ ok: true })
+})
+
 // ── Serve the React web app ───────────────────────────────────────────────────
 // Redirect root to setup/login if needed, then serve the built dist/
 
@@ -621,6 +685,256 @@ function setupPage() {
     })
   </script>
 </div>`)
+}
+
+function adminPage() {
+  const folders = watchedFolders.map(f => ({
+    id: f.id, path: f.folderPath, type: f.type, name: f.name,
+    exists: fs.existsSync(f.folderPath),
+  }))
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Settings — VaultTV Server</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0f;color:#e5e5ea;min-height:100vh}
+  header{background:#13131a;border-bottom:1px solid rgba(255,255,255,.08);padding:1rem 2rem;display:flex;align-items:center;gap:1rem;position:sticky;top:0;z-index:10}
+  .logo{font-size:1.3rem;font-weight:900;color:#fff;text-decoration:none}.logo span{color:#7c3aed}
+  header nav{margin-left:auto;display:flex;gap:.75rem}
+  header nav a{color:rgba(255,255,255,.5);text-decoration:none;font-size:.85rem;padding:.4rem .8rem;border-radius:6px;transition:all .2s}
+  header nav a:hover{background:rgba(255,255,255,.07);color:#fff}
+  .container{max-width:860px;margin:0 auto;padding:2rem 1.5rem}
+  h2{font-size:1.5rem;font-weight:800;margin-bottom:.3rem}
+  .page-sub{color:rgba(255,255,255,.4);font-size:.88rem;margin-bottom:2rem}
+  .section{background:#13131a;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:1.5rem;margin-bottom:1.5rem}
+  .section-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#7c3aed;margin-bottom:1.1rem}
+  .field{margin-bottom:1rem}
+  .field:last-child{margin-bottom:0}
+  label{display:block;font-size:.82rem;font-weight:600;color:rgba(255,255,255,.55);margin-bottom:.35rem}
+  input[type=text],input[type=password],input[type=number],select{width:100%;padding:.6rem .85rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#fff;font-size:.9rem;outline:none;transition:border-color .2s}
+  input:focus,select:focus{border-color:#7c3aed}
+  select option{background:#1a1a24}
+  .row{display:flex;gap:.75rem}
+  .row input{flex:1}
+  .row select{width:130px;flex:none}
+  .btn{display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1.2rem;border:none;border-radius:8px;font-size:.88rem;font-weight:700;cursor:pointer;transition:all .2s}
+  .btn-primary{background:#7c3aed;color:#fff}.btn-primary:hover{background:#6d28d9}
+  .btn-danger{background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.25)}.btn-danger:hover{background:rgba(239,68,68,.25)}
+  .btn-sm{padding:.4rem .85rem;font-size:.8rem}
+  .btn:disabled{opacity:.5;cursor:default}
+  .folder-list{display:flex;flex-direction:column;gap:.6rem;margin-bottom:1rem}
+  .folder-row{display:flex;align-items:center;gap:.75rem;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:.75rem 1rem}
+  .folder-info{flex:1;min-width:0}
+  .folder-name{font-weight:700;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .folder-path{font-size:.75rem;color:rgba(255,255,255,.35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.15rem}
+  .folder-type{font-size:.7rem;font-weight:700;padding:.2rem .5rem;border-radius:4px;margin-left:.5rem;flex:none}
+  .type-movie{background:rgba(124,58,237,.2);color:#a78bfa}
+  .type-tv{background:rgba(16,185,129,.15);color:#34d399}
+  .badge-missing{font-size:.7rem;padding:.15rem .5rem;border-radius:4px;background:rgba(239,68,68,.15);color:#f87171;margin-left:.5rem;flex:none}
+  .toast{position:fixed;bottom:1.5rem;right:1.5rem;background:#1a1a2e;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:.75rem 1.25rem;font-size:.88rem;font-weight:600;display:none;z-index:100;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+  .toast.ok{border-color:#34d399;color:#34d399}
+  .toast.err{border-color:#f87171;color:#f87171}
+  .divider{height:1px;background:rgba(255,255,255,.07);margin:1rem 0}
+  .stat-row{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem}
+  .stat{background:rgba(255,255,255,.04);border-radius:10px;padding:.75rem 1rem;flex:1;min-width:120px}
+  .stat-val{font-size:1.4rem;font-weight:800;color:#a78bfa}
+  .stat-lbl{font-size:.75rem;color:rgba(255,255,255,.4);margin-top:.1rem}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/__admin">Vault<span>TV</span> <span style="font-size:.75rem;font-weight:500;color:rgba(255,255,255,.3);margin-left:.25rem">Server Settings</span></a>
+  <nav>
+    <a href="/">← Back to app</a>
+    <a href="#" onclick="logout();return false">Sign out</a>
+  </nav>
+</header>
+<div class="container">
+  <h2>Server Settings</h2>
+  <p class="page-sub">Manage your VaultTV Server — folders, API keys, and account settings.</p>
+
+  <!-- Status -->
+  <div class="section">
+    <div class="section-title">Server Status</div>
+    <div class="stat-row">
+      <div class="stat"><div class="stat-val" id="s-folders">${folders.length}</div><div class="stat-lbl">Media folders</div></div>
+      <div class="stat"><div class="stat-val" id="s-uptime">—</div><div class="stat-lbl">Uptime</div></div>
+      <div class="stat"><div class="stat-val" style="color:${config.tmdbKey ? '#34d399' : '#f87171'}">${config.tmdbKey ? '✓' : '✗'}</div><div class="stat-lbl">TMDB key</div></div>
+    </div>
+  </div>
+
+  <!-- Media Folders -->
+  <div class="section">
+    <div class="section-title">Media Folders</div>
+    <div class="folder-list" id="folder-list">
+      ${folders.length ? folders.map(f => folderRowHtml(f)).join('') : '<p style="color:rgba(255,255,255,.3);font-size:.88rem">No folders added yet.</p>'}
+    </div>
+    <div class="divider"></div>
+    <div class="row" style="align-items:flex-end;margin-top:.75rem">
+      <div class="field" style="flex:1;margin:0">
+        <label>Folder path</label>
+        <input type="text" id="new-path" placeholder="D:\\Movies">
+      </div>
+      <div class="field" style="margin:0">
+        <label>Type</label>
+        <select id="new-type"><option value="movie">Movies</option><option value="tv">TV Shows</option></select>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Name (optional)</label>
+        <input type="text" id="new-name" placeholder="Movies" style="width:140px">
+      </div>
+      <button class="btn btn-primary" onclick="addFolder()">Add folder</button>
+    </div>
+  </div>
+
+  <!-- General Settings -->
+  <div class="section">
+    <div class="section-title">General</div>
+    <div class="field">
+      <label>Server name</label>
+      <input type="text" id="serverName" value="${escHtml(config.serverName || 'VaultTV Server')}" placeholder="VaultTV Server">
+    </div>
+    <div class="field">
+      <label>TMDB API key</label>
+      <input type="text" id="tmdbKey" value="${escHtml(config.tmdbKey || '')}" placeholder="Paste your TMDB v3 API key">
+    </div>
+    <div class="field">
+      <label>Session length (days)</label>
+      <input type="number" id="sessionDays" value="${config.sessionDays || 30}" min="1" max="365" style="width:120px">
+    </div>
+    <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
+  </div>
+
+  <!-- Change Password -->
+  <div class="section">
+    <div class="section-title">Change Password</div>
+    <div class="field">
+      <label>Current password</label>
+      <input type="password" id="cur-pw" placeholder="Current password">
+    </div>
+    <div class="field">
+      <label>New password</label>
+      <input type="password" id="new-pw" placeholder="At least 8 characters">
+    </div>
+    <div class="field">
+      <label>Confirm new password</label>
+      <input type="password" id="new-pw2" placeholder="Repeat new password">
+    </div>
+    <button class="btn btn-primary" onclick="changePassword()">Change password</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // Uptime
+  fetch('/api/health').then(r=>r.json()).then(d=>{
+    const s=d.uptime,h=Math.floor(s/3600),m=Math.floor((s%3600)/60)
+    document.getElementById('s-uptime').textContent = h>0 ? h+'h '+m+'m' : m+'m'
+  }).catch(()=>{})
+
+  function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+  function toast(msg, ok=true){
+    const t=document.getElementById('toast')
+    t.textContent=msg; t.className='toast '+(ok?'ok':'err'); t.style.display='block'
+    clearTimeout(t._t); t._t=setTimeout(()=>t.style.display='none', 3000)
+  }
+
+  async function api(method, url, body){
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined})
+    return {ok:r.ok,data:await r.json()}
+  }
+
+  function folderRowHtml(f){
+    return '<div class="folder-row" id="fr-'+f.id+'">'
+      +'<div class="folder-info">'
+      +'<div class="folder-name">'+escHtml(f.name)
+      +'<span class="folder-type type-'+f.type+'">'+(f.type==='movie'?'Movies':'TV Shows')+'</span>'
+      +(f.exists===false?'<span class="badge-missing">Not found</span>':'')
+      +'</div>'
+      +'<div class="folder-path">'+escHtml(f.path)+'</div>'
+      +'</div>'
+      +'<button class="btn btn-danger btn-sm" onclick="removeFolder('+JSON.stringify(f.id)+')">Remove</button>'
+      +'</div>'
+  }
+
+  async function addFolder(){
+    const p=document.getElementById('new-path').value.trim()
+    const t=document.getElementById('new-type').value
+    const n=document.getElementById('new-name').value.trim()
+    if(!p){toast('Enter a folder path',false);return}
+    const {ok,data}=await api('POST','/__admin/folders',{folderPath:p,type:t,name:n||undefined})
+    if(ok){
+      const list=document.getElementById('folder-list')
+      if(list.querySelector('p'))list.innerHTML=''
+      list.insertAdjacentHTML('beforeend',folderRowHtml({...data.folder,exists:true}))
+      document.getElementById('new-path').value=''
+      document.getElementById('new-name').value=''
+      document.getElementById('s-folders').textContent=list.querySelectorAll('.folder-row').length
+      toast('Folder added')
+    } else { toast(data.error||'Failed to add folder',false) }
+  }
+
+  async function removeFolder(id){
+    if(!confirm('Remove this folder from VaultTV Server?'))return
+    const {ok,data}=await api('DELETE','/__admin/folders/'+id)
+    if(ok){
+      document.getElementById('fr-'+id)?.remove()
+      const list=document.getElementById('folder-list')
+      if(!list.querySelector('.folder-row'))list.innerHTML='<p style="color:rgba(255,255,255,.3);font-size:.88rem">No folders added yet.</p>'
+      document.getElementById('s-folders').textContent=list.querySelectorAll('.folder-row').length
+      toast('Folder removed')
+    } else { toast(data.error||'Failed to remove',false) }
+  }
+
+  async function saveSettings(){
+    const {ok,data}=await api('POST','/__admin/settings',{
+      serverName:document.getElementById('serverName').value.trim(),
+      tmdbKey:document.getElementById('tmdbKey').value.trim(),
+      sessionDays:parseInt(document.getElementById('sessionDays').value)||30,
+    })
+    ok ? toast('Settings saved') : toast(data.error||'Failed to save',false)
+  }
+
+  async function changePassword(){
+    const cur=document.getElementById('cur-pw').value
+    const np=document.getElementById('new-pw').value
+    const np2=document.getElementById('new-pw2').value
+    if(np!==np2){toast('New passwords don\\'t match',false);return}
+    if(np.length<8){toast('Password must be at least 8 characters',false);return}
+    const {ok,data}=await api('POST','/__admin/password',{current:cur,newPassword:np})
+    if(ok){
+      toast('Password changed')
+      document.getElementById('cur-pw').value=''
+      document.getElementById('new-pw').value=''
+      document.getElementById('new-pw2').value=''
+    } else { toast(data.error||'Failed',false) }
+  }
+
+  async function logout(){
+    await fetch('/auth/logout',{method:'POST'})
+    window.location='/__login'
+  }
+</script>
+</body>
+</html>`
+
+  function folderRowHtml(f) {
+    return `<div class="folder-row" id="fr-${f.id}">
+      <div class="folder-info">
+        <div class="folder-name">${escHtml(f.name)}<span class="folder-type type-${f.type}">${f.type === 'movie' ? 'Movies' : 'TV Shows'}</span>${!f.exists ? '<span class="badge-missing">Not found</span>' : ''}</div>
+        <div class="folder-path">${escHtml(f.path)}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="removeFolder('${f.id}')">Remove</button>
+    </div>`
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
 }
 
 function buildRequiredPage() {
