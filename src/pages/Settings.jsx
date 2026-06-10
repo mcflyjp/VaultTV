@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
 const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
@@ -16,7 +16,7 @@ import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useAuth } from '../context/AuthContext'
 import { useAddons } from '../context/AddonsContext'
 import { useLanguage } from '../context/LanguageContext'
-import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff, FiUser, FiLogOut, FiLogIn, FiCloud, FiGlobe } from 'react-icons/fi'
+import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff, FiUser, FiLogOut, FiLogIn, FiCloud, FiGlobe, FiServer, FiAlertTriangle } from 'react-icons/fi'
 
 export default function Settings() {
   const { enabled, maxRating, pin, save, RATING_ORDER } = useParental()
@@ -585,6 +585,9 @@ export default function Settings() {
         )}
       </Card>
 
+      {/* VaultTV Server admin — only shown when served by the self-hosted server */}
+      {window.__VAULTTV_SERVER && <ServerAdminCard />}
+
       {/* About */}
       <Card title="About" icon={null}>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0, lineHeight: 1.7 }}>
@@ -826,6 +829,189 @@ function AccountPanel({ user, signOut, syncing, syncError }) {
         </span>
       </div>
     </div>
+  )
+}
+
+function ServerAdminCard() {
+  const local = useLocalLibrary()
+  const [folders,    setFolders]    = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [newPath,    setNewPath]    = useState('')
+  const [newType,    setNewType]    = useState('movie')
+  const [newName,    setNewName]    = useState('')
+  const [adding,     setAdding]     = useState(false)
+  const [toast,      setToast]      = useState(null) // { msg, ok }
+  const [rescanning, setRescanning] = useState(null) // folder id being rescanned
+
+  function showToast(msg, ok = true) {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  async function loadFolders() {
+    try {
+      const r = await fetch('/folders')
+      if (r.ok) setFolders(await r.json())
+    } catch { /* server may be restarting */ }
+    setLoading(false)
+  }
+
+  useEffect(() => { loadFolders() }, [])
+
+  async function addFolder() {
+    if (!newPath.trim()) return
+    setAdding(true)
+    try {
+      const r = await fetch('/__admin/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath: newPath.trim(), type: newType, name: newName.trim() || undefined }),
+      })
+      const data = await r.json()
+      if (r.ok) {
+        showToast('Folder added')
+        setNewPath(''); setNewName('')
+        await loadFolders()
+        // Trigger a rescan in the React local library context so TMDB matching runs
+        if (data.folder) local.rescanSource?.(data.folder.id)
+      } else {
+        showToast(data.error || 'Failed to add folder', false)
+      }
+    } catch (e) { showToast(e.message, false) }
+    setAdding(false)
+  }
+
+  async function removeFolder(id) {
+    if (!confirm('Remove this folder from VaultTV Server?')) return
+    try {
+      const r = await fetch(`/__admin/folders/${id}`, { method: 'DELETE' })
+      if (r.ok) { showToast('Folder removed'); await loadFolders() }
+      else { const d = await r.json(); showToast(d.error || 'Failed', false) }
+    } catch (e) { showToast(e.message, false) }
+  }
+
+  async function rescan(id) {
+    setRescanning(id)
+    try {
+      await local.rescanSource?.(id)
+      showToast('Rescan complete')
+    } catch (e) { showToast(e.message, false) }
+    setRescanning(null)
+  }
+
+  const inputStyle = {
+    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)', color: 'var(--text-primary)',
+    padding: '0.55rem 0.75rem', fontSize: '0.85rem',
+  }
+
+  return (
+    <Card title="VaultTV Server" icon={<FiServer />}>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1.25rem', lineHeight: 1.6 }}>
+        Manage the media folders your self-hosted server watches. Changes take effect immediately.
+        For password and advanced settings, open{' '}
+        <a href="/__admin" style={{ color: 'var(--accent)' }}>Server Admin ↗</a>.
+      </p>
+
+      {/* Folder list */}
+      {loading ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1rem' }}>Loading…</p>
+      ) : folders.length === 0 ? (
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1rem' }}>No folders added yet.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+          {folders.map(f => {
+            const srcFiles  = local.files.filter(x => x.sourceId === f.id)
+            const matched   = srcFiles.filter(x => x.matched).length
+            const isRescanning = rescanning === f.id || (local.scanning && local.progress?.label === f.name)
+            return (
+              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.65rem 0.85rem', background: 'var(--bg-secondary)', border: `1px solid ${f.exists === false ? 'rgba(248,113,113,0.4)' : 'var(--border)'}`, borderRadius: 'var(--radius)' }}>
+                <div style={{ width: 32, height: 32, borderRadius: 6, background: f.type === 'movie' ? 'rgba(124,58,237,0.2)' : 'rgba(59,130,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {f.type === 'movie' ? <FiFilm size={15} style={{ color: 'var(--accent)' }} /> : <FiTv size={15} style={{ color: '#3b82f6' }} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {f.name}
+                    {f.exists === false && <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: '#f87171' }}><FiAlertTriangle size={10} /> not found</span>}
+                  </p>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.73rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {f.folderPath} · {srcFiles.length} files · {matched} matched
+                  </p>
+                </div>
+                <button
+                  onClick={() => rescan(f.id)}
+                  disabled={isRescanning || local.scanning}
+                  title="Rescan & match TMDB"
+                  style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: isRescanning ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', padding: '0.3rem 0.5rem', display: 'flex', alignItems: 'center' }}
+                >
+                  <FiRefreshCw size={13} style={{ animation: isRescanning ? 'spin 1s linear infinite' : 'none' }} />
+                </button>
+                <button
+                  onClick={() => removeFolder(f.id)}
+                  title="Remove folder"
+                  style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.3rem 0.5rem', display: 'flex', alignItems: 'center' }}
+                >
+                  <FiTrash2 size={13} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Scan progress */}
+      {local.scanning && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+            <span>Scanning "{local.progress.label}"…</span>
+            <span>{local.progress.done} / {local.progress.total}</span>
+          </div>
+          <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', background: 'var(--accent)', borderRadius: 2, width: local.progress.total > 0 ? `${(local.progress.done / local.progress.total) * 100}%` : '5%', transition: 'width 0.2s' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Add folder row */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <input
+          type="text" value={newPath} onChange={e => setNewPath(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addFolder()}
+          placeholder="D:\Movies"
+          style={{ ...inputStyle, flex: '2 1 180px' }}
+        />
+        <select
+          value={newType} onChange={e => setNewType(e.target.value)}
+          style={{ ...inputStyle, width: 130, cursor: 'pointer' }}
+        >
+          <option value="movie">Movies</option>
+          <option value="tv">TV Shows</option>
+        </select>
+        <input
+          type="text" value={newName} onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && addFolder()}
+          placeholder="Name (optional)"
+          style={{ ...inputStyle, flex: '1 1 120px' }}
+        />
+        <button
+          className="btn-accent"
+          onClick={addFolder}
+          disabled={adding || !newPath.trim()}
+          style={{ fontSize: '0.85rem', padding: '0.55rem 1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap' }}
+        >
+          <FiPlus size={14} /> {adding ? 'Adding…' : 'Add Folder'}
+        </button>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <p style={{ margin: '0.75rem 0 0', fontSize: '0.82rem', color: toast.ok ? '#4ade80' : '#f87171' }}>
+          {toast.ok ? '✓' : '✗'} {toast.msg}
+        </p>
+      )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    </Card>
   )
 }
 
