@@ -49,7 +49,7 @@ function cleanFolderName(name) {
 
 const LS_SOURCES = 'vt-local-sources'
 const LS_FILES   = 'vt-local-library'
-const TMDB_KEY   = import.meta.env.VITE_TMDB_KEY || ''
+const TMDB_KEY   = (typeof window !== 'undefined' && window.__TMDB_KEY) || import.meta.env.VITE_TMDB_KEY || ''
 
 const LocalLibraryContext = createContext(null)
 
@@ -148,6 +148,29 @@ export function LocalLibraryProvider({ children }) {
       console.warn('[local-library] Cloud sync failed:', e.message)
     }
   }
+
+  // ── Server mode: auto-load sources from VaultTV Server on mount ───────
+  useEffect(() => {
+    if (!window.__VAULTTV_SERVER) return
+    async function loadServerFolders() {
+      try {
+        const r = await fetch('/folders')
+        if (!r.ok) return
+        const serverFolders = await r.json()
+        setSources(prev => {
+          const existingIds = new Set(prev.map(s => s.id))
+          const newSources = serverFolders
+            .filter(f => !existingIds.has(f.id))
+            .map(f => ({ id: f.id, name: f.name, type: f.type, dirName: f.name, folderPath: f.folderPath, fileCount: 0, scannedAt: null }))
+          if (!newSources.length) return prev
+          const merged = [...prev, ...newSources]
+          localStorage.setItem(LS_SOURCES, JSON.stringify(merged))
+          return merged
+        })
+      } catch { /* server may not be ready */ }
+    }
+    loadServerFolders()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Companion ping + SSE subscription ─────────────────────────────────
   useEffect(() => {

@@ -8,16 +8,11 @@
  * All requests go to 127.0.0.1 only — nothing leaves your machine.
  */
 
-// Use the same hostname as the page so this works both on localhost and when
-// accessed from another device on the LAN (e.g. http://192.168.1.232:5174
-// will talk to the companion at http://192.168.1.232:7842 automatically).
 const COMPANION_PORT = 7842
-// In Electron (file:// protocol) hostname is "" — fall back to localhost.
-// When loaded from a hosted URL (e.g. vaulttv.pages.dev) the hostname is wrong
-// for LAN companion access — user must configure the IP in Settings.
-// Falls back to window.location.hostname so LAN dev server (192.168.x.x:5174)
-// still works automatically.
+
 function getCompanionBase() {
+  // When served by VaultTV Server, all routes are on the same origin — no port needed.
+  if (window.__VAULTTV_SERVER) return window.location.origin
   const stored = localStorage.getItem('vt-companion-host')
   const host = (stored && stored.trim()) || window.location.hostname || 'localhost'
   return `http://${host}:${COMPANION_PORT}`

@@ -32,7 +32,7 @@ export const LANGUAGES = [
 
 const DEFAULT_PREFS = {
   subLang: 'en',       // ISO 639-1 code for subtitles
-  audioLang: '',       // ISO 639-1 code for audio ('' = no preference)
+  audioLang: 'en',     // ISO 639-1 code for audio — default English
   autoFetchSubs: true, // Auto-download subs from OpenSubtitles when none found
 }
 
