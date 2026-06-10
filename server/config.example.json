@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy this file to config.json and fill in your values.",
+  "port": 7842,
+  "tmdbKey": "YOUR_TMDB_API_KEY",
+  "jwtSecret": "CHANGE_THIS_TO_A_LONG_RANDOM_STRING",
+  "sessionDays": 30,
+  "folders": [
+    {
+      "id": "movies",
+      "path": "D:\\Media\\Movies",
+      "type": "movie",
+      "name": "Movies"
+    },
+    {
+      "id": "shows",
+      "path": "D:\\Media\\TV Shows",
+      "type": "tv",
+      "name": "TV Shows"
+    }
+  ]
+}

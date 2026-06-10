@@ -1,5 +1,7 @@
 const BASE = 'https://api.themoviedb.org/3'
-const KEY  = import.meta.env.VITE_TMDB_KEY || ''
+// When served by VaultTV Server, the key is injected into window.__TMDB_KEY
+// so it never needs to be baked into the built JS (useful for sharing the build).
+const KEY  = (typeof window !== 'undefined' && window.__TMDB_KEY) || import.meta.env.VITE_TMDB_KEY || ''
 
 export const IMG = (path, size = 'w500') =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null
