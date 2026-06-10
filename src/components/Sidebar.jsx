@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut } from 'react-icons/fi'
+import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut, FiBookOpen } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
@@ -182,6 +182,7 @@ export default function Sidebar() {
         {/* Manage */}
         <SectionLabel style={{ marginTop: IS_FIRETV ? '0.4rem' : '1rem' }}>Manage</SectionLabel>
         <NavItem to="/addons"   icon={<FiGrid size={14} />}     label="Add-ons"  active={location.pathname === '/addons'}   compact={IS_FIRETV} />
+        <NavItem to="/guide"    icon={<FiBookOpen size={14} />} label="How To"   active={location.pathname === '/guide'}    compact={IS_FIRETV} />
         <NavItem to="/settings" icon={<FiSettings size={14} />} label="Settings" active={location.pathname === '/settings'} compact={IS_FIRETV} />
       </nav>
 

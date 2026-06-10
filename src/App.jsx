@@ -13,6 +13,7 @@ import Addons from './pages/Addons'
 import Library from './pages/Library'
 import Queue from './pages/Queue'
 import Playlists from './pages/Playlists'
+import Guide from './pages/Guide'
 import { FiChevronLeft, FiMaximize, FiMinimize } from 'react-icons/fi'
 import { useState, useEffect } from 'react'
 
@@ -86,6 +87,7 @@ export default function App() {
           <Route path="/queue" element={<Queue />} />
           <Route path="/playlists" element={<Playlists />} />
           <Route path="/playlists/:id" element={<Playlists />} />
+          <Route path="/guide" element={<Guide />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
