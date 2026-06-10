@@ -34,10 +34,6 @@ const STATE_FILE    = path.join(DATA_DIR, 'watched-folders.json')
 const LIBRARY_FILE  = path.join(DATA_DIR, 'library.json')
 const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json')
 
-// Optional auth — set AUTH_TOKEN in environment or config.json to require a
-// matching X-VaultTV-Token header on all requests except GET / and GET /events.
-const AUTH_TOKEN = process.env.AUTH_TOKEN || userConfig.authToken || null
-
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts'])
 
 // Load user config (config.json) — defines port + folder paths
@@ -50,6 +46,10 @@ try {
 } catch (e) {
   console.warn('[config] Could not parse config.json:', e.message)
 }
+
+// Optional auth — set AUTH_TOKEN in environment or config.json to require a
+// matching X-VaultTV-Token header on all requests except GET / and GET /events.
+const AUTH_TOKEN = process.env.AUTH_TOKEN || userConfig.authToken || null
 
 const PORT    = userConfig.port || 7842
 // Allow all origins — this server only ever binds to 127.0.0.1 so it is
