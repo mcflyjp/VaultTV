@@ -1,6 +1,6 @@
 {
   "_comment": "Copy this file to config.json and fill in your values.",
-  "port": 7842,
+  "port": 8080,
   "tmdbKey": "YOUR_TMDB_API_KEY",
   "jwtSecret": "CHANGE_THIS_TO_A_LONG_RANDOM_STRING",
   "sessionDays": 30,

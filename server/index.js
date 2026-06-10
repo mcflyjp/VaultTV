@@ -5,7 +5,7 @@
  * from a single port so any device on your network (or internet, if you
  * port-forward) can access your library via a browser.
  *
- * First run:  node index.js   then open http://localhost:7842
+ * First run:  node index.js   then open http://localhost:8080
  * The setup wizard will guide you through creating an admin password.
  * ─────────────────────────────────────────────────────────────────────────────
  */
@@ -43,7 +43,7 @@ const AUTH_FILE     = path.join(DATA_DIR, 'auth.json')
 
 // ── Config ────────────────────────────────────────────────────────────────────
 let config = {
-  port:        7842,
+  port:        8080,
   tmdbKey:     '',
   jwtSecret:   generateSecret(),
   sessionDays: 30,
@@ -74,7 +74,7 @@ for (const cf of (config.folders || [])) {
 }
 saveJson(STATE_FILE, watchedFolders)
 
-const PORT       = config.port       || 7842
+const PORT       = config.port       || 8080
 const JWT_SECRET = config.jwtSecret  || generateSecret()
 const SESSION_MS = (config.sessionDays || 30) * 86400 * 1000
 
