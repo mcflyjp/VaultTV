@@ -581,6 +581,9 @@ export function LocalLibraryProvider({ children }) {
         }
       }
       await scanSourceViaCompanion(source, sources)
+    } else if (window.__VAULTTV_SERVER) {
+      // Self-hosted server mode — companion routes hit the same origin, use companion scan
+      await scanSourceViaCompanion(source, sources)
     } else {
       await scanSourceBrowser(source, sources)
     }
