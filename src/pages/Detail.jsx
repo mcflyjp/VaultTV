@@ -44,17 +44,18 @@ export default function Detail() {
   /** Shared progress handler — fires Trakt watch sync at 90% completion */
   function makeProgressHandler(itemId, itemType) {
     return (t, d) => {
-      updateProgress(Number(itemId), itemType, t, d, title, IMG(detail?.poster_path, 'w342'))
+      updateProgress(Number(itemId), itemType, t, d, title, IMG(detail?.poster_path, 'w780'))
       if (!watchSyncedRef.current && d > 0 && t / d >= 0.9) {
         watchSyncedRef.current = true
         traktSyncWatched(itemType, Number(itemId))
       }
     }
   }
-  const { play } = usePlayer()
+  const { play, closePlayer } = usePlayer()
   const { getLocalFile, getLocalVersions, getFileUrl } = useLocalLibrary()
   const { getPoster, getBackdrop } = useArtwork()
   const { audioLang } = useLanguage()
+  const episodesRef = useRef(null)
   const [artPicker, setArtPicker]     = useState(null) // null | 'poster' | 'backdrop'
   const [posterHovered, setPosterHovered] = useState(false)
   const [streams, setStreams]         = useState(null)
@@ -269,6 +270,80 @@ export default function Detail() {
     }
   }
 
+  /**
+   * Returns a callback for PlayerContext to fire when an episode finishes.
+   * Tries to play the next episode automatically; if no next ep exists, closes
+   * the player so the user lands back on the episode list.
+   */
+  function makeNextEpisodeHandler(currentSeason, currentEpisode, preferAddonName) {
+    return async function onEpisodeEnded() {
+      try {
+        const seasonData = await getSeason(id, currentSeason)
+        const episodes   = seasonData?.episodes || []
+        const currentIdx = episodes.findIndex(e => e.episode_number === currentEpisode)
+        let nextSeason  = currentSeason
+        let nextEp      = null
+
+        if (currentIdx !== -1 && currentIdx + 1 < episodes.length) {
+          nextEp = episodes[currentIdx + 1]
+        } else if (detail?.number_of_seasons && currentSeason < detail.number_of_seasons) {
+          nextSeason = currentSeason + 1
+          const nextSeasonData = await getSeason(id, nextSeason)
+          nextEp = nextSeasonData?.episodes?.[0] || null
+        }
+
+        if (!nextEp) {
+          closePlayer()
+          episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          return
+        }
+
+        const epTitle = `${title} · S${String(nextSeason).padStart(2,'0')}E${String(nextEp.episode_number).padStart(2,'0')} · ${nextEp.name}`
+        const [streamResults, subResults] = await Promise.all([
+          getStreams(type, imdbId, nextSeason, nextEp.episode_number, { preferAddonName }),
+          getSubtitles(type, imdbId, nextSeason, nextEp.episode_number).catch(() => []),
+        ])
+
+        const sorted = sortAndFilterStreams(streamResults.map(s => ({ ...s, _subtitles: subResults })), {
+          sortBy: 'quality', filterLang: audioLang, compatOnly: false, preferredLang: audioLang,
+        })
+        if (!sorted.length) { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
+
+        const stream = sorted[0]
+        const langs  = parseStreamLanguages(stream)
+        const { videoCodec } = parseStreamCodecs(stream)
+        const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
+
+        play({
+          url:            stream.url,
+          title:          epTitle,
+          poster:         IMG(detail?.poster_path, 'w780'),
+          subtitleTracks: stream._subtitles || [],
+          imdbId,
+          mediaType:      'tv',
+          season:         nextSeason,
+          episode:        nextEp.episode_number,
+          streamLangs:    langs,
+          rawStreamUrl:   stream.url,
+          transcodeVideo: !!needsVideoTranscode,
+          onProgress:     makeProgressHandler(id, 'tv'),
+          onEpisodeEnded: makeNextEpisodeHandler(nextSeason, nextEp.episode_number, stream.addonName),
+          onPlaybackEnded: () => { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+        })
+        startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
+        saveLastStream(Number(id), 'tv', {
+          url: stream.url, streamLangs: langs, rawStreamUrl: stream.url,
+          transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream._subtitles || [],
+          imdbId, season: nextSeason, episode: nextEp.episode_number,
+        })
+      } catch (e) {
+        console.warn('[auto-next] Failed, closing player:', e.message)
+        closePlayer()
+        episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
+  }
+
   /* ArtworkPicker needs the full detail object so item can have a title */
   const artItem = detail ? { id: Number(id), title, poster_path: detail.poster_path, backdrop_path: detail.backdrop_path } : null
 
@@ -457,7 +532,7 @@ export default function Detail() {
                       subtitleTracks={autoSubs}
                       setMusicDismissed={setMusicDismissed}
                       onProgress={makeProgressHandler(id, type)}
-                      onStartWatching={() => startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })}
+                      onStartWatching={() => startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w780') })}
                     />
                   )
                 })()}
@@ -486,7 +561,7 @@ export default function Detail() {
                 {/* Save to library */}
                 {detail && (
                   <button
-                    onClick={() => toggleSave({ id: Number(id), type, title: detail.title || detail.name, poster: IMG(detail.poster_path, 'w342') })}
+                    onClick={() => toggleSave({ id: Number(id), type, title: detail.title || detail.name, poster: IMG(detail.poster_path, 'w780') })}
                     title={isSaved(Number(id), type) ? 'Remove from library' : 'Save to library'}
                     style={{
                       background: isSaved(Number(id), type) ? 'var(--accent)' : 'rgba(255,255,255,0.1)',
@@ -507,7 +582,7 @@ export default function Detail() {
 
         {/* ── TV Episodes ── */}
         {type === 'tv' && detail?.number_of_seasons && (
-          <div style={{ padding: '0 2rem 2rem' }}>
+          <div ref={episodesRef} style={{ padding: '0 2rem 2rem' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
               <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Episodes</h2>
               {IS_FIRETV ? (
@@ -568,7 +643,7 @@ export default function Detail() {
                           play({
                             url,
                             title: `${title} · S${String(selectedSeason).padStart(2,'0')}E${String(ep.episode_number).padStart(2,'0')} · ${ep.name}`,
-                            poster: IMG(detail?.poster_path, 'w342'),
+                            poster: IMG(detail?.poster_path, 'w780'),
                             subtitleTracks: autoSubs,
                             imdbId,
                             mediaType: 'tv',
@@ -576,8 +651,10 @@ export default function Detail() {
                             episode: ep.episode_number,
                             onProgress: makeProgressHandler(id, 'tv'),
                             startTime: getSavedProgress(id, 'tv'),
+                            onEpisodeEnded: makeNextEpisodeHandler(selectedSeason, ep.episode_number, null),
+                            onPlaybackEnded: () => { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
                           })
-                          startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
+                          startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
                         } catch (e) {
                           // Local file unavailable — fall back to stream list
                           handleWatch(selectedSeason, ep.episode_number)
@@ -601,7 +678,7 @@ export default function Detail() {
                             url,
                             title: epTitle,
                             year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
-                            poster: IMG(detail?.poster_path, 'w342'),
+                            poster: IMG(detail?.poster_path, 'w780'),
                             subtitleTracks: stream?._subtitles || [],
                             imdbId,
                             mediaType: 'tv',
@@ -612,8 +689,10 @@ export default function Detail() {
                             rawStreamUrl: stream?.url || null,
                             transcodeVideo: !!needsVideoTranscode,
                             startTime: getSavedProgress(id, 'tv'),
+                            onEpisodeEnded: makeNextEpisodeHandler(selectedSeason, ep.episode_number, stream?.addonName),
+                            onPlaybackEnded: () => { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
                           })
-                          startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w342') })
+                          startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
                           saveLastStream(Number(id), 'tv', { url, streamLangs: langs, rawStreamUrl: stream?.url || null, transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream?._subtitles || [], imdbId, season: selectedSeason, episode: ep.episode_number })
                         }}
                       />
@@ -643,7 +722,7 @@ export default function Detail() {
                   url,
                   title,
                   year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
-                  poster: IMG(detail?.poster_path, 'w342'),
+                  poster: IMG(detail?.poster_path, 'w780'),
                   subtitleTracks: stream?._subtitles || [],
                   imdbId,
                   mediaType: type,
@@ -653,7 +732,7 @@ export default function Detail() {
                   transcodeVideo: !!needsVideoTranscode,
                   startTime: getSavedProgress(id, type),
                 })
-                startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w342') })
+                startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w780') })
                 saveLastStream(Number(id), type, { url, streamLangs: langs, rawStreamUrl: stream?.url || null, transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream?._subtitles || [], imdbId, mediaType: type })
               }}
             />
@@ -1118,7 +1197,7 @@ function LocalPlayButton({ versions, getFileUrl, play, title, detail, imdbId, me
       play({
         url, title,
         year: (detail?.release_date || detail?.first_air_date)?.slice(0, 4),
-        poster: IMG(detail?.poster_path, 'w342'),
+        poster: IMG(detail?.poster_path, 'w780'),
         subtitleTracks,
         imdbId,
         mediaType,

@@ -196,6 +196,22 @@ export function LocalLibraryProvider({ children }) {
       }
 
       companionUnsub.current = subscribeToChanges(ev => {
+        // Server finished a full rescan — reload the library file directly
+        if (ev.type === '__library_updated') {
+          fetchLibrary().then(lib => {
+            if (!lib) return
+            if (lib.sources?.length) {
+              setSources(lib.sources)
+              localStorage.setItem(LS_SOURCES, JSON.stringify(lib.sources))
+            }
+            if (lib.files?.length) {
+              setFiles(lib.files)
+              filesRef.current = lib.files
+              localStorage.setItem(LS_FILES, JSON.stringify(lib.files))
+            }
+          }).catch(() => {})
+          return
+        }
         const sourcesNow = JSON.parse(localStorage.getItem('vt-local-sources') || '[]')
         const match =
           sourcesNow.find(s => s.id === ev.sourceId) ||
@@ -327,17 +343,19 @@ export function LocalLibraryProvider({ children }) {
         if (i % 5 === 4) await new Promise(r => setTimeout(r, 300))
       }
 
-      const nextSources = (currentSources || sources).map(s =>
-        s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s
-      )
       const allFiles = [...otherFiles, ...results]
 
-      // saveAndSync pushes to Supabase so other devices see these titles
-      saveAndSync(nextSources, allFiles)
-
-      if (companionOnline) {
-        saveLibrary({ sources: nextSources, files: allFiles }).catch(() => {})
-      }
+      // Use functional update so we always merge against live state, not the stale closure.
+      // This prevents concurrent scans or late-added sources from being wiped.
+      setSources(prev => {
+        const merged = prev.some(s => s.id === source.id)
+          ? prev.map(s => s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s)
+          : [...prev, { ...source, fileCount: results.length, scannedAt: Date.now() }]
+        localStorage.setItem(LS_SOURCES, JSON.stringify(merged))
+        if (companionOnline) saveLibrary({ sources: merged, files: allFiles }).catch(() => {})
+        return merged
+      })
+      saveFiles(allFiles)
     } catch (e) {
       setError('Scan failed: ' + e.message)
     } finally {
@@ -520,16 +538,17 @@ export function LocalLibraryProvider({ children }) {
         }
       }
 
-      const nextSources = (currentSources || sources).map(s =>
-        s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s
-      )
       const allFiles = [...otherFiles, ...results]
 
-      saveAndSync(nextSources, allFiles)
-
-      if (companionOnline) {
-        saveLibrary({ sources: nextSources, files: allFiles }).catch(() => {})
-      }
+      setSources(prev => {
+        const merged = prev.some(s => s.id === source.id)
+          ? prev.map(s => s.id === source.id ? { ...s, fileCount: results.length, scannedAt: Date.now() } : s)
+          : [...prev, { ...source, fileCount: results.length, scannedAt: Date.now() }]
+        localStorage.setItem(LS_SOURCES, JSON.stringify(merged))
+        if (companionOnline) saveLibrary({ sources: merged, files: allFiles }).catch(() => {})
+        return merged
+      })
+      saveFiles(allFiles)
     } catch (e) {
       setError('Scan failed: ' + e.message)
     } finally {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
 const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
@@ -574,6 +575,9 @@ export default function Settings() {
         )}
       </Card>
 
+      {/* Remote Access — only shown when running on the VaultTV Server */}
+      {window.__VAULTTV_SERVER && <RemoteAccessCard />}
+
       {/* Account / Cloud Sync */}
       <Card title="Account & Cloud Sync" icon={<FiCloud />}>
         {auth.loading ? (
@@ -1015,6 +1019,48 @@ function ServerAdminCard() {
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    </Card>
+  )
+}
+
+function RemoteAccessCard() {
+  const [tunnelUrl, setTunnelUrl] = useState('')
+  const [copied,    setCopied]    = useState(false)
+
+  useEffect(() => {
+    fetch('/internal/status').then(r => r.json()).then(d => setTunnelUrl(d.tunnelUrl || '')).catch(() => {})
+  }, [])
+
+  function copy() {
+    navigator.clipboard.writeText(tunnelUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+  }
+
+  return (
+    <Card title="Remote Access" icon={<FiGlobe />}>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: '0 0 1rem', lineHeight: 1.6 }}>
+        Access your VaultTV library from anywhere using a Cloudflare Tunnel.
+        Set your tunnel URL in <strong>Server Admin</strong> → General Settings.
+      </p>
+      {tunnelUrl ? (
+        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+          <code style={{ flex: 1, padding: '0.55rem 0.8rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {tunnelUrl}
+          </code>
+          <button
+            onClick={copy}
+            style={{ padding: '0.55rem 1rem', borderRadius: 'var(--radius)', background: copied ? '#22c55e' : 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+          <a href={tunnelUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
+            <FiExternalLink size={16} />
+          </a>
+        </div>
+      ) : (
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+          No tunnel URL configured. Open <strong>Server Admin ↗</strong> → General Settings to add one.
+        </p>
+      )}
     </Card>
   )
 }

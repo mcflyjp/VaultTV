@@ -66,8 +66,13 @@ export default function ContinueWatching() {
 }
 
 function ContinueCard({ item, onPlay, onDismiss, onGoToDetail }) {
+  // Upgrade any stored low-res TMDB poster URLs (w342/w500 → w780) on the fly
+  function upgradePoster(url) {
+    if (!url) return url
+    return url.replace(/\/t\/p\/w(342|500)\//g, '/t/p/w780/')
+  }
   const [poster, setPoster] = useState(
-    item.poster || (item.poster_path ? IMG(item.poster_path, 'w500') : null)
+    upgradePoster(item.poster) || (item.poster_path ? IMG(item.poster_path, 'w780') : null)
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuIdx, setMenuIdx] = useState(0)
@@ -87,7 +92,7 @@ function ContinueCard({ item, onPlay, onDismiss, onGoToDetail }) {
   useEffect(() => {
     if (poster || !item.id || !item.type) return
     getDetail(item.type, item.id)
-      .then(d => { if (d?.poster_path) setPoster(IMG(d.poster_path, 'w500')) })
+      .then(d => { if (d?.poster_path) setPoster(IMG(d.poster_path, 'w780')) })
       .catch(() => {})
   }, [item.id, item.type]) // eslint-disable-line react-hooks/exhaustive-deps
 

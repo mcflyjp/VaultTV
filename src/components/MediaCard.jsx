@@ -19,7 +19,7 @@ export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = 
   // In backdrop mode use the 16:9 backdrop image; custom poster overrides still apply
   const poster = getPoster(item.id, type) ||
     (useBackdrop && item.backdrop_path ? IMG(item.backdrop_path, 'w780') : null) ||
-    IMG(item.poster_path, 'w500')
+    IMG(item.poster_path, 'w780')
   const aspectRatio = useBackdrop ? '16/9' : '2/3'
   const saved   = isSaved(item.id, type)
   const isLocal = hasLocal(item.id, type)

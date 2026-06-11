@@ -3,9 +3,10 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
-const IS_ELECTRON = !!window.electronAPI?.isElectron
-// FireTV WebView — Google blocks OAuth in embedded browsers, so we open Silk
-const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
+const IS_ELECTRON     = !!window.electronAPI?.isElectron
+const IS_FIRETV       = /VaultTV-FireTV/i.test(navigator.userAgent)
+// Already running inside the VaultTV Server — no redirect needed
+const IS_SERVER       = !!window.__VAULTTV_SERVER
 
 // The custom URL scheme registered in electron/main.cjs.
 // Must also be added as an allowed redirect URL in the Supabase dashboard:
@@ -26,10 +27,33 @@ export function AuthProvider({ children }) {
     // Listen for auth state changes (covers token refresh, sign-out, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
+      // On sign-in: check if the user has a registered VaultTV Server and redirect to it.
+      // Skip when already inside the server, in Electron, or on FireTV.
+      if (_event === 'SIGNED_IN' && session && !IS_SERVER && !IS_ELECTRON && !IS_FIRETV) {
+        redirectToServer(session)
+      }
     })
 
     return () => subscription.unsubscribe()
   }, [])
+
+  async function redirectToServer(session) {
+    try {
+      const res = await fetch('https://vaulttv-relay.jeremypulis.workers.dev/api/connect', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) return
+      const { serverUrl, stale } = await res.json()
+      if (!serverUrl || stale) return
+      // Already on the server's origin — nothing to do
+      if (window.location.origin === new URL(serverUrl).origin) return
+      // Redirect with the Supabase access token so the server can create a local session
+      window.location.href = `${serverUrl.replace(/\/$/, '')}/auth/sso?token=${session.access_token}`
+    } catch {
+      // Non-fatal — user stays on current page
+    }
+  }
 
   // ── FireTV OAuth deep-link handler ───────────────────────────────────
   // MainActivity intercepts vaulttv://auth/callback, extracts the fragment,

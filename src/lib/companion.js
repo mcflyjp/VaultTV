@@ -185,6 +185,13 @@ export function subscribeToChanges(onChanged) {
       } catch { /* ignore */ }
     })
 
+    es.addEventListener('library-updated', e => {
+      try {
+        const data = JSON.parse(e.data)
+        onChanged({ type: '__library_updated', ...data })
+      } catch { /* ignore */ }
+    })
+
     es.onerror = () => {
       es.close()
       if (!stopped) {

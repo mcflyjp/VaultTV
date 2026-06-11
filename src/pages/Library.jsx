@@ -123,7 +123,7 @@ export default function Library() {
         id:            f.tmdbId,
         type:          mediaType,
         title:         f.title,
-        poster:        f.poster_path ? `https://image.tmdb.org/t/p/w500${f.poster_path}` : null,
+        poster:        f.poster_path ? `https://image.tmdb.org/t/p/w780${f.poster_path}` : null,
         poster_path:   f.poster_path,
         vote_average:  f.vote_average || 0,
         year:          f.year || '',
@@ -352,7 +352,7 @@ function LibraryCard({ item, onNavigate, onRemove }) {
   const isUnmatched = item._matched === false && item._source === 'local'
   const canNavigate = item.id && !String(item.id).startsWith('local_')
   // Custom artwork overrides apply to unmatched items too (keyed by local_ id)
-  const poster = getPoster(item.id, item.type) || item.poster || IMG(item.poster_path, 'w342')
+  const poster = getPoster(item.id, item.type) || item.poster || IMG(item.poster_path, 'w780')
 
   // Left-click on unmatched: play the file directly
   async function playUnmatched() {

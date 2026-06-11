@@ -18,6 +18,12 @@ export function PlayerProvider({ children }) {
       if (opts?.onProgress) {
         opts.onProgress(posMs / 1000, durMs / 1000)
       }
+      // Auto-next episode or fall back to navigating back to the detail page
+      if (opts?.onEpisodeEnded) {
+        opts.onEpisodeEnded()
+      } else if (opts?.onPlaybackEnded) {
+        opts.onPlaybackEnded()
+      }
       lastOptsRef.current = null
     }
     return () => { window.__nativePlayerDone = null }

@@ -103,53 +103,63 @@ export function AddonsProvider({ children }) {
     return manifest
   }
 
-  // Query addons for streams given type (movie/series) and imdbId
-  async function getStreams(type, imdbId, season, episode) {
-    // TMDB uses 'tv'; Stremio addons declare 'series' — map before querying
+  // Query addons for streams given type (movie/series) and imdbId.
+  // preferAddonName: if set, streams from that addon are sorted to the top (same-source auto-next).
+  async function getStreams(type, imdbId, season, episode, { preferAddonName } = {}) {
     const stremioType = type === 'tv' ? 'series' : type
-    const results = []
-    for (const addon of addons) {
-      if (!addon.resources?.includes('stream')) continue
-      if (!addon.types?.includes(stremioType)) continue
-      try {
-        const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
+    const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
+
+    // Query all eligible addons in parallel
+    const eligible = addons.filter(a => a.resources?.includes('stream') && a.types?.includes(stremioType))
+    const settled = await Promise.allSettled(
+      eligible.map(async addon => {
         const base = addon.manifestUrl.replace('/manifest.json', '')
-        const res = await fetch(`${base}/stream/${stremioType}/${id}.json`)
-        if (!res.ok) continue
+        const res = await fetch(`${base}/stream/${stremioType}/${id}.json`, { signal: AbortSignal.timeout(8000) })
+        if (!res.ok) return []
         const data = await res.json()
-        if (data.streams?.length) results.push(...data.streams.map(s => ({ ...s, addonName: addon.name })))
-      } catch { /* addon offline, skip */ }
+        return (data.streams || []).map(s => ({ ...s, addonName: addon.name }))
+      })
+    )
+
+    const results = settled.flatMap(r => r.status === 'fulfilled' ? r.value : [])
+
+    // Prefer streams from the same addon that was used for the previous episode
+    if (preferAddonName) {
+      results.sort((a, b) => {
+        const aMatch = a.addonName === preferAddonName ? -1 : 0
+        const bMatch = b.addonName === preferAddonName ? -1 : 0
+        return aMatch - bMatch
+      })
     }
+
     return results
   }
 
-  // Query addons for subtitles — Stremio subtitle endpoint: /subtitles/{type}/{id}.json
+  // Query addons for subtitles in parallel
   async function getSubtitles(type, imdbId, season, episode) {
     const stremioType = type === 'tv' ? 'series' : type
-    const results = []
-    for (const addon of addons) {
-      const hasSubtitles = (addon.resources || []).some(r =>
-        r === 'subtitles' || r?.name === 'subtitles'
-      )
-      if (!hasSubtitles) continue
-      try {
-        const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
+    const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
+
+    const eligible = addons.filter(a =>
+      (a.resources || []).some(r => r === 'subtitles' || r?.name === 'subtitles')
+    )
+    const settled = await Promise.allSettled(
+      eligible.map(async addon => {
         const base = addon.manifestUrl.replace('/manifest.json', '')
-        const res = await fetch(`${base}/subtitles/${stremioType}/${id}.json`)
-        if (!res.ok) continue
+        const res = await fetch(`${base}/subtitles/${stremioType}/${id}.json`, { signal: AbortSignal.timeout(8000) })
+        if (!res.ok) return []
         const data = await res.json()
-        if (data.subtitles?.length) {
-          results.push(...data.subtitles.map(s => ({
-            id:   s.id   || s.url,
-            url:  s.url,
-            lang: s.lang || s.id || 'Unknown',
-            label: s.lang || s.id || 'Unknown',
-            addonName: addon.name,
-          })))
-        }
-      } catch { /* skip */ }
-    }
-    return results
+        return (data.subtitles || []).map(s => ({
+          id:        s.id   || s.url,
+          url:       s.url,
+          lang:      s.lang || s.id || 'Unknown',
+          label:     s.lang || s.id || 'Unknown',
+          addonName: addon.name,
+        }))
+      })
+    )
+
+    return settled.flatMap(r => r.status === 'fulfilled' ? r.value : [])
   }
 
   return (

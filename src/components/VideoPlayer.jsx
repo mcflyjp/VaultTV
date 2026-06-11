@@ -106,6 +106,8 @@ export default function VideoPlayer() {
   const [hoverX,         setHoverX]         = useState(0)
   const [timelineActive, setTimelineActiveState] = useState(false)
   const [backToast, setBackToast] = useState(false)
+  const [upNextCountdown, setUpNextCountdown] = useState(null) // null | number (seconds left)
+  const upNextTimer = useRef(null)
   const backToastTimer  = useRef(null)
   const backPressedOnce = useRef(false)
   // FireTV scrubbing state
@@ -159,8 +161,13 @@ export default function VideoPlayer() {
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
     setSettingsOpen(false); setTranscoding(false); setAutoSubFetching(false)
-    setBuffering(true); setShowNoAudio(false)
+    setBuffering(true); setShowNoAudio(false); setShowControls(true)
     clearTimeout(noAudioTimer.current)
+    clearInterval(upNextTimer.current)
+    setUpNextCountdown(null)
+    // Auto-hide controls after a moment on each new episode load
+    clearTimeout(hideTimer.current)
+    hideTimer.current = setTimeout(() => setShowControls(false), HIDE_DELAY)
     rawUrlRef.current = session.url || ''
 
     // Auto-select subtitle track by preferred language, fall back to English then first
@@ -448,15 +455,6 @@ export default function VideoPlayer() {
   }
 
   // ── Video events ──────────────────────────────────────────────
-  function onTimeUpdate(e) {
-    const v = e.currentTarget
-    setCurrentTime(v.currentTime)
-    if (v.duration > 0) {
-      const b = v.buffered
-      if (b.length) setBuffered((b.end(b.length - 1) / v.duration) * 100)
-    }
-    session?.onProgress?.(v.currentTime, v.duration)
-  }
 
   function onPlay()    {
     setPlaying(true)
@@ -473,7 +471,50 @@ export default function VideoPlayer() {
     }
   }
   function onPause()   { setPlaying(false) }
-  function onEnded()   { setPlaying(false) }
+
+  function onEnded() {
+    setPlaying(false)
+    clearInterval(upNextTimer.current)
+    setUpNextCountdown(null)
+    if (session?.onEpisodeEnded) {
+      session.onEpisodeEnded()
+    } else if (session?.onPlaybackEnded) {
+      session.onPlaybackEnded()
+    }
+  }
+
+  // Show "Up Next" countdown 30s before the end for TV episodes
+  function onTimeUpdate(e) {
+    const v = e.currentTarget
+    if (v.duration && isFinite(v.duration)) {
+      setCurrentTime(v.currentTime)
+      if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1))
+      if (progressRef.current) progressRef.current.value = v.currentTime
+      session?.onProgress?.(v.currentTime, v.duration)
+
+      // Up Next countdown — only for TV episodes with a next-ep handler
+      if (session?.onEpisodeEnded && session?.episode) {
+        const timeLeft = v.duration - v.currentTime
+        if (timeLeft <= 30 && timeLeft > 0 && upNextCountdown === null) {
+          // Start countdown
+          setUpNextCountdown(Math.ceil(timeLeft))
+          upNextTimer.current = setInterval(() => {
+            setUpNextCountdown(prev => {
+              if (prev === null) { clearInterval(upNextTimer.current); return null }
+              if (prev <= 1)    { clearInterval(upNextTimer.current); return null }
+              return prev - 1
+            })
+          }, 1000)
+        }
+      }
+    }
+  }
+
+  function dismissUpNext() {
+    clearInterval(upNextTimer.current)
+    setUpNextCountdown(null)
+  }
+
   function onWaiting() { setBuffering(true) }
   function onCanPlay() { setBuffering(false) }
 
@@ -893,6 +934,32 @@ export default function VideoPlayer() {
           animation: 'fadeInDown 0.2s ease',
         }}>
           Press back again to exit the player
+        </div>
+      )}
+
+      {/* ── Up Next countdown overlay ──────────────────────────── */}
+      {upNextCountdown !== null && (
+        <div style={{
+          position: 'absolute', bottom: '5rem', right: '2rem',
+          background: 'rgba(0,0,0,0.85)', border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 10, padding: '0.75rem 1.1rem',
+          display: 'flex', alignItems: 'center', gap: '1rem',
+          zIndex: 9999, animation: 'fadeInDown 0.25s ease',
+        }}>
+          <div>
+            <p style={{ margin: 0, fontSize: '0.72rem', color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Up Next</p>
+            <p style={{ margin: '2px 0 0', fontSize: '0.95rem', fontWeight: 700, color: '#fff' }}>Next Episode</p>
+            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>Starts in {upNextCountdown}s</p>
+          </div>
+          <button
+            onClick={dismissUpNext}
+            style={{
+              padding: '0.4rem 0.9rem', borderRadius: 6, border: '1px solid rgba(255,255,255,0.3)',
+              background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600,
+            }}
+          >
+            Cancel
+          </button>
         </div>
       )}
 

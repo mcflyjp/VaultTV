@@ -25,9 +25,14 @@ const { spawn }    = require('child_process')
 const os           = require('os')
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
-const SERVER_DIR  = __dirname
-const CONFIG_FILE = path.join(SERVER_DIR, 'config.json')
-const DIST_DIR    = path.join(SERVER_DIR, '..', 'dist')
+const SERVER_DIR = __dirname
+const DIST_DIR   = path.join(SERVER_DIR, '..', 'dist')
+
+// When packaged (Electron), config lives in %APPDATA%/VaultTV so it's user-writable.
+// The tray app passes VAULTTV_CONFIG_DIR to point here. Standalone .bat usage
+// falls back to the script directory as before.
+const CONFIG_DIR  = process.env.VAULTTV_CONFIG_DIR || SERVER_DIR
+const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 
 // Persistent data lives in %APPDATA%\VaultTV (or ~/.config/VaultTV on Linux/Mac)
 const DATA_DIR = path.join(
@@ -47,6 +52,8 @@ let config = {
   tmdbKey:     '',
   jwtSecret:   generateSecret(),
   sessionDays: 30,
+  tunnelUrl:   '',
+  serverToken: generateSecret(), // stable ID used to register with the relay
   folders:     [],
 }
 
@@ -118,6 +125,42 @@ app.use(express.json({ limit: '50mb' }))
 app.use(cookieParser())
 
 // ── Auth routes (no auth required) ───────────────────────────────────────────
+
+// ── SSO: Supabase token → vt_session cookie ───────────────────────────────────
+// Called by the public web app after Supabase login when the user has a
+// server_url set. Validates the Supabase access token by calling the Supabase
+// /auth/v1/user endpoint, then mints a local vt_session cookie.
+app.get('/auth/sso', async (req, res) => {
+  const token = req.query.token
+  if (!token) return res.redirect('/__login?error=missing_token')
+
+  // Only works if supabaseUrl + supabaseAnonKey are configured
+  if (!config.supabaseUrl || !config.supabaseAnonKey) {
+    return res.redirect('/__login?error=supabase_not_configured')
+  }
+
+  try {
+    const r = await fetch(`${config.supabaseUrl}/auth/v1/user`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'apikey': config.supabaseAnonKey,
+      },
+    })
+    if (!r.ok) return res.redirect('/__login?error=invalid_token')
+    // Token is valid — create a local server session
+    const vtToken = signToken({ role: 'admin', sso: true })
+    res.cookie('vt_session', vtToken, {
+      httpOnly: true,
+      sameSite: 'none',
+      secure: !req.headers.host?.includes('localhost'),
+      maxAge: SESSION_MS,
+    })
+    res.redirect('/')
+  } catch (e) {
+    console.error('[auth/sso] Error verifying Supabase token:', e.message)
+    res.redirect('/__login?error=sso_failed')
+  }
+})
 
 // Setup check — used by login page to know if setup is needed
 app.get('/auth/status', (req, res) => {
@@ -253,8 +296,14 @@ app.delete('/folders/:id', (req, res) => {
 app.get('/folders/:id/scan', (req, res) => {
   const folder = watchedFolders.find(f => f.id === req.params.id)
   if (!folder) return res.status(404).json({ error: 'Not found' })
-  try { res.json({ id: folder.id, files: scanDir(folder.folderPath), count: 0 }) }
-  catch (e) { res.status(500).json({ error: e.message }) }
+  try {
+    const files = scanDir(folder.folderPath)
+    console.log(`[scan] ${folder.id} → ${folder.folderPath} → ${files.length} files`)
+    res.json({ id: folder.id, files, count: files.length })
+  } catch (e) {
+    console.error(`[scan] ${folder.id} error:`, e.message)
+    res.status(500).json({ error: e.message })
+  }
 })
 
 function startWatcher(folder) {
@@ -287,7 +336,7 @@ function handleChange(folder, action, filePath) {
 function scanDir(dir, depth = 0, results = [], rootFolder = null) {
   if (depth > 8) return results
   let entries
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return results }
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) { console.warn(`[scan] cannot read dir: ${dir} — ${e.message}`); return results }
   for (const e of entries) {
     const full = path.join(dir, e.name)
     if (e.isDirectory()) scanDir(full, depth + 1, results, depth === 0 ? e.name : rootFolder)
@@ -479,11 +528,14 @@ app.get('/__admin', (req, res) => {
 // Save general settings (serverName, tmdbKey, sessionDays)
 app.post('/__admin/settings', (req, res) => {
   if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
-  const { serverName, tmdbKey, sessionDays } = req.body || {}
+  const { serverName, tmdbKey, sessionDays, tunnelUrl, supabaseUrl, supabaseAnonKey } = req.body || {}
   const updated = { ...config }
-  if (serverName !== undefined) updated.serverName = serverName.trim()
-  if (tmdbKey    !== undefined) updated.tmdbKey    = tmdbKey.trim()
-  if (sessionDays !== undefined && parseInt(sessionDays) > 0) updated.sessionDays = parseInt(sessionDays)
+  if (serverName    !== undefined) updated.serverName    = serverName.trim()
+  if (tmdbKey       !== undefined) updated.tmdbKey       = tmdbKey.trim()
+  if (sessionDays   !== undefined && parseInt(sessionDays) > 0) updated.sessionDays = parseInt(sessionDays)
+  if (tunnelUrl     !== undefined) updated.tunnelUrl     = tunnelUrl.trim()
+  if (supabaseUrl   !== undefined) updated.supabaseUrl   = supabaseUrl.trim()
+  if (supabaseAnonKey !== undefined) updated.supabaseAnonKey = supabaseAnonKey.trim()
   config = updated
   try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') }
   catch (e) { return res.status(500).json({ error: e.message }) }
@@ -554,6 +606,8 @@ function serveApp(res) {
     window.__VAULTTV_SERVER = true;
     window.__TMDB_KEY = ${JSON.stringify(config.tmdbKey || '')};
     window.__COMPANION_ONLINE = true;
+    window.__SUPABASE_URL = ${JSON.stringify(config.supabaseUrl || '')};
+    window.__SUPABASE_ANON_KEY = ${JSON.stringify(config.supabaseAnonKey || '')};
   </script>`
   html = html.replace('</head>', inject + '\n</head>')
   res.setHeader('Content-Type', 'text/html')
@@ -763,6 +817,10 @@ function adminPage() {
       <div class="stat"><div class="stat-val" id="s-uptime">—</div><div class="stat-lbl">Uptime</div></div>
       <div class="stat"><div class="stat-val" style="color:${config.tmdbKey ? '#34d399' : '#f87171'}">${config.tmdbKey ? '✓' : '✗'}</div><div class="stat-lbl">TMDB key</div></div>
     </div>
+    <div style="margin-top:1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <button class="btn btn-primary" id="rescan-btn" onclick="triggerRescan()" ${config.tmdbKey ? '' : 'disabled title="Add a TMDB key first"'}>Rescan Library</button>
+      <span id="rescan-status" style="font-size:.82rem;color:rgba(255,255,255,.5)"></span>
+    </div>
   </div>
 
   <!-- Media Folders -->
@@ -804,7 +862,38 @@ function adminPage() {
       <label>Session length (days)</label>
       <input type="number" id="sessionDays" value="${config.sessionDays || 30}" min="1" max="365" style="width:120px">
     </div>
+    <div class="field">
+      <label>Remote access URL <span style="font-size:.8rem;color:rgba(255,255,255,.4)">(Cloudflare Tunnel)</span></label>
+      <input type="text" id="tunnelUrl" value="${escHtml(config.tunnelUrl || '')}" placeholder="https://your-tunnel.trycloudflare.com">
+      <p style="margin:.35rem 0 0;font-size:.8rem;color:rgba(255,255,255,.4)">Paste your Cloudflare Tunnel URL here to access VaultTV from outside your home network.</p>
+    </div>
+    <div class="field">
+      <label>Supabase URL <span style="font-size:.8rem;color:rgba(255,255,255,.4)">(required for remote access)</span></label>
+      <input type="text" id="supabaseUrl" value="${escHtml(config.supabaseUrl || '')}" placeholder="https://yourproject.supabase.co">
+    </div>
+    <div class="field">
+      <label>Supabase Anon Key</label>
+      <input type="text" id="supabaseAnonKey" value="${escHtml(config.supabaseAnonKey || '')}" placeholder="eyJ...">
+    </div>
     <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
+  </div>
+
+  <!-- Remote Access / Relay -->
+  <div class="section">
+    <div class="section-title">Remote Access — VaultTV Relay</div>
+    <p style="font-size:.85rem;color:rgba(255,255,255,.5);margin-bottom:1rem;line-height:1.6">
+      Link your VaultTV account so clients can find this server automatically after login — no manual URL entry needed.
+    </p>
+    <div id="relay-status" style="margin-bottom:1rem;font-size:.85rem;color:rgba(255,255,255,.4)">Checking relay status…</div>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+      <button class="btn btn-primary" onclick="linkWithGoogle()">Sign in with Google</button>
+      <span style="color:rgba(255,255,255,.25);font-size:.85rem">or</span>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <input type="email" id="link-email" placeholder="your@email.com" style="width:220px;margin:0">
+        <button class="btn btn-primary" onclick="linkWithMagicLink()">Send Magic Link</button>
+      </div>
+    </div>
+    <p id="magic-link-msg" style="margin:.6rem 0 0;font-size:.82rem;color:rgba(255,255,255,.35)">Sign in with your VaultTV account to link this server.</p>
   </div>
 
   <!-- Change Password -->
@@ -834,6 +923,37 @@ function adminPage() {
     const s=d.uptime,h=Math.floor(s/3600),m=Math.floor((s%3600)/60)
     document.getElementById('s-uptime').textContent = h>0 ? h+'h '+m+'m' : m+'m'
   }).catch(()=>{})
+
+  // Rescan status polling
+  let rescanPoll
+  function updateRescanStatus(){
+    fetch('/__admin/rescan/status').then(r=>r.json()).then(d=>{
+      const el=document.getElementById('rescan-status')
+      const btn=document.getElementById('rescan-btn')
+      if(d.running){
+        el.textContent='⏳ Scanning…'
+        btn.disabled=true
+        if(!rescanPoll) rescanPoll=setInterval(updateRescanStatus,3000)
+      } else {
+        clearInterval(rescanPoll); rescanPoll=null
+        btn.disabled=false
+        if(d.lastResult){
+          const sec=Math.round(d.lastResult.durationMs/1000)
+          const when=d.lastRun ? new Date(d.lastRun).toLocaleString() : ''
+          el.textContent='Last run: '+when+' — '+d.lastResult.total+' files, '+d.lastResult.matched+' matched ('+sec+'s)'
+        } else {
+          el.textContent=''
+        }
+      }
+    }).catch(()=>{})
+  }
+  updateRescanStatus()
+
+  async function triggerRescan(){
+    const {ok,data}=await api('POST','/__admin/rescan')
+    if(ok){ toast(data.message||'Rescan started'); updateRescanStatus() }
+    else { toast(data.error||'Failed to start rescan',false) }
+  }
 
   function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
@@ -895,9 +1015,110 @@ function adminPage() {
       serverName:document.getElementById('serverName').value.trim(),
       tmdbKey:document.getElementById('tmdbKey').value.trim(),
       sessionDays:parseInt(document.getElementById('sessionDays').value)||30,
+      tunnelUrl:document.getElementById('tunnelUrl').value.trim(),
+      supabaseUrl:document.getElementById('supabaseUrl').value.trim(),
+      supabaseAnonKey:document.getElementById('supabaseAnonKey').value.trim(),
     })
     ok ? toast('Settings saved') : toast(data.error||'Failed to save',false)
   }
+
+  // Check relay registration status on page load
+  async function checkRelayStatus() {
+    const el = document.getElementById('relay-status')
+    if (!el) return
+    try {
+      const res = await fetch('/__admin/relay/status')
+      const d = await res.json()
+      if (d.linked && d.tunnelUrl) {
+        el.innerHTML = '<span style="color:#34d399">✓ Linked</span> — remote clients will be redirected to <strong>' + d.tunnelUrl + '</strong>'
+      } else if (d.linked) {
+        el.innerHTML = '<span style="color:#fbbf24">⚠ Linked but no tunnel URL set</span> — add a tunnel URL in General settings above.'
+      } else {
+        el.innerHTML = '<span style="color:rgba(255,255,255,.35)">Not linked yet — click Link My Account below.</span>'
+      }
+    } catch { el.textContent = 'Could not check relay status.' }
+  }
+  checkRelayStatus()
+
+  function getSupabaseCreds() {
+    const url = '${escHtml(config.supabaseUrl || '')}'
+    const key = '${escHtml(config.supabaseAnonKey || '')}'
+    if (!url || !key) { toast('Add Supabase URL and Anon Key in General settings first', false); return null }
+    return { url, key }
+  }
+
+  async function linkWithGoogle() {
+    const creds = getSupabaseCreds(); if (!creds) return
+    const redirectTo = window.location.origin + '/__admin?relay=claim'
+    const oauthUrl = creds.url + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(redirectTo)
+    const popup = window.open(oauthUrl, 'vaulttv-auth', 'width=500,height=650,left=200,top=100')
+    if (!popup) toast('Pop-up blocked — allow pop-ups for this page and try again', false)
+  }
+
+  async function linkWithMagicLink() {
+    const creds = getSupabaseCreds(); if (!creds) return
+    const email = document.getElementById('link-email').value.trim()
+    if (!email) { toast('Enter your email address first', false); return }
+    const redirectTo = window.location.origin + '/__admin?relay=claim'
+    const res = await fetch(creds.url + '/auth/v1/magiclink', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: creds.key },
+      body: JSON.stringify({ email, options: { emailRedirectTo: redirectTo } }),
+    })
+    if (res.ok) {
+      document.getElementById('magic-link-msg').textContent = '✓ Check your email — click the link to complete linking.'
+      document.getElementById('magic-link-msg').style.color = '#34d399'
+    } else {
+      const d = await res.json().catch(() => ({}))
+      toast(d.error_description || d.msg || 'Failed to send magic link', false)
+    }
+  }
+
+  // On page load: if this is the OAuth return popup, complete the claim and close
+  async function handleOAuthReturn() {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('relay') !== 'claim') return
+    const hash = new URLSearchParams(window.location.hash.slice(1))
+    const accessToken = hash.get('access_token')
+    // Show a "closing" page immediately — don't render the full admin UI
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:-apple-system,sans-serif;background:#0a0a0f;color:#e5e5ea;flex-direction:column;gap:1rem"><div id="msg" style="font-size:1.1rem;font-weight:600">Linking account…</div></div>'
+    const msg = document.getElementById('msg')
+    if (!accessToken) { msg.textContent = '❌ No token found — please try again.'; return }
+    try {
+      const res = await fetch('/__admin/relay/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cookie': document.cookie },
+        credentials: 'include',
+        body: JSON.stringify({ supabaseToken: accessToken }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        msg.innerHTML = '✓ Account linked! You can close this window.'
+        msg.style.color = '#34d399'
+        // Notify the opener so it refreshes relay status
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage('relay-claimed', window.location.origin)
+        }
+        setTimeout(() => window.close(), 2000)
+      } else {
+        msg.textContent = '❌ ' + (data.error || 'Failed to link — please try again.')
+        msg.style.color = '#f87171'
+      }
+    } catch (e) {
+      msg.textContent = '❌ Error: ' + e.message
+      msg.style.color = '#f87171'
+    }
+  }
+
+  // Listen for the popup completing the claim
+  window.addEventListener('message', e => {
+    if (e.origin === window.location.origin && e.data === 'relay-claimed') {
+      checkRelayStatus()
+      toast('Account linked! Remote access is now active.')
+    }
+  })
+
+  handleOAuthReturn()
 
   async function changePassword(){
     const cur=document.getElementById('cur-pw').value
@@ -947,6 +1168,245 @@ function buildRequiredPage() {
 </div>`)
 }
 
+// ── Server-side TMDB matching ─────────────────────────────────────────────────
+
+function parseFilename(filename) {
+  let name = filename.slice(0, filename.lastIndexOf('.')) || filename
+  const tvMatch = name.match(/^(.+?)[.\s_-]+[Ss](\d{1,2})[Ee](\d{1,2})/i)
+  if (tvMatch) {
+    const rawTitle = tvMatch[1].replace(/[._]/g, ' ').trim()
+    return { title: cleanTitle(rawTitle), year: null, season: Number(tvMatch[2]), episode: Number(tvMatch[3]), isTV: true }
+  }
+  const yearParen = name.match(/^(.+?)\s*\((\d{4})\)/)
+  if (yearParen) return { title: cleanTitle(yearParen[1]), year: yearParen[2], isTV: false }
+  const yearDot = name.match(/^(.+?)[.\s](\d{4})[.\s]/)
+  if (yearDot) return { title: cleanTitle(yearDot[1]), year: yearDot[2], isTV: false }
+  return { title: cleanTitle(name), year: null, isTV: false }
+}
+
+function cleanTitle(raw) {
+  return raw.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function cleanFolderName(name) {
+  return name.replace(/\s*\(\d{4}\)\s*$/, '').replace(/\s*\[\d{4}\]\s*$/, '').trim()
+}
+
+function parseQuality(filename) {
+  const f = filename.toUpperCase()
+  let score = 0, resolution = '', source = '', codec = ''
+  if (/2160P|4K|UHD/.test(f))       { resolution = '4K';    score += 4000 }
+  else if (/1080P/.test(f))          { resolution = '1080p'; score += 1080 }
+  else if (/720P/.test(f))           { resolution = '720p';  score += 720  }
+  else if (/480P/.test(f))           { resolution = '480p';  score += 480  }
+  else                               { resolution = 'SD';    score += 100  }
+  if (/BLURAY|BDRIP|BLU-RAY/.test(f))          { source = 'BluRay'; score += 300 }
+  else if (/WEB-DL|WEBDL/.test(f))             { source = 'WEB-DL'; score += 220 }
+  else if (/AMZN|DSNP|NF|HULU|ATVP|HBO/.test(f)){ source = 'WEB';  score += 200 }
+  else if (/WEBRIP/.test(f))                   { source = 'WEBRip'; score += 180 }
+  else if (/HDTV/.test(f))                     { source = 'HDTV';   score += 100 }
+  else if (/DVDRIP|DVD/.test(f))               { source = 'DVDRip'; score += 50  }
+  if (/AV1/.test(f))                           { codec = 'AV1';   score += 20 }
+  else if (/X265|H\.265|HEVC/.test(f))         { codec = 'HEVC';  score += 15 }
+  else if (/X264|H\.264|AVC/.test(f))          { codec = 'H.264'; score += 5  }
+  const label = [resolution, source, codec].filter(Boolean).join(' ') || 'Unknown'
+  return { resolution, source, codec, score, label }
+}
+
+function titleScore(resultTitle, query) {
+  const norm = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+  const a = norm(resultTitle), b = norm(query)
+  if (a === b) return 100
+  const queryWords = b.split(' ').filter(Boolean)
+  const resultWords = new Set(a.split(' ').filter(Boolean))
+  const overlap = queryWords.filter(w => resultWords.has(w)).length
+  const lenPenalty = Math.abs(a.length - b.length) / Math.max(a.length, b.length)
+  return Math.round((overlap / Math.max(queryWords.length, 1) * 0.7 + (1 - lenPenalty) * 0.3) * 99)
+}
+
+async function matchTmdb(parsed, tmdbKey, forceType) {
+  if (!tmdbKey) return null
+  const { title, year, isTV } = parsed
+  const type = forceType || (isTV ? 'tv' : 'movie')
+  const base = 'https://api.themoviedb.org/3'
+  try {
+    const params = new URLSearchParams({ api_key: tmdbKey, query: title, language: 'en-US' })
+    if (year) params.set('year', year)
+    const res = await fetch(`${base}/search/${type}?${params}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    const results = data.results || []
+    if (!results.length) {
+      const res2 = await fetch(`${base}/search/multi?${new URLSearchParams({ api_key: tmdbKey, query: title })}`)
+      if (!res2.ok) return null
+      const data2 = await res2.json()
+      const r = (data2.results || []).find(r => r.media_type === 'movie' || r.media_type === 'tv')
+      return r ? normaliseTmdb(r, r.media_type) : null
+    }
+    const best = results.reduce((b, r) => {
+      const s = titleScore(r.title || r.name || '', title)
+      return (!b || s > b._score) ? { ...r, _score: s } : b
+    }, null)
+    return best ? normaliseTmdb(best, type) : null
+  } catch { return null }
+}
+
+function normaliseTmdb(r, type) {
+  return {
+    tmdbId: r.id, title: r.title || r.name || '', media_type: type,
+    poster_path: r.poster_path || null,
+    year: (r.release_date || r.first_air_date || '').slice(0, 4),
+    overview: r.overview || '', vote_average: r.vote_average || 0,
+  }
+}
+
+// ── Server-side rescan ────────────────────────────────────────────────────────
+
+let rescanRunning = false
+let rescanCancelled = false
+let rescanLastRun = null
+let rescanLastResult = null // { total, matched, durationMs }
+
+async function rescanAllFolders() {
+  if (rescanRunning) return
+  if (!config.tmdbKey) { console.warn('[rescan] No TMDB key configured — skipping'); return }
+  rescanRunning = true
+  rescanCancelled = false
+  const startMs = Date.now()
+  console.log(`[rescan] Starting full library rescan (${watchedFolders.length} folders)`)
+
+  try {
+    const existing = loadJson(LIBRARY_FILE, { sources: [], files: [] })
+    const existingByKey = Object.fromEntries(
+      (existing.files || []).map(f => [`${f.sourceId}::${f.showFolder || ''}::${f.filename}`, f])
+    )
+
+    const allFiles = []
+    const nextSources = []
+
+    for (const folder of watchedFolders) {
+      if (rescanCancelled) { console.log('[rescan] Cancelled by user'); break }
+      if (!fs.existsSync(folder.folderPath)) {
+        console.warn(`[rescan] Skipping missing folder: ${folder.folderPath}`)
+        nextSources.push({ id: folder.id, name: folder.name, type: folder.type, dirName: folder.name, folderPath: folder.folderPath, fileCount: 0, scannedAt: Date.now() })
+        continue
+      }
+
+      const raw = scanDir(folder.folderPath)
+      console.log(`[rescan] ${folder.id}: ${raw.length} files found`)
+      const results = []
+      const seen = new Set()
+
+      for (const { name, path: filePath, rootFolder } of raw) {
+        const fileKey = `${rootFolder || ''}::${name}`
+        if (seen.has(fileKey)) continue
+        seen.add(fileKey)
+
+        const cacheKey = `${folder.id}::${rootFolder || ''}::${name}`
+        const cached = existingByKey[cacheKey]
+        if (cached && cached.matched !== false) {
+          results.push({ ...cached, companionPath: filePath })
+          continue
+        }
+
+        const parsed = parseFilename(name)
+        const titleForTmdb = folder.type === 'tv' && rootFolder ? cleanFolderName(rootFolder) : parsed.title
+        const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: folder.type === 'tv' }, config.tmdbKey, folder.type)
+        const quality = parseQuality(name)
+
+        results.push({
+          id:           `${folder.id}::${fileKey}`,
+          filename:     name,
+          sourceId:     folder.id,
+          sourceType:   folder.type,
+          showFolder:   rootFolder || null,
+          tmdbId:       match?.tmdbId       || null,
+          title:        match?.title        || titleForTmdb || parsed.title,
+          media_type:   match?.media_type   || folder.type,
+          poster_path:  match?.poster_path  || null,
+          year:         match?.year         || parsed.year || '',
+          overview:     match?.overview     || '',
+          vote_average: match?.vote_average || 0,
+          parsedSeason:  parsed.season  || null,
+          parsedEpisode: parsed.episode || null,
+          matched:      !!match,
+          qualityScore: quality.score,
+          qualityLabel: quality.label,
+          companionPath: filePath,
+        })
+      }
+
+      allFiles.push(...results)
+      nextSources.push({ id: folder.id, name: folder.name, type: folder.type, dirName: folder.name, folderPath: folder.folderPath, fileCount: results.length, scannedAt: Date.now() })
+      console.log(`[rescan] ${folder.id}: ${results.length} matched`)
+    }
+
+    saveJson(LIBRARY_FILE, { sources: nextSources, files: allFiles })
+    broadcast('library-updated', { total: allFiles.length, sources: nextSources.length })
+
+    const matched = allFiles.filter(f => f.matched).length
+    const durationMs = Date.now() - startMs
+    rescanLastRun = new Date().toISOString()
+    rescanLastResult = { total: allFiles.length, matched, durationMs }
+    console.log(`[rescan] Done — ${allFiles.length} files, ${matched} matched (${Math.round(durationMs / 1000)}s)`)
+  } catch (e) {
+    console.error('[rescan] Error:', e.message)
+  } finally {
+    rescanRunning = false
+  }
+}
+
+// Trigger rescan endpoint
+app.post('/__admin/rescan', (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  if (rescanRunning) return res.json({ ok: true, message: 'Rescan already in progress' })
+  rescanAllFolders()
+  res.json({ ok: true, message: 'Rescan started' })
+})
+
+// Rescan status
+app.get('/__admin/rescan/status', (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  res.json({ running: rescanRunning, lastRun: rescanLastRun, lastResult: rescanLastResult })
+})
+
+// ── Internal endpoints (localhost only, no auth — used by tray icon) ──────────
+app.use('/internal', (req, res, next) => {
+  const ip = req.socket.remoteAddress || ''
+  if (ip !== '127.0.0.1' && ip !== '::1' && ip !== '::ffff:127.0.0.1') {
+    return res.status(403).json({ error: 'Localhost only' })
+  }
+  next()
+})
+
+app.post('/internal/reload-config', (req, res) => {
+  try {
+    const fresh = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
+    config = { ...config, ...fresh }
+    res.json({ ok: true })
+    // Re-register with relay if tunnel URL changed
+    if (config.tunnelUrl && config.relayLinked) registerWithRelay()
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/internal/status', (req, res) => {
+  res.json({ running: rescanRunning, lastRun: rescanLastRun, lastResult: rescanLastResult, version: '1.0.0', tunnelUrl: config.tunnelUrl || '' })
+})
+
+app.post('/internal/rescan', (req, res) => {
+  if (rescanRunning) return res.json({ ok: true, message: 'Already running' })
+  rescanAllFolders()
+  res.json({ ok: true, message: 'Rescan started' })
+})
+
+app.post('/internal/cancel-rescan', (req, res) => {
+  if (!rescanRunning) return res.json({ ok: true, message: 'Nothing to cancel' })
+  rescanCancelled = true
+  res.json({ ok: true, message: 'Cancellation requested' })
+})
+
 // ── Startup ───────────────────────────────────────────────────────────────────
 for (const folder of watchedFolders) {
   if (fs.existsSync(folder.folderPath)) startWatcher(folder)
@@ -966,6 +1426,67 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`   Watching ${watchedFolders.length} folder(s)`)
     console.log(`   TMDB key: ${config.tmdbKey ? 'configured ✓' : 'NOT SET — add tmdbKey to config.json'}`)
     console.log()
+    if (config.tmdbKey && watchedFolders.length) {
+      setTimeout(() => rescanAllFolders(), 5000)
+      setInterval(() => rescanAllFolders(), 24 * 60 * 60 * 1000)
+    }
+    // Register with relay so remote clients can find this server
+    registerWithRelay()
+  }
+})
+
+const RELAY_URL = 'https://vaulttv-relay.jeremypulis.workers.dev'
+
+async function registerWithRelay() {
+  if (!config.tunnelUrl || !config.serverToken) return
+  try {
+    const res = await fetch(`${RELAY_URL}/api/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.serverToken}` },
+      body: JSON.stringify({ tunnelUrl: config.tunnelUrl, version: '1.0.0' }),
+    })
+    if (res.ok) {
+      console.log(`   Relay: registered ✓  ${config.tunnelUrl}`)
+      setInterval(() => {
+        fetch(`${RELAY_URL}/api/heartbeat`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${config.serverToken}` },
+        }).catch(() => {})
+      }, 60_000)
+    } else {
+      const body = await res.json().catch(() => ({}))
+      console.warn(`   Relay: registration failed — ${body.error || res.status}`)
+      if (res.status === 403) console.warn('   Relay: link your account in Server Admin → Remote Access')
+    }
+  } catch (e) {
+    console.warn('   Relay: registration failed —', e.message)
+  }
+}
+
+app.get('/__admin/relay/status', (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  res.json({ linked: !!config.relayLinked, tunnelUrl: config.tunnelUrl || null })
+})
+
+// Called from admin page — links this server's token to the signed-in user's account
+app.post('/__admin/relay/claim', async (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  const { supabaseToken } = req.body || {}
+  if (!supabaseToken) return res.status(400).json({ error: 'supabaseToken required' })
+  try {
+    const relayRes = await fetch(`${RELAY_URL}/api/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${supabaseToken}` },
+      body: JSON.stringify({ serverToken: config.serverToken }),
+    })
+    const data = await relayRes.json()
+    if (!relayRes.ok) return res.status(relayRes.status).json(data)
+    config.relayLinked = true
+    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') } catch {}
+    registerWithRelay()
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
   }
 })
 

@@ -2,7 +2,14 @@ import { useState } from 'react'
 import { FiCamera, FiExternalLink, FiChevronDown, FiChevronUp, FiCheckCircle, FiAlertTriangle, FiInfo } from 'react-icons/fi'
 
 // ── Screenshot placeholder ──────────────────────────────────────────────────
-function Screenshot({ label, tall }) {
+function Screenshot({ label, tall, src }) {
+  if (src) {
+    return (
+      <div style={{ margin: '0.75rem 0', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+        <img src={src} alt={label} style={{ width: '100%', display: 'block' }} />
+      </div>
+    )
+  }
   return (
     <div style={{
       width: '100%',
@@ -147,17 +154,17 @@ export default function Guide() {
 
         <Step n={1} title="Create your account">
           Go to <strong>real-debrid.com</strong> and register a free account. No payment is required yet.
-          <Screenshot label="Screenshot: real-debrid.com homepage → Register button" />
+          <Screenshot src="/guide/rd-signup.png" label="Real-Debrid sign-up form" />
         </Step>
 
         <Step n={2} title="Choose a subscription">
           Click <strong>Premium offers</strong> in the top navigation. Select a plan (180-day is the best value). Pay via card, PayPal, or crypto.
-          <Screenshot label="Screenshot: Real-Debrid premium plans page" />
+          <Screenshot src="/guide/rd-plans.png" label="Real-Debrid premium plans page" />
         </Step>
 
         <Step n={3} title="Copy your API key">
-          Once subscribed, go to <strong>My Account → API Key</strong> (or navigate directly to <Code>real-debrid.com/apitoken</Code>). Copy the long token — you will paste this into each stream add-on.
-          <Screenshot label="Screenshot: real-debrid.com/apitoken — API key highlighted" />
+          Once subscribed, click your username in the top navigation and go to <strong>My Devices</strong>. Scroll all the way to the bottom to find the <strong>API Private Token</strong> section. Copy the long token — you will paste this into each stream add-on.
+          <Screenshot src="/guide/rd-apikey.png" label="Real-Debrid My Devices — API Private Token at bottom" />
           <Tip>Keep this key private. Anyone with it can use your Real-Debrid quota.</Tip>
         </Step>
       </GuideSection>
@@ -175,29 +182,29 @@ export default function Guide() {
         </p>
 
         <Step n={1} title="Open the Comet configuration page">
-          In your browser, go to the <strong>Comet self-hosted configurator</strong>. The most popular public instance is hosted by ElfHosted. Search "Comet Stremio configurator" to find the current URL, or use one your community recommends.
-          <Screenshot label="Screenshot: Comet configuration page in browser" />
+          In your browser, go to <strong>comet.elfhosted.com</strong> — the public instance hosted by ElfHosted. Reasonable rate limits apply so it stays fast for everyone.
+          <Screenshot src="/guide/comet-config.png" label="Comet configurator page" />
         </Step>
 
-        <Step n={2} title="Paste your Real-Debrid API key">
-          Find the <strong>Debrid Provider</strong> section. Select <strong>Real-Debrid</strong> from the dropdown and paste your API key into the field below it.
-          <Screenshot label="Screenshot: Comet config — Debrid Provider = Real-Debrid, API key field filled" />
+        <Step n={2} title="Add your Real-Debrid API key">
+          Scroll down to the <strong>Debrid Services</strong> section and click <strong>Add Debrid Service</strong>. Select <strong>Real-Debrid</strong> from the dropdown and paste your API key into the field on the right.
+          <Screenshot src="/guide/comet-debrid.png" label="Comet — Debrid Services with Real-Debrid selected and API key field" />
         </Step>
 
-        <Step n={3} title="Configure resolution and language filters (optional)">
-          You can filter by resolution (1080p, 4K, etc.), language, and file size. Leave defaults for the widest selection.
-          <Screenshot label="Screenshot: Comet config — resolution/language filter options" />
+        <Step n={3} title="Configure resolution and size filters (optional)">
+          At the top you can set preferred resolutions, max results per resolution, and max file size. Leave at defaults (0 = unlimited) for the widest selection.
+          <Screenshot src="/guide/comet-resolution.png" label="Comet — resolution and size filter options" />
         </Step>
 
-        <Step n={4} title="Copy the manifest URL">
-          Scroll to the bottom and click <strong>Install</strong> or <strong>Copy URL</strong>. You will get a long URL ending in <Code>/manifest.json</Code>. Copy the entire URL.
-          <Screenshot label="Screenshot: Comet config bottom — manifest URL and Install button" />
-          <Tip>This URL contains your API key embedded — do not share it publicly.</Tip>
+        <Step n={4} title="Install or copy the manifest URL">
+          Scroll to the bottom and click <strong>Install</strong> to open it directly, or <strong>Copy Link</strong> to get the manifest URL manually.
+          <Screenshot src="/guide/comet-install.png" label="Comet — Install, Copy Link, and Setup Kodi buttons" />
+          <Tip>The manifest URL contains your API key — do not share it publicly.</Tip>
         </Step>
 
         <Step n={5} title="Add to VaultTV">
-          Go to <strong>Add-ons</strong> in VaultTV → <strong>Add by Manifest URL</strong> → paste the URL → click <strong>Add</strong>.
-          <Screenshot label="Screenshot: VaultTV Add-ons page — manifest URL pasted in the field" />
+          Go to <strong>Add-ons</strong> in VaultTV → <strong>Add by Manifest URL</strong> → paste the URL → click <strong>+ Add</strong>.
+          <Screenshot src="/guide/vaulttv-addons.png" label="VaultTV Add-ons page — manifest URL field and Add button" />
         </Step>
       </GuideSection>
 
@@ -234,7 +241,8 @@ export default function Guide() {
         </Step>
 
         <Step n={5} title="Add to VaultTV">
-          Add-ons → Add by Manifest URL → paste → Add.
+          Add-ons → Add by Manifest URL → paste → + Add.
+          <Screenshot src="/guide/vaulttv-addons.png" label="VaultTV Add-ons page — manifest URL field and Add button" />
         </Step>
 
         <Warning>
@@ -276,7 +284,8 @@ export default function Guide() {
         </Step>
 
         <Step n={5} title="Add to VaultTV">
-          Add-ons → Add by Manifest URL → paste → Add.
+          Add-ons → Add by Manifest URL → paste → + Add.
+          <Screenshot src="/guide/vaulttv-addons.png" label="VaultTV Add-ons page — manifest URL field and Add button" />
         </Step>
 
         <Tip>
