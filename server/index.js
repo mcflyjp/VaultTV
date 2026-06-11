@@ -614,6 +614,32 @@ function serveApp(res) {
   res.send(html)
 }
 
+app.get('/__admin/relay/status', (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  res.json({ linked: !!config.relayLinked, tunnelUrl: config.tunnelUrl || null })
+})
+
+app.post('/__admin/relay/claim', async (req, res) => {
+  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
+  const { supabaseToken } = req.body || {}
+  if (!supabaseToken) return res.status(400).json({ error: 'supabaseToken required' })
+  try {
+    const relayRes = await fetch(`${RELAY_URL}/api/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${supabaseToken}` },
+      body: JSON.stringify({ serverToken: config.serverToken }),
+    })
+    const data = await relayRes.json()
+    if (!relayRes.ok) return res.status(relayRes.status).json(data)
+    config.relayLinked = true
+    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') } catch {}
+    registerWithRelay()
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // Static assets (JS, CSS, images) — served without auth (needed by login page too)
 if (fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR, { index: false }))
@@ -1027,16 +1053,19 @@ function adminPage() {
     const el = document.getElementById('relay-status')
     if (!el) return
     try {
-      const res = await fetch('/__admin/relay/status')
+      const res = await fetch('/__admin/relay/status', { credentials: 'include' })
       const d = await res.json()
-      if (d.linked && d.tunnelUrl) {
+      console.log('[relay-status]', res.status, d)
+      if (!res.ok) {
+        el.textContent = 'Status check failed (' + res.status + '): ' + (d.error || JSON.stringify(d))
+      } else if (d.linked && d.tunnelUrl) {
         el.innerHTML = '<span style="color:#34d399">✓ Linked</span> — remote clients will be redirected to <strong>' + d.tunnelUrl + '</strong>'
       } else if (d.linked) {
         el.innerHTML = '<span style="color:#fbbf24">⚠ Linked but no tunnel URL set</span> — add a tunnel URL in General settings above.'
       } else {
         el.innerHTML = '<span style="color:rgba(255,255,255,.35)">Not linked yet — click Link My Account below.</span>'
       }
-    } catch { el.textContent = 'Could not check relay status.' }
+    } catch (e) { el.textContent = 'Could not reach relay status endpoint: ' + e.message }
   }
   checkRelayStatus()
 
@@ -1117,6 +1146,9 @@ function adminPage() {
       toast('Account linked! Remote access is now active.')
     }
   })
+
+  // Poll every 8s as fallback in case postMessage didn't fire
+  setInterval(checkRelayStatus, 8000)
 
   handleOAuthReturn()
 
@@ -1462,33 +1494,6 @@ async function registerWithRelay() {
     console.warn('   Relay: registration failed —', e.message)
   }
 }
-
-app.get('/__admin/relay/status', (req, res) => {
-  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
-  res.json({ linked: !!config.relayLinked, tunnelUrl: config.tunnelUrl || null })
-})
-
-// Called from admin page — links this server's token to the signed-in user's account
-app.post('/__admin/relay/claim', async (req, res) => {
-  if (!isSetupDone() || !verifyToken(req.cookies?.vt_session)) return res.status(401).json({ error: 'Not authenticated' })
-  const { supabaseToken } = req.body || {}
-  if (!supabaseToken) return res.status(400).json({ error: 'supabaseToken required' })
-  try {
-    const relayRes = await fetch(`${RELAY_URL}/api/claim`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${supabaseToken}` },
-      body: JSON.stringify({ serverToken: config.serverToken }),
-    })
-    const data = await relayRes.json()
-    if (!relayRes.ok) return res.status(relayRes.status).json(data)
-    config.relayLinked = true
-    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') } catch {}
-    registerWithRelay()
-    res.json({ ok: true })
-  } catch (e) {
-    res.status(500).json({ error: e.message })
-  }
-})
 
 server.on('error', err => {
   if (err.code === 'EADDRINUSE') {

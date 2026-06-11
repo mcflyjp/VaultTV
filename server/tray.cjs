@@ -26,16 +26,12 @@ if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0) }
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 const IS_PACKAGED  = app.isPackaged
-// When packaged, server files land in resources/server/; in dev they're right here.
-const SERVER_DIR   = IS_PACKAGED
-  ? path.join(process.resourcesPath, 'server')
-  : __dirname
+// __dirname resolves correctly in both dev (server/) and packaged (resources/app/server/)
+const SERVER_DIR   = __dirname
 const SERVER_ENTRY = path.join(SERVER_DIR, 'index.js')
-// Config lives in userData (%APPDATA%/VaultTV Media Server) — user-writable
-const USER_DATA    = app.getPath('userData')
-const CONFIG_FILE  = path.join(USER_DATA, 'config.json')
-
-fs.mkdirSync(USER_DATA, { recursive: true })
+// Config lives next to the exe in the install folder (packaged) or in server/ (dev)
+const CONFIG_DIR   = IS_PACKAGED ? path.dirname(process.execPath) : __dirname
+const CONFIG_FILE  = path.join(CONFIG_DIR, 'config.json')
 
 // ── Read port from config ─────────────────────────────────────────────────────
 function readPort() {
@@ -130,7 +126,7 @@ function startServer() {
     cwd: SERVER_DIR,
     env: {
       ...process.env,
-      VAULTTV_CONFIG_DIR: USER_DATA,   // writable config location
+      VAULTTV_CONFIG_DIR: CONFIG_DIR,  // writable config location (install folder)
       NODE_ENV: 'production',
     },
   })
@@ -288,6 +284,7 @@ function openSetupWindow() {
 }
 
 function buildSetupHtml(cfg) {
+  const safeCfg = JSON.stringify(cfg)
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>VaultTV Server Settings</title>
 <style>
@@ -315,23 +312,23 @@ function buildSetupHtml(cfg) {
 <h1><span>●</span> VaultTV Server Settings</h1>
 
 <label>Port</label>
-<input id="port" type="number" value="${cfg.port || 8080}" min="1024" max="65535">
+<input id="port" type="number" min="1024" max="65535">
 <small>Port the server listens on. Default: 8080. Requires restart.</small>
 
 <label>TMDB API Key</label>
-<input id="tmdbKey" type="text" value="${cfg.tmdbKey || ''}" placeholder="Your TMDB API key">
+<input id="tmdbKey" type="text" placeholder="Your TMDB API key">
 <small>Required for movie/TV metadata and poster images. Get one free at themoviedb.org.</small>
 
 <label>Server Name</label>
-<input id="serverName" type="text" value="${cfg.serverName || ''}" placeholder="My VaultTV Server">
+<input id="serverName" type="text" placeholder="My VaultTV Server">
 
 <hr class="sep">
 
 <label>Supabase URL <small style="display:inline;color:#4a5568">(optional — enables remote access)</small></label>
-<input id="supabaseUrl" type="url" value="${cfg.supabaseUrl || ''}" placeholder="https://xxx.supabase.co">
+<input id="supabaseUrl" type="url" placeholder="https://xxx.supabase.co">
 
 <label>Supabase Anon Key</label>
-<input id="supabaseAnonKey" type="text" value="${cfg.supabaseAnonKey || ''}" placeholder="eyJhbGci...">
+<input id="supabaseAnonKey" type="text" placeholder="eyJhbGci...">
 <small>Paste from your Supabase project → Settings → API.</small>
 
 <div class="actions">
@@ -342,15 +339,22 @@ function buildSetupHtml(cfg) {
 
 <script>
 const { ipcRenderer } = require('electron')
+const cfg = ${safeCfg}
+document.getElementById('port').value = cfg.port || 8080
+document.getElementById('tmdbKey').value = cfg.tmdbKey || ''
+document.getElementById('serverName').value = cfg.serverName || ''
+document.getElementById('supabaseUrl').value = cfg.supabaseUrl || ''
+document.getElementById('supabaseAnonKey').value = cfg.supabaseAnonKey || ''
+
 function save() {
-  const cfg = {
+  const out = {
     port:            parseInt(document.getElementById('port').value) || 8080,
     tmdbKey:         document.getElementById('tmdbKey').value.trim(),
     serverName:      document.getElementById('serverName').value.trim(),
     supabaseUrl:     document.getElementById('supabaseUrl').value.trim(),
     supabaseAnonKey: document.getElementById('supabaseAnonKey').value.trim(),
   }
-  ipcRenderer.send('save-config', cfg)
+  ipcRenderer.send('save-config', out)
   document.getElementById('status').textContent = 'Saved — restarting server…'
   setTimeout(() => window.close(), 1500)
 }
