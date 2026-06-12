@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
         // ── Selector: everything a user might want to activate ─────────────────
         // Note: does NOT use offsetParent check — that excludes position:fixed
         // elements (sidebar, player controls, top nav) which are always visible.
-        + "var SEL='button:not([disabled]),a[href],[data-card],"
+        + "var SEL='button:not([disabled]),a[href],[data-card],[data-ep-btn],"
         +         "input:not([disabled]),select:not([disabled]),[tabindex=\"0\"]';"
 
         // ── Visibility: use viewport bounds, not offsetParent ─────────────────
@@ -119,18 +119,25 @@ public class MainActivity extends Activity {
         +   "var noFocus=!cur||cur===document.body||cur===document.documentElement;"
 
         // ── Episode row: Right → action buttons, Left → row body ──────────────
-        +   "if((dir==='right'||dir==='left')&&cur&&cur.closest){"
-        +     "var epRow=cur.closest('[data-ep-row]');"
-        +     "if(epRow){"
-        +       "var epBtns=Array.from(epRow.querySelectorAll('[data-ep-btn]'));"
-        +       "var epBody=epRow.querySelector('[data-card]');"
-        +       "var onBtn=epBtns.indexOf(cur)>=0;"
+        // Use hasAttribute instead of closest() — more reliable on older WebView.
+        // cur has data-card  → it IS the row body
+        // cur has data-ep-btn → it IS one of the action buttons
+        +   "if((dir==='right'||dir==='left')&&cur&&cur.hasAttribute){"
+        +     "var isRowBody=cur.hasAttribute('data-card');"
+        +     "var isEpBtn=cur.hasAttribute('data-ep-btn');"
+        +     "if(isRowBody||isEpBtn){"
+        // Walk up to find the container that holds both body and buttons
+        +       "var epContainer=isRowBody?cur.parentElement:(cur.parentElement&&cur.parentElement.parentElement);"
+        +       "var epBtns=epContainer?Array.from(epContainer.querySelectorAll('[data-ep-btn]')):[];"
+        +       "var epBody=epContainer?epContainer.querySelector('[data-card]'):null;"
         +       "if(dir==='right'){"
-        +         "if(!onBtn&&epBtns.length){doFocus(epBtns[0]);return;}"
-        +         "var nb=epBtns[epBtns.indexOf(cur)+1];"
-        +         "if(nb){doFocus(nb);return;}"
+        +         "if(isRowBody&&epBtns.length){doFocus(epBtns[0]);return;}"
+        +         "if(isEpBtn){"
+        +           "var nb=epBtns[epBtns.indexOf(cur)+1];"
+        +           "if(nb){doFocus(nb);return;}"
+        +         "}"
         +       "}else{"
-        +         "if(!onBtn)return;"
+        +         "if(isRowBody)return;"
         +         "var pb=epBtns[epBtns.indexOf(cur)-1];"
         +         "if(pb){doFocus(pb);return;}"
         +         "if(epBody){doFocus(epBody);return;}"
@@ -179,9 +186,10 @@ public class MainActivity extends Activity {
         +   "});"
         +   "cands.sort(function(a,b){return a.d-b.d;});"
         +   "if(cands.length){doFocus(cands[0].el);return;}"
-        // Nothing in strict beam — fall back to nearest element in direction
-        // (ignores overlap requirement). Fixes Netflix theme where TopNav links
-        // are left-aligned and don't overlap horizontally with centred shelf cards.
+        // Left/right: no fallback — never jump to a different row.
+        +   "if(dir==='left'||dir==='right')return;"
+        // Up/down: fall back to nearest in direction ignoring overlap.
+        // Needed when nav links don't horizontally overlap with content cards.
         +   "var fallback=[];"
         +   "els.forEach(function(el){"
         +     "if(el===cur)return;"
@@ -189,8 +197,6 @@ public class MainActivity extends Activity {
         +     "var inDir=false;"
         +     "if(dir==='down'&&r.top>=cr.bottom-5)inDir=true;"
         +     "else if(dir==='up'&&r.bottom<=cr.top+5)inDir=true;"
-        +     "else if(dir==='right'&&r.left>=cr.right-5)inDir=true;"
-        +     "else if(dir==='left'&&r.right<=cr.left+5)inDir=true;"
         +     "if(!inDir)return;"
         +     "var cx1=(cr.left+cr.right)/2,cy1=(cr.top+cr.bottom)/2;"
         +     "var cx2=(r.left+r.right)/2,cy2=(r.top+r.bottom)/2;"
@@ -276,9 +282,11 @@ public class MainActivity extends Activity {
 
         + "stamp();"
 
-        // Initial focus after React's first render
+        // Initial focus: skip sidebar, land on first main content item.
         + "setTimeout(function(){"
-        +   "var all=visEls(null);"
+        +   "var sb=document.querySelector('.sidebar-root');"
+        +   "var all=visEls(null).filter(function(el){return !sb||!sb.contains(el);});"
+        +   "if(!all.length)all=visEls(null);"
         +   "if(all.length){doFocus(all[0]);_lastFocused=all[0];}"
         + "},1000);"
 
