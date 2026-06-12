@@ -109,7 +109,7 @@ export default function Detail() {
   // spatial nav, giving us full control of Up/Down on this page.
   useEffect(() => {
     if (!IS_FIRETV) return
-    const SEL = 'button:not([disabled]), [tabindex="0"], [data-card], a[href]'
+    const SEL = 'button:not([disabled]), [tabindex="0"], [data-card], [data-ep-btn], a[href]'
     const DPAD = new Set([37, 38, 39, 40, 225, 226, 227, 228, 13, 23])
 
     function focusableEls() {
@@ -188,6 +188,26 @@ export default function Detail() {
         const idx = cards.indexOf(cur)
         const next = cards[idx + (isRight ? 1 : -1)]
         if (next) doFocus(next)
+        return
+      }
+
+      // Episode row: Right moves into action buttons; Left moves back to row body
+      if ((isLeft || isRight) && cur.closest('[data-ep-row]')) {
+        const row = cur.closest('[data-ep-row]')
+        const btns = Array.from(row.querySelectorAll('[data-ep-btn]'))
+        const rowBody = row.querySelector('[data-card]')
+        const isOnBtn = btns.includes(cur)
+        if (isRight) {
+          if (!isOnBtn && btns.length) { doFocus(btns[0]); return }
+          const next = btns[btns.indexOf(cur) + 1]
+          if (next) { doFocus(next); return }
+        }
+        if (isLeft) {
+          if (!isOnBtn) return // already on row body, let general nav handle
+          const prev = btns[btns.indexOf(cur) - 1]
+          if (prev) { doFocus(prev); return }
+          if (rowBody) { doFocus(rowBody); return }
+        }
         return
       }
 
@@ -527,10 +547,12 @@ export default function Detail() {
                       play={play}
                       title={title}
                       detail={detail}
+                      tmdbId={Number(id)}
                       imdbId={imdbId}
                       mediaType={type}
                       subtitleTracks={autoSubs}
                       setMusicDismissed={setMusicDismissed}
+                      getSavedProgress={getSavedProgress}
                       onProgress={makeProgressHandler(id, type)}
                       onStartWatching={() => startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w780') })}
                     />
@@ -1181,7 +1203,7 @@ function LoadingState() {
 }
 
 /** Split-button: plays best version by default; ▼ reveals version picker */
-function LocalPlayButton({ versions, getFileUrl, play, title, detail, imdbId, mediaType, subtitleTracks = [], setMusicDismissed, onProgress, onStartWatching }) {
+function LocalPlayButton({ versions, getFileUrl, play, title, detail, tmdbId, imdbId, mediaType, subtitleTracks = [], setMusicDismissed, getSavedProgress, onProgress, onStartWatching }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const ref = useState(null)
@@ -1202,7 +1224,7 @@ function LocalPlayButton({ versions, getFileUrl, play, title, detail, imdbId, me
         imdbId,
         mediaType,
         onProgress,
-        startTime: getSavedProgress(id, mediaType),
+        startTime: getSavedProgress ? getSavedProgress(tmdbId, mediaType) : 0,
       })
       onStartWatching()
     } catch (e) {
@@ -1316,6 +1338,16 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
   const [hovered, setHovered] = useState(false)
   const best = localVersions[0]
   const lastFired = useRef(0)
+  const dropdownRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
   // On FireTV local files come via companion stream URL — always show stream list
   // so user can pick a stream and benefit from auto-transcode if needed.
   // Guard: debounce 300ms to prevent double-fire from spatial nav el.click()
@@ -1324,21 +1356,36 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
     const now = Date.now()
     if (now - lastFired.current < 300) return
     lastFired.current = now
-    ;(!IS_FIRETV && hasLocal) ? onPlayLocal(best) : onWatch()
+    hasLocal ? onPlayLocal(best) : onWatch()
+  }
+
+  function epNavKey(e, isRowBody) {
+    const RIGHT = e.keyCode === 39 || e.keyCode === 228
+    const LEFT  = e.keyCode === 37 || e.keyCode === 225
+    if (!RIGHT && !LEFT) return
+    e.preventDefault(); e.stopPropagation()
+    const row = dropdownRef.current?.closest('[data-ep-row]') || e.currentTarget.closest('[data-ep-row]')
+    if (!row) return
+    const btns = Array.from(row.querySelectorAll('[data-ep-btn]'))
+    if (RIGHT && isRowBody) { btns[0]?.focus(); return }
+    const idx = btns.indexOf(e.currentTarget)
+    if (RIGHT) { btns[idx + 1]?.focus(); return }
+    if (LEFT)  { idx > 0 ? btns[idx - 1]?.focus() : row.querySelector('[data-card]')?.focus() }
   }
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', backdropFilter: 'blur(8px)', overflow: 'visible', position: 'relative' }}
+      data-ep-row
+      style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', backdropFilter: 'blur(8px)', overflow: 'visible', position: 'relative', zIndex: open ? 10 : undefined }}
     >
       <div
         data-card
         style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', padding: '0.75rem', cursor: 'pointer' }}
         tabIndex={0}
         onClick={handlePrimary}
-        onKeyDown={e => { if (e.key === 'Enter') handlePrimary() }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.keyCode === 13 || e.keyCode === 23) { handlePrimary(); return } epNavKey(e, true) }}
       >
         {ep.still_path && <img src={IMG(ep.still_path, 'w300')} alt="" style={{ width: 120, borderRadius: 4, flexShrink: 0, aspectRatio: '16/9', objectFit: 'cover' }} />}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1367,22 +1414,34 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
               <FiLayers size={11} /> Versions
             </button>
           )}
-          {IS_FIRETV && hasLocal && (
+          {hasLocal && (
             <button
-              onClick={e => { e.stopPropagation(); onWatch() }}
-              title="Check for stream"
-              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, color: 'rgba(255,255,255,0.7)', cursor: 'pointer', padding: '0.25rem 0.4rem', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.7rem' }}
+              data-ep-btn
+              tabIndex={0}
+              onClick={e => { e.stopPropagation(); onPlayLocal(best) }}
+              onKeyDown={e => { if (e.keyCode === 13 || e.keyCode === 23) { e.stopPropagation(); onPlayLocal(best) } else epNavKey(e, false) }}
+              title="Play local file"
+              style={{ background: '#16a34a', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '0.3rem 0.6rem', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.75rem', fontWeight: 600 }}
             >
-              <FiPlay size={11} /> Stream
+              <FiPlay size={11} /> Play
             </button>
           )}
-          <FiPlay size={18} style={{ color: hasLocal ? '#16a34a' : 'var(--accent)' }} />
+          <button
+            data-ep-btn
+            tabIndex={0}
+            onClick={e => { e.stopPropagation(); onWatch() }}
+            onKeyDown={e => { if (e.keyCode === 13 || e.keyCode === 23) { e.stopPropagation(); onWatch() } else epNavKey(e, false) }}
+            title="Find streams"
+            style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, color: 'rgba(255,255,255,0.8)', cursor: 'pointer', padding: '0.3rem 0.6rem', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.75rem' }}
+          >
+            <FiPlay size={11} /> Stream
+          </button>
         </div>
       </div>
 
       {/* Version picker dropdown */}
       {open && localVersions.length > 1 && (
-        <div style={{
+        <div ref={dropdownRef} style={{
           position: 'absolute', right: 0, top: '100%', zIndex: 400,
           background: 'rgba(15,15,20,0.97)', backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
