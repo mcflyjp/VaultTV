@@ -218,6 +218,9 @@ app.get('/__login', (req, res) => {
   res.send(loginPage())
 })
 
+// Unauthenticated ping — used by remote devices to check if server is reachable
+app.get('/ping', (req, res) => res.json({ ok: true }))
+
 // ── Everything below requires auth ────────────────────────────────────────────
 app.use((req, res, next) => {
   // Skip auth for setup/login pages and auth API routes

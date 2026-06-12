@@ -34,7 +34,7 @@ export async function pingCompanion() {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 6000)
     try {
-      const r = await fetch(`${BASE}/api/health`, { signal: ctrl.signal })
+      const r = await fetch(`${BASE}/ping`, { signal: ctrl.signal })
       return r.ok
     } finally { clearTimeout(timer) }
   } catch {
