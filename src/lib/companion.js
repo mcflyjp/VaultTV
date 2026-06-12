@@ -76,9 +76,13 @@ export async function removeWatchedFolder(id) {
  * Each entry: { name, path, rootFolder }
  */
 export async function scanFolder(id) {
-  const r = await fetch(`${BASE}/folders/${id}/scan`, { signal: AbortSignal.timeout(30_000) })
-  if (!r.ok) throw new Error(`Companion scan failed: ${r.status}`)
-  return r.json() // { id, count, files: [{ name, path, rootFolder }] }
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 30_000)
+  try {
+    const r = await fetch(`${BASE}/folders/${id}/scan`, { signal: ctrl.signal })
+    if (!r.ok) throw new Error(`Companion scan failed: ${r.status}`)
+    return r.json() // { id, count, files: [{ name, path, rootFolder }] }
+  } finally { clearTimeout(timer) }
 }
 
 /**
@@ -86,9 +90,13 @@ export async function scanFolder(id) {
  * Returns { sources, files } or null if not yet saved.
  */
 export async function fetchLibrary() {
-  const r = await fetch(`${BASE}/library`, { signal: AbortSignal.timeout(5000) })
-  if (!r.ok) throw new Error(`Library fetch failed: ${r.status}`)
-  return r.json()
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 5000)
+  try {
+    const r = await fetch(`${BASE}/library`, { signal: ctrl.signal })
+    if (!r.ok) throw new Error(`Library fetch failed: ${r.status}`)
+    return r.json()
+  } finally { clearTimeout(timer) }
 }
 
 /**
@@ -96,12 +104,16 @@ export async function fetchLibrary() {
  * @param {{ sources: any[], files: any[] }} data
  */
 export async function saveLibrary(data) {
-  await fetch(`${BASE}/library`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-    signal: AbortSignal.timeout(10_000),
-  })
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 10_000)
+  try {
+    await fetch(`${BASE}/library`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      signal: ctrl.signal,
+    })
+  } finally { clearTimeout(timer) }
 }
 
 /**
@@ -125,14 +137,14 @@ export function streamByFilenameUrl(filename) {
  */
 export async function probeAudioCodec(sourceUrl) {
   try {
-    const r = await fetch(
-      `${BASE}/probe?url=${encodeURIComponent(sourceUrl)}`,
-      { signal: AbortSignal.timeout(6000) }
-    )
-    if (!r.ok) return null
-    const data = await r.json()
-    // Return both codecs so needsTranscode can decide whether to re-encode video
-    return { audioCodec: data.audioCodec || null, videoCodec: data.videoCodec || null }
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 6000)
+    try {
+      const r = await fetch(`${BASE}/probe?url=${encodeURIComponent(sourceUrl)}`, { signal: ctrl.signal })
+      if (!r.ok) return null
+      const data = await r.json()
+      return { audioCodec: data.audioCodec || null, videoCodec: data.videoCodec || null }
+    } finally { clearTimeout(timer) }
   } catch {
     return null
   }
@@ -239,12 +251,13 @@ function authHeaders() {
  */
 export async function fetchProgress() {
   try {
-    const r = await fetch(`${BASE}/progress`, {
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(4000),
-    })
-    if (!r.ok) return null
-    return r.json()   // array of { id, type, title, poster, progressSec, durationSec, progress, timestamp, lastStream? }
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 4000)
+    try {
+      const r = await fetch(`${BASE}/progress`, { headers: authHeaders(), signal: ctrl.signal })
+      if (!r.ok) return null
+      return r.json()   // array of { id, type, title, poster, progressSec, durationSec, progress, timestamp, lastStream? }
+    } finally { clearTimeout(timer) }
   } catch {
     return null
   }
@@ -258,12 +271,16 @@ export async function fetchProgress() {
 export async function pushProgress(entries) {
   if (!entries?.length) return
   try {
-    await fetch(`${BASE}/progress`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(entries),
-      signal: AbortSignal.timeout(5000),
-    })
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 5000)
+    try {
+      await fetch(`${BASE}/progress`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(entries),
+        signal: ctrl.signal,
+      })
+    } finally { clearTimeout(timer) }
   } catch { /* offline — ignore */ }
 }
 
@@ -274,10 +291,14 @@ export async function pushProgress(entries) {
  */
 export async function deleteProgress(id, type) {
   try {
-    await fetch(`${BASE}/progress/${type}:${id}`, {
-      method: 'DELETE',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(4000),
-    })
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 4000)
+    try {
+      await fetch(`${BASE}/progress/${type}:${id}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+        signal: ctrl.signal,
+      })
+    } finally { clearTimeout(timer) }
   } catch { /* offline — ignore */ }
 }
