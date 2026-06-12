@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect } f
 import { scanDirectory, parseFilename, matchTmdb, parseQuality } from '../lib/localScanner'
 import {
   pingCompanion, addWatchedFolder, removeWatchedFolder, subscribeToChanges,
-  scanFolder, streamUrl, fetchLibrary, saveLibrary, listWatchedFolders,
+  scanFolder, streamUrl, streamByFilenameUrl, fetchLibrary, saveLibrary, listWatchedFolders,
 } from '../lib/companion'
 import { supabase } from '../lib/supabase'
 
@@ -659,15 +659,22 @@ export function LocalLibraryProvider({ children }) {
   // ── Get playable URL ───────────────────────────────────────────────────
   async function getFileUrl(filename) {
     const record = filesRef.current.find(f => f.filename === filename)
+
+    // Has a local server-side path — stream directly
     if (record?.companionPath) return streamUrl(record.companionPath)
+
+    // No local path but server is reachable — look up by filename on the server.
+    // This lets FireTV and other remote devices stream files without knowing
+    // the Windows path; the server resolves it from its own library.json.
+    if (companionOnline) return streamByFilenameUrl(filename)
 
     // Fallback: File System Access API blob URL (browser only)
     const handle = fileHandles.current[filename]
     if (!handle) {
       throw new Error(
         IS_ELECTRON
-          ? 'Cannot play file — companion server is offline. It should start automatically; check the system tray.'
-          : 'Cannot play file — companion is offline or not scanned while it was running. Start companion/start.bat then rescan.'
+          ? 'Cannot play file — VaultTV Server is offline. Check the system tray icon.'
+          : 'Cannot play file — VaultTV Server is not reachable. Make sure it\'s running on your PC and your server URL is set in Settings.'
       )
     }
     const file = await handle.getFile()

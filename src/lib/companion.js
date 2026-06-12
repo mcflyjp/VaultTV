@@ -8,14 +8,21 @@
  * All requests go to 127.0.0.1 only — nothing leaves your machine.
  */
 
-const COMPANION_PORT = 7842
+const COMPANION_PORT = 8080
 
 function getCompanionBase() {
   // When served by VaultTV Server, all routes are on the same origin — no port needed.
   if (window.__VAULTTV_SERVER) return window.location.origin
-  const stored = localStorage.getItem('vt-companion-host')
-  const host = (stored && stored.trim()) || window.location.hostname || 'localhost'
-  return `http://${host}:${COMPANION_PORT}`
+  const stored = (localStorage.getItem('vt-companion-host') || '').trim()
+  if (stored) {
+    // Full URL (tunnel URL or http://ip:port) — use as-is
+    if (stored.startsWith('http://') || stored.startsWith('https://')) {
+      return stored.replace(/\/$/, '')
+    }
+    // Bare IP or hostname — append default port
+    return `http://${stored}:${COMPANION_PORT}`
+  }
+  return `http://${window.location.hostname || 'localhost'}:${COMPANION_PORT}`
 }
 // Recompute on every call so Settings changes take effect without a reload
 Object.defineProperty(window, '__companionBase', { get: getCompanionBase, configurable: true })
@@ -100,6 +107,10 @@ export async function saveLibrary(data) {
  */
 export function streamUrl(filePath) {
   return `${BASE}/stream?path=${encodeURIComponent(filePath)}`
+}
+
+export function streamByFilenameUrl(filename) {
+  return `${BASE}/stream/by-filename?filename=${encodeURIComponent(filename)}`
 }
 
 /**

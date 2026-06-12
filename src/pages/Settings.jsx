@@ -698,7 +698,7 @@ function CompanionHostInput() {
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           data-card tabIndex={0} type="text"
-          placeholder="192.168.1.xxx  (your PC's LAN IP)"
+          placeholder="192.168.1.xxx  or  https://your-tunnel.trycloudflare.com"
           value={val}
           onChange={e => setVal(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') saveAndTest() }}

@@ -389,9 +389,27 @@ app.delete('/progress/:key', (req, res) => {
 })
 
 // ── Video streaming ───────────────────────────────────────────────────────────
+
+// Stream by filename — lets remote devices (FireTV, phone) play local files
+// without knowing the server-side path. Looks up the file in library.json.
+app.get('/stream/by-filename', (req, res) => {
+  const { filename } = req.query
+  if (!filename) return res.status(400).json({ error: 'filename required' })
+  const lib = loadJson(LIBRARY_FILE, { files: [] })
+  const record = (lib.files || []).find(f => f.filename === filename)
+  if (!record?.companionPath) return res.status(404).json({ error: 'File not in scanned library' })
+  req.query.path = record.companionPath
+  return streamFile(req, res)
+})
+
 app.get('/stream', (req, res) => {
   const filePath = req.query.path
   if (!filePath) return res.status(400).json({ error: 'path required' })
+  return streamFile(req, res)
+})
+
+function streamFile(req, res) {
+  const filePath = req.query.path
   const allowed = watchedFolders.some(f => filePath.startsWith(f.folderPath))
   if (!allowed) return res.status(403).json({ error: 'Path is not inside a watched folder' })
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' })
@@ -414,7 +432,7 @@ app.get('/stream', (req, res) => {
     res.writeHead(200, { 'Content-Length': total, 'Content-Type': mimeType, 'Accept-Ranges': 'bytes' })
     fs.createReadStream(filePath).pipe(res)
   }
-})
+}
 
 // ── Probe ─────────────────────────────────────────────────────────────────────
 app.get('/probe', (req, res) => {
