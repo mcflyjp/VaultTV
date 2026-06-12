@@ -31,8 +31,12 @@ const BASE = { toString() { return getCompanionBase() } }
 /** Check if companion is reachable. Resolves to true/false. */
 export async function pingCompanion() {
   try {
-    const r = await fetch(`${BASE}/`, { signal: AbortSignal.timeout(1500) })
-    return r.ok
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 6000)
+    try {
+      const r = await fetch(`${BASE}/`, { signal: ctrl.signal })
+      return r.ok
+    } finally { clearTimeout(timer) }
   } catch {
     return false
   }
