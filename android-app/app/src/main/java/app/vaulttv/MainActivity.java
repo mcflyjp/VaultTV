@@ -413,6 +413,34 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Intercept D-pad events before Android's WebView spatial navigation can move
+     * native focus. We inject a synthetic JS keydown so our SPATIAL_NAV_JS handles
+     * all movement, then return true to swallow the native event.
+     */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        int kc = event.getKeyCode();
+        boolean isDpad = kc == KeyEvent.KEYCODE_DPAD_LEFT  || kc == KeyEvent.KEYCODE_DPAD_RIGHT
+                      || kc == KeyEvent.KEYCODE_DPAD_UP    || kc == KeyEvent.KEYCODE_DPAD_DOWN
+                      || kc == KeyEvent.KEYCODE_DPAD_CENTER;
+        if (isDpad) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                // Fire a real keydown into the WebView's JavaScript context.
+                // Using a trusted dispatchEvent so capture-phase listeners run.
+                webView.evaluateJavascript(
+                    "(function(){" +
+                    "  var e=new KeyboardEvent('keydown',{" +
+                    "    keyCode:" + kc + ",which:" + kc + "," +
+                    "    bubbles:true,cancelable:true,composed:true});" +
+                    "  window.dispatchEvent(e);" +
+                    "})()", null);
+            }
+            return true; // swallow both ACTION_DOWN and ACTION_UP
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
