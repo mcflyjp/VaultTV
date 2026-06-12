@@ -117,6 +117,28 @@ public class MainActivity extends Activity {
         + "function move(dir){"
         +   "var cur=document.activeElement;"
         +   "var noFocus=!cur||cur===document.body||cur===document.documentElement;"
+
+        // ── Episode row: Right → action buttons, Left → row body ──────────────
+        +   "if((dir==='right'||dir==='left')&&cur&&cur.closest){"
+        +     "var epRow=cur.closest('[data-ep-row]');"
+        +     "if(epRow){"
+        +       "var epBtns=Array.from(epRow.querySelectorAll('[data-ep-btn]'));"
+        +       "var epBody=epRow.querySelector('[data-card]');"
+        +       "var onBtn=epBtns.indexOf(cur)>=0;"
+        +       "if(dir==='right'){"
+        +         "if(!onBtn&&epBtns.length){doFocus(epBtns[0]);return;}"
+        +         "var nb=epBtns[epBtns.indexOf(cur)+1];"
+        +         "if(nb){doFocus(nb);return;}"
+        +       "}else{"
+        +         "if(!onBtn)return;"
+        +         "var pb=epBtns[epBtns.indexOf(cur)-1];"
+        +         "if(pb){doFocus(pb);return;}"
+        +         "if(epBody){doFocus(epBody);return;}"
+        +       "}"
+        +       "return;"
+        +     "}"
+        +   "}"
+
         +   "var scope=getScope();"
         +   "var els=visEls(scope);"
         // If scope found but current element is outside it, reset focus inside
@@ -411,34 +433,6 @@ public class MainActivity extends Activity {
             webView.evaluateJavascript("window.__snav=false;", null);
             webView.evaluateJavascript(SPATIAL_NAV_JS, null);
         }
-    }
-
-    /**
-     * Intercept D-pad events before Android's WebView spatial navigation can move
-     * native focus. We inject a synthetic JS keydown so our SPATIAL_NAV_JS handles
-     * all movement, then return true to swallow the native event.
-     */
-    @Override
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        int kc = event.getKeyCode();
-        boolean isDpad = kc == KeyEvent.KEYCODE_DPAD_LEFT  || kc == KeyEvent.KEYCODE_DPAD_RIGHT
-                      || kc == KeyEvent.KEYCODE_DPAD_UP    || kc == KeyEvent.KEYCODE_DPAD_DOWN
-                      || kc == KeyEvent.KEYCODE_DPAD_CENTER;
-        if (isDpad) {
-            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                // Fire a real keydown into the WebView's JavaScript context.
-                // Using a trusted dispatchEvent so capture-phase listeners run.
-                webView.evaluateJavascript(
-                    "(function(){" +
-                    "  var e=new KeyboardEvent('keydown',{" +
-                    "    keyCode:" + kc + ",which:" + kc + "," +
-                    "    bubbles:true,cancelable:true,composed:true});" +
-                    "  window.dispatchEvent(e);" +
-                    "})()", null);
-            }
-            return true; // swallow both ACTION_DOWN and ACTION_UP
-        }
-        return super.dispatchKeyEvent(event);
     }
 
     @Override
