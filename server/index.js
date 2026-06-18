@@ -223,8 +223,10 @@ app.get('/ping', (req, res) => res.json({ ok: true }))
 
 // ── Everything below requires auth ────────────────────────────────────────────
 app.use((req, res, next) => {
-  // Skip auth for setup/login pages and auth API routes
+  // Skip auth for setup/login pages, auth API routes, and media streaming
+  // (stream is gated by watched-folder path check inside streamFile)
   if (req.path.startsWith('/__') || req.path.startsWith('/auth/')) return next()
+  if (req.path === '/stream' || req.path === '/stream/by-filename') return next()
   requireAuth(req, res, next)
 })
 

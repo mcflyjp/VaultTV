@@ -1,0 +1,7 @@
+name = "vaulttv-relay"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "4b188d6dbc484a3c96cdbbbca0dcb2ac"

@@ -13,13 +13,14 @@ export function PlayerProvider({ children }) {
 
   // Wire up the native player done callback once
   useEffect(() => {
-    window.__nativePlayerDone = (posMs, durMs) => {
+    window.__nativePlayerDone = (posMs, durMs, autoAdvance) => {
       const opts = lastOptsRef.current
       if (opts?.onProgress) {
         opts.onProgress(posMs / 1000, durMs / 1000)
       }
-      // Auto-next episode or fall back to navigating back to the detail page
-      if (opts?.onEpisodeEnded) {
+      // Only auto-advance when episode ended naturally (STATE_ENDED).
+      // Manual Back press passes autoAdvance=false — just save progress and stop.
+      if (autoAdvance && opts?.onEpisodeEnded) {
         opts.onEpisodeEnded()
       } else if (opts?.onPlaybackEnded) {
         opts.onPlaybackEnded()

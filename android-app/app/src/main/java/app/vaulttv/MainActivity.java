@@ -94,19 +94,12 @@ public class MainActivity extends Activity {
         // ── Detect the active modal/overlay scope ─────────────────────────────
         // If a full-screen overlay (player, settings panel, dialog) is open,
         // lock D-pad focus inside it so the background page is unaffected.
+        // Only check [role=dialog] — the old querySelectorAll('*')+getComputedStyle
+        // scan was O(N elements) per keypress and froze FireTV on large grids.
+        // Video player is a separate Activity so it never appears in this WebView.
         + "function getScope(){"
-        // Explicit React portals / dialogs
         +   "var dlg=document.querySelector('[role=dialog]');"
         +   "if(dlg&&isVisible(dlg))return dlg;"
-        // Full-screen fixed overlays (VideoPlayer, ArtworkPicker, etc.)
-        // Identify by covering >80% of both dimensions
-        +   "var overlays=Array.from(document.querySelectorAll('*')).filter(function(el){"
-        +     "var s=window.getComputedStyle(el);"
-        +     "if(s.position!=='fixed'&&s.position!=='absolute')return false;"
-        +     "var r=el.getBoundingClientRect();"
-        +     "return r.width>window.innerWidth*0.8&&r.height>window.innerHeight*0.8&&r.top<=10;"
-        +   "});"
-        +   "if(overlays.length)return overlays[overlays.length-1];"
         +   "return null;"
         + "}"
 
@@ -130,19 +123,23 @@ public class MainActivity extends Activity {
         +       "var epContainer=isRowBody?cur.parentElement:(cur.parentElement&&cur.parentElement.parentElement);"
         +       "var epBtns=epContainer?Array.from(epContainer.querySelectorAll('[data-ep-btn]')):[];"
         +       "var epBody=epContainer?epContainer.querySelector('[data-card]'):null;"
-        +       "if(dir==='right'){"
-        +         "if(isRowBody&&epBtns.length){doFocus(epBtns[0]);return;}"
-        +         "if(isEpBtn){"
-        +           "var nb=epBtns[epBtns.indexOf(cur)+1];"
-        +           "if(nb){doFocus(nb);return;}"
+        // Only do episode-row handling if buttons actually exist (Detail page).
+        // Grid cards (Library/Browse) have no ep-btns — fall through to beam.
+        +       "if(isEpBtn||epBtns.length){"
+        +         "if(dir==='right'){"
+        +           "if(isRowBody&&epBtns.length){doFocus(epBtns[0]);return;}"
+        +           "if(isEpBtn){"
+        +             "var nb=epBtns[epBtns.indexOf(cur)+1];"
+        +             "if(nb){doFocus(nb);return;}"
+        +           "}"
+        +         "}else{"
+        +           "if(isRowBody)return;"
+        +           "var pb=epBtns[epBtns.indexOf(cur)-1];"
+        +           "if(pb){doFocus(pb);return;}"
+        +           "if(epBody){doFocus(epBody);return;}"
         +         "}"
-        +       "}else{"
-        +         "if(isRowBody)return;"
-        +         "var pb=epBtns[epBtns.indexOf(cur)-1];"
-        +         "if(pb){doFocus(pb);return;}"
-        +         "if(epBody){doFocus(epBody);return;}"
+        +         "return;"
         +       "}"
-        +       "return;"
         +     "}"
         +   "}"
 
@@ -153,7 +150,12 @@ public class MainActivity extends Activity {
         +     "if(els.length)doFocus(els[0]);"
         +     "return;"
         +   "}"
-        +   "if(noFocus){if(els.length)doFocus(els[0]);return;}"
+        +   "if(noFocus){"
+        +     "var mainEls=els.filter(function(el){return !el.hasAttribute('data-sidebar-trigger');});"
+        +     "if(mainEls.length){doFocus(mainEls[0]);return;}"
+        +     "if(els.length)doFocus(els[0]);"  // last resort: nothing else visible
+        +     "return;"
+        +   "}"
         +   "var cr=cur.getBoundingClientRect();"
         +   "var cands=[];"
         +   "els.forEach(function(el){"
@@ -246,10 +248,11 @@ public class MainActivity extends Activity {
         +            ":k===39||k===228?'right':k===37||k===225?'left':null;"
         +   "if(isText&&(dir==='left'||dir==='right'))return;"
         +   "if(dir){e.preventDefault();e.stopPropagation();move(dir);return;}"
-        // SELECT/ENTER: click the focused element
-        // stopPropagation prevents the event reaching React's onKeyDown too,
-        // which would double-fire and toggle the tray open then immediately closed.
+        // SELECT/ENTER: click the focused element.
+        // Guard: ignore for 600ms after returning from native player — old-gen FireTV
+        // Stick's Back keyup bleeds into WebView and triggers click on focused element.
         +   "if((k===13||k===23)&&!isText){"
+        +     "if(window.__playerReturn&&Date.now()-window.__playerReturn<600)return;"
         +     "var el=document.activeElement;"
         +     "if(el&&el!==document.body){el.click();e.preventDefault();e.stopPropagation();}"
         +   "}"
@@ -260,23 +263,28 @@ public class MainActivity extends Activity {
         + "var _restoreTimer=null;"
         + "new MutationObserver(function(){"
         +   "stamp();"
-        // Track focus if on a real element; cancel any pending restore
+        +   "var sb=document.querySelector('.sidebar-root,[data-sidebar-trigger]');"
+        // Track focus if on a real element; cancel any pending restore.
+        // Never save sidebar elements as _lastFocused — they steal focus on navigation.
         +   "var cur=document.activeElement;"
         +   "if(cur&&cur!==document.body&&cur!==document.documentElement){"
-        +     "_lastFocused=cur;"
+        +     "if(!sb||!sb.contains(cur)){_lastFocused=cur;}"
         +     "if(_restoreTimer){clearTimeout(_restoreTimer);_restoreTimer=null;}"
         +   "}else if(_lastFocused&&isVisible(_lastFocused)){"
+        // Don't restore to sidebar — it would open the sidebar on every navigation.
+        +     "if(sb&&sb.contains(_lastFocused)){_lastFocused=null;}"
+        +     "else{"
         // Debounce 150ms: React briefly drops focus to body during re-renders.
-        // If a real element claims focus within the window, cancel the restore.
-        +     "if(_restoreTimer)clearTimeout(_restoreTimer);"
-        +     "_restoreTimer=setTimeout(function(){"
-        +       "_restoreTimer=null;"
-        +       "var cur2=document.activeElement;"
-        +       "if(cur2===document.body||cur2===document.documentElement){"
-        +         "_lastFocused.classList.add('snav-focused');"
-        +         "_lastFocused.focus({preventScroll:true});"
-        +       "}"
-        +     "},150);"
+        +       "if(_restoreTimer)clearTimeout(_restoreTimer);"
+        +       "_restoreTimer=setTimeout(function(){"
+        +         "_restoreTimer=null;"
+        +         "var cur2=document.activeElement;"
+        +         "if(cur2===document.body||cur2===document.documentElement){"
+        +           "_lastFocused.classList.add('snav-focused');"
+        +           "_lastFocused.focus({preventScroll:true});"
+        +         "}"
+        +       "},150);"
+        +     "}"
         +   "}"
         + "}).observe(document.body,{childList:true,subtree:true,attributes:false});"
 
@@ -284,7 +292,7 @@ public class MainActivity extends Activity {
 
         // Initial focus: skip sidebar, land on first main content item.
         + "setTimeout(function(){"
-        +   "var sb=document.querySelector('.sidebar-root');"
+        +   "var sb=document.querySelector('.sidebar-root,[data-sidebar-trigger]');"
         +   "var all=visEls(null).filter(function(el){return !sb||!sb.contains(el);});"
         +   "if(!all.length)all=visEls(null);"
         +   "if(all.length){doFocus(all[0]);_lastFocused=all[0];}"
@@ -474,17 +482,21 @@ public class MainActivity extends Activity {
         }
 
         if (resultCode == RESULT_OK) {
-            long posMs = data.getLongExtra("position_ms", 0);
-            long durMs = data.getLongExtra("duration_ms", 0);
+            long posMs       = data.getLongExtra("position_ms", 0);
+            long durMs       = data.getLongExtra("duration_ms", 0);
+            boolean autoAdv  = data.getBooleanExtra("auto_advance", false);
             String js = "window.__nativePlayerDone && window.__nativePlayerDone("
-                      + posMs + "," + durMs + ");";
+                      + posMs + "," + durMs + "," + autoAdv + ");";
             webView.evaluateJavascript(js, null);
         }
 
         // Re-focus WebView and restore D-pad navigation after returning from native player.
         // WebView loses window focus when a child Activity is shown — without this,
         // key events are not delivered and the app appears frozen.
+        // Set __playerReturn flag first so the keydown handler ignores stale key events
+        // (old-gen FireTV Stick: Back keyup bleeds into WebView and clicks the focused element).
         webView.requestFocus();
+        webView.evaluateJavascript("window.__playerReturn=Date.now();", null);
         mainHandler.postDelayed(() ->
             webView.evaluateJavascript(
                 "(function(){" +

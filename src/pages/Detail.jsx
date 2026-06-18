@@ -65,6 +65,7 @@ export default function Detail() {
   const [streamEp, setStreamEp]       = useState(null) // { season, episode } currently expanded
   const [musicPlaying, setMusicPlaying] = useState(true)
   const [musicDismissed, setMusicDismissed] = useState(false)
+  const [loadingNextEp, setLoadingNextEp] = useState(false)
 
   const { data: detail, isLoading } = useQuery({
     queryKey: ['detail', type, id],
@@ -113,19 +114,27 @@ export default function Detail() {
     const DPAD = new Set([37, 38, 39, 40, 225, 226, 227, 228, 13, 23])
 
     function focusableEls() {
-      const sidebar = document.querySelector('.sidebar-root')
+      const sidebar  = document.querySelector('.sidebar-root')
+      const trigger  = document.querySelector('[data-sidebar-trigger]')
       return Array.from(document.querySelectorAll(SEL)).filter(el => {
+        if (el === trigger) return false               // never focus the collapsed sidebar strip
         if (sidebar && sidebar.contains(el)) return false
         const r = el.getBoundingClientRect()
         return r.width > 0 && r.height > 0
       })
     }
 
+    // FireTV WebView defers focus() — document.activeElement lags by one frame.
+    // Track the last element we intentionally focused so rapid key presses don't
+    // see document.body as cur and jump to the wrong element.
+    let lastFocused = null
+
     function doFocus(el) {
       document.querySelectorAll('.snav-focused').forEach(e => e.classList.remove('snav-focused'))
       el.focus({ preventScroll: false })
       el.classList.add('snav-focused')
       el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      lastFocused = el
     }
 
     function nearest(els, cur, dir) {
@@ -166,8 +175,15 @@ export default function Detail() {
       const isSelect = k === 13 || k === 23
 
       const els = focusableEls()
-      const cur = document.activeElement
       const sidebar = document.querySelector('.sidebar-root')
+      const active = document.activeElement
+      // Fall back to lastFocused when WebView hasn't committed focus yet (shows body briefly)
+      const cur = (active === document.body || active === document.documentElement)
+        && lastFocused
+        && lastFocused.isConnected
+        && lastFocused.getBoundingClientRect().width > 0
+        ? lastFocused
+        : active
       const curIsOut = !cur || cur === document.body || cur === document.documentElement || (sidebar && sidebar.contains(cur))
 
       // Select / Enter — click whatever is focused
@@ -240,8 +256,15 @@ export default function Detail() {
       if (els.length) doFocus(els[0])
     }, 1300)
 
+    // Clear lastFocused when the element is removed from DOM (e.g. season change re-render)
+    const focusOut = () => {
+      if (lastFocused && !lastFocused.isConnected) lastFocused = null
+    }
+    document.addEventListener('focusout', focusOut)
+
     return () => {
       window.removeEventListener('keydown', onKey, { capture: true })
+      document.removeEventListener('focusout', focusOut)
       clearTimeout(initTimer)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -297,6 +320,7 @@ export default function Detail() {
    */
   function makeNextEpisodeHandler(currentSeason, currentEpisode, preferAddonName) {
     return async function onEpisodeEnded() {
+      setLoadingNextEp(true)
       try {
         const seasonData = await getSeason(id, currentSeason)
         const episodes   = seasonData?.episodes || []
@@ -313,8 +337,8 @@ export default function Detail() {
         }
 
         if (!nextEp) {
+          setLoadingNextEp(false)
           closePlayer()
-          episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
           return
         }
 
@@ -327,13 +351,18 @@ export default function Detail() {
         const sorted = sortAndFilterStreams(streamResults.map(s => ({ ...s, _subtitles: subResults })), {
           sortBy: 'quality', filterLang: audioLang, compatOnly: false, preferredLang: audioLang,
         })
-        if (!sorted.length) { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
+        if (!sorted.length) {
+          setLoadingNextEp(false)
+          closePlayer()
+          return
+        }
 
         const stream = sorted[0]
         const langs  = parseStreamLanguages(stream)
         const { videoCodec } = parseStreamCodecs(stream)
         const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
 
+        setLoadingNextEp(false)
         play({
           url:            stream.url,
           title:          epTitle,
@@ -348,7 +377,7 @@ export default function Detail() {
           transcodeVideo: !!needsVideoTranscode,
           onProgress:     makeProgressHandler(id, 'tv'),
           onEpisodeEnded: makeNextEpisodeHandler(nextSeason, nextEp.episode_number, stream.addonName),
-          onPlaybackEnded: () => { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+          onPlaybackEnded: () => { closePlayer() },
         })
         startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
         saveLastStream(Number(id), 'tv', {
@@ -358,8 +387,8 @@ export default function Detail() {
         })
       } catch (e) {
         console.warn('[auto-next] Failed, closing player:', e.message)
+        setLoadingNextEp(false)
         closePlayer()
-        episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     }
   }
@@ -369,6 +398,19 @@ export default function Detail() {
 
   return (
     <>
+    {/* Loading overlay — shown on FireTV while next episode streams are being fetched */}
+    {loadingNextEp && IS_FIRETV && (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: 'rgba(0,0,0,0.92)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: '1rem',
+      }}>
+        <div style={{ width: 48, height: 48, border: '4px solid rgba(255,255,255,0.15)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <p style={{ margin: 0, color: 'rgba(255,255,255,0.7)', fontSize: '1rem', fontWeight: 500 }}>Loading next episode…</p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )}
     {artPicker && artItem && (
       <ArtworkPicker
         item={artItem}
@@ -674,7 +716,7 @@ export default function Detail() {
                             onProgress: makeProgressHandler(id, 'tv'),
                             startTime: getSavedProgress(id, 'tv'),
                             onEpisodeEnded: makeNextEpisodeHandler(selectedSeason, ep.episode_number, null),
-                            onPlaybackEnded: () => { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+                            onPlaybackEnded: () => { closePlayer() },
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
                         } catch (e) {
@@ -712,7 +754,7 @@ export default function Detail() {
                             transcodeVideo: !!needsVideoTranscode,
                             startTime: getSavedProgress(id, 'tv'),
                             onEpisodeEnded: makeNextEpisodeHandler(selectedSeason, ep.episode_number, stream?.addonName),
-                            onPlaybackEnded: () => { closePlayer(); episodesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+                            onPlaybackEnded: () => { closePlayer() },
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
                           saveLastStream(Number(id), 'tv', { url, streamLangs: langs, rawStreamUrl: stream?.url || null, transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream?._subtitles || [], imdbId, season: selectedSeason, episode: ep.episode_number })

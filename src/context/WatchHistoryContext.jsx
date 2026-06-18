@@ -95,8 +95,10 @@ export function WatchHistoryProvider({ children }) {
     deleteProgress(id, type)
   }
 
-  /** Items with < 95% progress (still "in progress") */
-  const inProgress = history.filter(h => h.progress < 0.95)
+  /** Items still in progress:
+   *  - TV shows: always shown (may have more episodes) until user removes them
+   *  - Movies: shown until 95% watched */
+  const inProgress = history.filter(h => h.type === 'tv' || h.progress < 0.95)
 
   return (
     <WatchHistoryContext.Provider value={{ history, inProgress, startWatching, updateProgress, saveLastStream, removeFromHistory }}>

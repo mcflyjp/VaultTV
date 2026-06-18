@@ -94,6 +94,7 @@ export default function Sidebar() {
       <div
         tabIndex={0}
         aria-label="Open navigation"
+        data-sidebar-trigger
         onFocus={() => setSidebarOpen(true)}
         style={{
           width: 4, minWidth: 4, height: '100vh',
@@ -122,7 +123,7 @@ export default function Sidebar() {
         borderRight: '1px solid var(--border)',
         display: 'flex', flexDirection: 'column',
         height: '100vh', position: 'sticky', top: 0,
-        overflow: 'hidden', flexShrink: 0,
+        overflowX: 'hidden', flexShrink: 0,
       }}>
       {/* Logo */}
       <div style={{ padding: IS_FIRETV ? '0.4rem 1rem' : '0.75rem 1rem' }}>
@@ -149,7 +150,7 @@ export default function Sidebar() {
       <Divider />
 
       {/* Nav — FireTV: no overflow so all items are always in viewport and D-pad findable */}
-      <nav style={{ flex: 1, padding: IS_FIRETV ? '0.25rem 0.5rem 0' : '0.5rem 0.5rem 0', overflowY: IS_FIRETV ? 'visible' : 'auto' }}>
+      <nav style={{ flex: 1, minHeight: 0, padding: IS_FIRETV ? '0.25rem 0.5rem 0' : '0.5rem 0.5rem 0', overflowY: IS_FIRETV ? 'visible' : 'auto', overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
 
         {/* Browse */}
         <SectionLabel>Browse</SectionLabel>

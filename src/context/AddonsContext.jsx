@@ -114,10 +114,14 @@ export function AddonsProvider({ children }) {
     const settled = await Promise.allSettled(
       eligible.map(async addon => {
         const base = addon.manifestUrl.replace('/manifest.json', '')
-        const res = await fetch(`${base}/stream/${stremioType}/${id}.json`, { signal: AbortSignal.timeout(8000) })
-        if (!res.ok) return []
-        const data = await res.json()
-        return (data.streams || []).map(s => ({ ...s, addonName: addon.name }))
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 8000)
+        try {
+          const res = await fetch(`${base}/stream/${stremioType}/${id}.json`, { signal: ctrl.signal })
+          if (!res.ok) return []
+          const data = await res.json()
+          return (data.streams || []).map(s => ({ ...s, addonName: addon.name }))
+        } finally { clearTimeout(timer) }
       })
     )
 
@@ -146,16 +150,20 @@ export function AddonsProvider({ children }) {
     const settled = await Promise.allSettled(
       eligible.map(async addon => {
         const base = addon.manifestUrl.replace('/manifest.json', '')
-        const res = await fetch(`${base}/subtitles/${stremioType}/${id}.json`, { signal: AbortSignal.timeout(8000) })
-        if (!res.ok) return []
-        const data = await res.json()
-        return (data.subtitles || []).map(s => ({
-          id:        s.id   || s.url,
-          url:       s.url,
-          lang:      s.lang || s.id || 'Unknown',
-          label:     s.lang || s.id || 'Unknown',
-          addonName: addon.name,
-        }))
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 8000)
+        try {
+          const res = await fetch(`${base}/subtitles/${stremioType}/${id}.json`, { signal: ctrl.signal })
+          if (!res.ok) return []
+          const data = await res.json()
+          return (data.subtitles || []).map(s => ({
+            id:        s.id   || s.url,
+            url:       s.url,
+            lang:      s.lang || s.id || 'Unknown',
+            label:     s.lang || s.id || 'Unknown',
+            addonName: addon.name,
+          }))
+        } finally { clearTimeout(timer) }
       })
     )
 
