@@ -15,6 +15,9 @@ dist-ssr
 # VaultTV Server runtime config (contains JWT secret + user paths)
 server/config.json
 
+# Bundled binaries — large, downloaded by build script
+bin/
+
 # Electron build output — never commit these
 C:/VaultTVBuild/
 VaultTV/

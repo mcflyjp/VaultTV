@@ -71,6 +71,10 @@ if (fs.existsSync(CONFIG_FILE)) {
   console.log('[config] Created default config.json')
 }
 
+function saveConfig() {
+  try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') } catch (e) { console.warn('[config] Save failed:', e.message) }
+}
+
 // Merge config folders into watched list (config always wins on path/type/name)
 let watchedFolders = loadJson(STATE_FILE, [])
 for (const cf of (config.folders || [])) {
@@ -647,7 +651,8 @@ app.post('/__admin/relay/claim', async (req, res) => {
   const { supabaseToken } = req.body || {}
   if (!supabaseToken) return res.status(400).json({ error: 'supabaseToken required' })
   try {
-    const relayRes = await fetch(`${RELAY_URL}/api/claim`, {
+    // Relay verifies the Supabase token itself and links userId → serverToken
+    const relayRes = await fetch(`${RELAY_URL}/api/link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${supabaseToken}` },
       body: JSON.stringify({ serverToken: config.serverToken }),
@@ -655,7 +660,7 @@ app.post('/__admin/relay/claim', async (req, res) => {
     const data = await relayRes.json()
     if (!relayRes.ok) return res.status(relayRes.status).json(data)
     config.relayLinked = true
-    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8') } catch {}
+    saveConfig()
     registerWithRelay()
     res.json({ ok: true })
   } catch (e) {
@@ -1485,12 +1490,74 @@ const server = app.listen(PORT, '0.0.0.0', () => {
       setTimeout(() => rescanAllFolders(), 5000)
       setInterval(() => rescanAllFolders(), 24 * 60 * 60 * 1000)
     }
-    // Register with relay so remote clients can find this server
-    registerWithRelay()
+    // Start tunnel then register with relay
+    startTunnel().then(() => registerWithRelay())
   }
 })
 
 const RELAY_URL = 'https://vaulttv-relay.jeremypulis.workers.dev'
+
+// ── Auto-start cloudflared tunnel ─────────────────────────────────────────────
+let tunnelProc = null
+
+async function startTunnel() {
+  // If a tunnel URL is already in config and was recently set, skip auto-spawn
+  // (user may have set it manually or a previous instance is still running)
+
+  // Find cloudflared binary — check common install locations
+  const candidates = [
+    // Bundled by electron-builder extraResources
+    process.resourcesPath ? path.join(process.resourcesPath, 'cloudflared.exe') : null,
+    // Same directory as the server script (dev / manual installs)
+    path.join(SERVER_DIR, '..', 'bin', 'cloudflared.exe'),
+    path.join(SERVER_DIR, 'cloudflared.exe'),
+    'cloudflared',                                    // in PATH
+    'C:\\cloudflared\\cloudflared.exe',
+    'C:\\Program Files\\cloudflared\\cloudflared.exe',
+    path.join(os.homedir(), 'cloudflared', 'cloudflared.exe'),
+  ].filter(Boolean)
+
+  let bin = null
+  for (const c of candidates) {
+    try {
+      const { execFileSync } = require('child_process')
+      execFileSync(c, ['--version'], { stdio: 'ignore', timeout: 3000 })
+      bin = c
+      break
+    } catch {}
+  }
+
+  if (!bin) {
+    console.log('   Tunnel: cloudflared not found — using manual tunnel URL from config.json')
+    return
+  }
+
+  console.log(`   Tunnel: starting cloudflared (${bin})…`)
+  tunnelProc = spawn(bin, ['tunnel', '--url', `http://localhost:${PORT}`, '--no-autoupdate'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  const urlRegex = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/
+
+  function onData(data) {
+    const text = data.toString()
+    const match = text.match(urlRegex)
+    if (match && match[0] !== config.tunnelUrl) {
+      config.tunnelUrl = match[0]
+      saveConfig()
+      console.log(`   Tunnel: ✓  ${config.tunnelUrl}`)
+      registerWithRelay()
+    }
+  }
+
+  tunnelProc.stdout.on('data', onData)
+  tunnelProc.stderr.on('data', onData)
+
+  tunnelProc.on('exit', code => {
+    console.warn(`   Tunnel: cloudflared exited (code ${code}) — remote access may be unavailable`)
+    tunnelProc = null
+  })
+}
 
 async function registerWithRelay() {
   if (!config.tunnelUrl || !config.serverToken) return
@@ -1501,7 +1568,7 @@ async function registerWithRelay() {
       body: JSON.stringify({ tunnelUrl: config.tunnelUrl, version: '1.0.0' }),
     })
     if (res.ok) {
-      console.log(`   Relay: registered ✓  ${config.tunnelUrl}`)
+      console.log(`   Relay: registered ✓`)
       setInterval(() => {
         fetch(`${RELAY_URL}/api/heartbeat`, {
           method: 'POST',
@@ -1511,7 +1578,6 @@ async function registerWithRelay() {
     } else {
       const body = await res.json().catch(() => ({}))
       console.warn(`   Relay: registration failed — ${body.error || res.status}`)
-      if (res.status === 403) console.warn('   Relay: link your account in Server Admin → Remote Access')
     }
   } catch (e) {
     console.warn('   Relay: registration failed —', e.message)
