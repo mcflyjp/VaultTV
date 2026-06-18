@@ -210,7 +210,8 @@ app.post('/auth/logout', (req, res) => {
 
 // ── Setup page (served before auth) ──────────────────────────────────────────
 app.get('/__setup', (req, res) => {
-  if (isSetupDone()) return res.redirect('/__login')
+  // Allow the OAuth popup to return here even after setup is complete
+  if (isSetupDone() && req.query.relay !== 'claim') return res.redirect('/__login')
   res.send(setupPage())
 })
 
@@ -768,28 +769,134 @@ function loginPage() {
 }
 
 function setupPage() {
+  const supabaseUrl  = config.supabaseUrl  || SUPABASE_URL
+  const supabaseAnonKey = config.supabaseAnonKey || SUPABASE_ANON_KEY
   return pageShell('Setup', `
+<style>
+  .steps{display:flex;gap:.5rem;margin-bottom:2rem;justify-content:center}
+  .step-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.2);transition:background .3s}
+  .step-dot.active{background:#7c3aed;width:24px;border-radius:4px}
+  .step-dot.done{background:#34d399}
+  .slide{display:none}.slide.active{display:block}
+  .google-btn{width:100%;padding:.75rem;background:#fff;border:none;border-radius:8px;color:#1a1a1a;font-size:.92rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.6rem;transition:opacity .2s}
+  .google-btn:hover{opacity:.9}
+  .google-btn:disabled{opacity:.5;cursor:default}
+  .skip{display:block;text-align:center;margin-top:1rem;font-size:.82rem;color:rgba(255,255,255,.35);cursor:pointer;text-decoration:underline;background:none;border:none;width:100%}
+  .skip:hover{color:rgba(255,255,255,.6)}
+  .success-icon{font-size:2.5rem;text-align:center;margin-bottom:1rem}
+</style>
 <div class="card">
   <div class="logo">Vault<span>TV</span></div>
-  <h1>Welcome to VaultTV Server</h1>
-  <p class="sub">Create an admin password to secure your server. You'll need this to sign in from any device.</p>
-  <form id="f">
-    <label>Admin password</label>
-    <input type="password" id="pw" autofocus autocomplete="new-password" placeholder="At least 8 characters">
-    <label>Confirm password</label>
-    <input type="password" id="pw2" autocomplete="new-password" placeholder="Repeat password">
-    <button type="submit" id="btn">Set up VaultTV Server</button>
-    <p class="err" id="err">Passwords don't match or too short.</p>
-  </form>
+
+  <!-- Step indicators -->
+  <div class="steps">
+    <div class="step-dot active" id="dot-0"></div>
+    <div class="step-dot" id="dot-1"></div>
+  </div>
+
+  <!-- Step 1: Password -->
+  <div class="slide active" id="slide-0">
+    <h1>Welcome to VaultTV</h1>
+    <p class="sub">Create an admin password to secure your server.</p>
+    <form id="pw-form">
+      <label>Admin password</label>
+      <input type="password" id="pw" autofocus autocomplete="new-password" placeholder="At least 8 characters">
+      <label>Confirm password</label>
+      <input type="password" id="pw2" autocomplete="new-password" placeholder="Repeat password">
+      <button type="submit" id="pw-btn">Continue →</button>
+      <p class="err" id="pw-err">Passwords don't match or too short.</p>
+    </form>
+  </div>
+
+  <!-- Step 2: Link VaultTV account -->
+  <div class="slide" id="slide-1">
+    <h1>Link your account</h1>
+    <p class="sub" style="margin-bottom:1.5rem">Sign in with the same account you use in the VaultTV app. This lets any of your devices find this server automatically — no manual URL entry.</p>
+    <button class="google-btn" id="google-btn" onclick="signInWithGoogle()">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Sign in with Google
+    </button>
+    <button class="skip" onclick="skipLink()">Skip for now — I'll do this later in settings</button>
+    <p id="link-msg" style="margin-top:.75rem;font-size:.82rem;color:rgba(255,255,255,.35);text-align:center;min-height:1.2em"></p>
+  </div>
+
   <script>
-    const f=document.getElementById('f'),btn=document.getElementById('btn'),err=document.getElementById('err')
-    f.addEventListener('submit',async e=>{
+    const SUPABASE_URL = ${JSON.stringify(supabaseUrl)}
+    const SUPABASE_KEY = ${JSON.stringify(supabaseAnonKey)}
+
+    function goToStep(n) {
+      document.querySelectorAll('.slide').forEach((s,i) => s.classList.toggle('active', i===n))
+      document.querySelectorAll('.step-dot').forEach((d,i) => {
+        d.classList.toggle('active', i===n)
+        d.classList.toggle('done', i<n)
+      })
+    }
+
+    // ── Step 1: password ──────────────────────────────────────────────────────
+    const pwForm = document.getElementById('pw-form')
+    const pwBtn  = document.getElementById('pw-btn')
+    const pwErr  = document.getElementById('pw-err')
+    pwForm.addEventListener('submit', async e => {
       e.preventDefault()
-      const pw=document.getElementById('pw').value,pw2=document.getElementById('pw2').value
-      if(pw!==pw2||pw.length<8){err.style.display='block';return}
-      btn.disabled=true;btn.textContent='Setting up…';err.style.display='none'
-      const r=await fetch('/auth/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})})
-      if(r.ok){window.location='/'}else{err.style.display='block';btn.disabled=false;btn.textContent='Set up VaultTV Server'}
+      const pw = document.getElementById('pw').value
+      const pw2 = document.getElementById('pw2').value
+      if (pw !== pw2 || pw.length < 8) { pwErr.style.display = 'block'; return }
+      pwBtn.disabled = true; pwBtn.textContent = 'Setting up…'; pwErr.style.display = 'none'
+      const r = await fetch('/auth/setup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pw }) })
+      if (r.ok) {
+        goToStep(1)
+      } else {
+        pwErr.style.display = 'block'; pwBtn.disabled = false; pwBtn.textContent = 'Continue →'
+      }
+    })
+
+    // ── Step 2: Google link ───────────────────────────────────────────────────
+    function signInWithGoogle() {
+      if (!SUPABASE_URL) { document.getElementById('link-msg').textContent = 'Supabase not configured — skip for now.'; return }
+      const redirectTo = window.location.origin + '/__setup?relay=claim'
+      const oauthUrl = SUPABASE_URL + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(redirectTo)
+      const popup = window.open(oauthUrl, 'vaulttv-auth', 'width=500,height=650,left=200,top=100')
+      document.getElementById('google-btn').disabled = true
+      document.getElementById('link-msg').textContent = 'Waiting for sign-in…'
+      const timer = setInterval(() => { if (popup && popup.closed) { clearInterval(timer); document.getElementById('google-btn').disabled = false; document.getElementById('link-msg').textContent = '' } }, 500)
+    }
+
+    function skipLink() { window.location = '/' }
+
+    // ── Handle OAuth return in popup ──────────────────────────────────────────
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('relay') === 'claim') {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:-apple-system,sans-serif;background:#0a0a0f;color:#e5e5ea;flex-direction:column;gap:1rem"><div id="msg" style="font-size:1.1rem;font-weight:600">Linking account…</div></div>'
+      const msg = document.getElementById('msg')
+      const hash = new URLSearchParams(window.location.hash.slice(1))
+      const accessToken = hash.get('access_token')
+      if (!accessToken) { msg.textContent = '❌ No token — please try again.'; setTimeout(() => window.close(), 3000) }
+      else {
+        fetch('/__admin/relay/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ supabaseToken: accessToken })
+        }).then(async r => {
+          if (r.ok) {
+            msg.innerHTML = '✓ Account linked! Taking you to VaultTV…'
+            msg.style.color = '#34d399'
+            if (window.opener && !window.opener.closed) window.opener.postMessage('relay-claimed', window.location.origin)
+            setTimeout(() => { if (!window.opener || window.opener.closed) window.location = '/'; else window.close() }, 1500)
+          } else {
+            const d = await r.json().catch(() => ({}))
+            msg.textContent = '❌ ' + (d.error || 'Link failed — try again in settings.')
+            setTimeout(() => window.close(), 4000)
+          }
+        }).catch(e => { msg.textContent = '❌ ' + e.message; setTimeout(() => window.close(), 4000) })
+      }
+    }
+
+    // Listen for popup completing
+    window.addEventListener('message', e => {
+      if (e.origin === window.location.origin && e.data === 'relay-claimed') {
+        window.location = '/'
+      }
     })
   </script>
 </div>`)
@@ -1495,7 +1602,10 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   }
 })
 
-const RELAY_URL = 'https://vaulttv-relay.jeremypulis.workers.dev'
+const RELAY_URL       = 'https://vaulttv-relay.jeremypulis.workers.dev'
+// Bundled Supabase credentials — same project used by the VaultTV apps
+const SUPABASE_URL     = 'https://hbxxdachzhmowlcrbacb.supabase.co'
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhieHhkYWNoemhtb3dsY3JiYWNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NTQwNDYsImV4cCI6MjA5NjQzMDA0Nn0.vs-9QrL_mSAf9UTjshlT-5UT-9wXXc77VQ1kE1jgnTk'
 
 // ── Auto-start cloudflared tunnel ─────────────────────────────────────────────
 let tunnelProc = null
