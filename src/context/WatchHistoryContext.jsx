@@ -8,6 +8,11 @@ function load() {
   catch { return [] }
 }
 
+function loadWatchedEps() {
+  try { return JSON.parse(localStorage.getItem('vt-watched-eps') || '{}') }
+  catch { return {} }
+}
+
 /** Merge two history arrays — most-recent timestamp wins per (id, type) pair */
 function merge(local, remote) {
   const map = new Map()
@@ -22,6 +27,7 @@ function merge(local, remote) {
 
 export function WatchHistoryProvider({ children }) {
   const [history, setHistory] = useState(load)
+  const [watchedEps, setWatchedEps] = useState(loadWatchedEps)
   const pushTimerRef = useRef(null)
 
   // On mount: pull server progress and merge with localStorage
@@ -95,13 +101,32 @@ export function WatchHistoryProvider({ children }) {
     deleteProgress(id, type)
   }
 
+  /** Mark a specific TV episode as watched (called at 90%+ progress) */
+  function markEpisodeWatched(showId, season, episode) {
+    const key = `${showId}`
+    const epKey = `S${season}E${episode}`
+    setWatchedEps(prev => {
+      const next = { ...prev, [key]: { ...(prev[key] || {}), [epKey]: true } }
+      localStorage.setItem('vt-watched-eps', JSON.stringify(next))
+      return next
+    })
+  }
+
+  /** Returns true if a specific episode has been watched */
+  function isEpisodeWatched(showId, season, episode) {
+    return !!watchedEps[`${showId}`]?.[`S${season}E${episode}`]
+  }
+
   /** Items still in progress:
-   *  - TV shows: always shown (may have more episodes) until user removes them
+   *  - Must have at least 1 minute of watch time (no accidental taps)
+   *  - TV shows: always shown until user removes them
    *  - Movies: shown until 95% watched */
-  const inProgress = history.filter(h => h.type === 'tv' || h.progress < 0.95)
+  const inProgress = history.filter(h =>
+    (h.progressSec || 0) >= 60 && (h.type === 'tv' || h.progress < 0.95)
+  )
 
   return (
-    <WatchHistoryContext.Provider value={{ history, inProgress, startWatching, updateProgress, saveLastStream, removeFromHistory }}>
+    <WatchHistoryContext.Provider value={{ history, inProgress, startWatching, updateProgress, saveLastStream, removeFromHistory, markEpisodeWatched, isEpisodeWatched }}>
       {children}
     </WatchHistoryContext.Provider>
   )

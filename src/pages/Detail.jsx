@@ -21,7 +21,7 @@ export default function Detail() {
   const { type, id } = useParams()
   const { getStreams, getSubtitles } = useAddons()
   const { isSaved, toggle: toggleSave } = useLibrary()
-  const { startWatching, updateProgress, saveLastStream, history: watchHistory } = useWatchHistory()
+  const { startWatching, updateProgress, saveLastStream, history: watchHistory, markEpisodeWatched, isEpisodeWatched } = useWatchHistory()
   const { syncWatched: traktSyncWatched } = useTrakt()
   // Track whether we've already synced the current item as watched this session
   const watchSyncedRef = { current: false }
@@ -42,12 +42,15 @@ export default function Detail() {
   }
 
   /** Shared progress handler — fires Trakt watch sync at 90% completion */
-  function makeProgressHandler(itemId, itemType) {
+  function makeProgressHandler(itemId, itemType, season, episode) {
     return (t, d) => {
       updateProgress(Number(itemId), itemType, t, d, title, IMG(detail?.poster_path, 'w780'))
       if (!watchSyncedRef.current && d > 0 && t / d >= 0.9) {
         watchSyncedRef.current = true
         traktSyncWatched(itemType, Number(itemId))
+        if (itemType === 'tv' && season != null && episode != null) {
+          markEpisodeWatched(Number(itemId), season, episode)
+        }
       }
     }
   }
@@ -691,6 +694,7 @@ export default function Detail() {
                 const epVersions = getLocalVersions(Number(id), 'tv', selectedSeason, ep.episode_number)
                 const hasLocal = epVersions.length > 0
                 const isExpanded = streamEp?.season === selectedSeason && streamEp?.episode === ep.episode_number
+                const epWatched = isEpisodeWatched(Number(id), selectedSeason, ep.episode_number)
                 return (
                   <div key={ep.episode_number}>
                     <EpisodeRow
@@ -699,6 +703,7 @@ export default function Detail() {
                       localVersions={epVersions}
                       hasLocal={hasLocal}
                       active={isExpanded}
+                      watched={epWatched}
                       onWatch={() => handleWatch(selectedSeason, ep.episode_number)}
                       onPlayLocal={async (file) => {
                         try {
@@ -713,7 +718,7 @@ export default function Detail() {
                             mediaType: 'tv',
                             season: selectedSeason,
                             episode: ep.episode_number,
-                            onProgress: makeProgressHandler(id, 'tv'),
+                            onProgress: makeProgressHandler(id, 'tv', selectedSeason, ep.episode_number),
                             startTime: getSavedProgress(id, 'tv'),
                             onEpisodeEnded: makeNextEpisodeHandler(selectedSeason, ep.episode_number, null),
                             onPlaybackEnded: () => { closePlayer() },
@@ -748,7 +753,7 @@ export default function Detail() {
                             mediaType: 'tv',
                             season: selectedSeason,
                             episode: ep.episode_number,
-                            onProgress: makeProgressHandler(id, 'tv'),
+                            onProgress: makeProgressHandler(id, 'tv', selectedSeason, ep.episode_number),
                             streamLangs: langs,
                             rawStreamUrl: stream?.url || null,
                             transcodeVideo: !!needsVideoTranscode,
@@ -1375,7 +1380,7 @@ function VersionItem({ file, isBest, onClick }) {
 /** TV episode row with local version awareness */
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
-function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal }) {
+function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal, watched }) {
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const best = localVersions[0]
@@ -1432,7 +1437,12 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal 
         {ep.still_path && <img src={IMG(ep.still_path, 'w300')} alt="" style={{ width: 120, borderRadius: 4, flexShrink: 0, aspectRatio: '16/9', objectFit: 'cover' }} />}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 4, flexWrap: 'wrap' }}>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>{ep.episode_number}. {ep.name}</p>
+            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem', color: watched ? 'rgba(255,255,255,0.45)' : undefined }}>{ep.episode_number}. {ep.name}</p>
+            {watched && (
+              <span title="Watched" style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', background: 'rgba(52,211,153,0.15)', color: '#34d399', borderRadius: 3, padding: '1px 5px', fontWeight: 700, flexShrink: 0 }}>
+                <FiCheck size={9} strokeWidth={3} /> Watched
+              </span>
+            )}
             {hasLocal && (
               <span style={{ fontSize: '0.62rem', background: '#16a34a', color: '#fff', borderRadius: 3, padding: '1px 5px', fontWeight: 700, flexShrink: 0 }}>
                 LOCAL{best?.qualityLabel ? ` · ${best.qualityLabel}` : ''}

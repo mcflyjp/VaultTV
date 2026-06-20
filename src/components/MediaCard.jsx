@@ -5,6 +5,7 @@ import { useContextMenu } from '../context/ContextMenuContext'
 import { useArtwork } from '../context/ArtworkContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
+import { useWatchHistory } from '../context/WatchHistoryContext'
 import { FiPlay, FiStar, FiCheck, FiHardDrive, FiFilm } from 'react-icons/fi'
 
 export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = false }) {
@@ -13,6 +14,7 @@ export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = 
   const { getPoster } = useArtwork()
   const { isSaved } = useLibrary()
   const { hasLocal, getLocalEpisodeCount } = useLocalLibrary()
+  const { history: watchHistory } = useWatchHistory()
   const [hovered, setHovered] = useState(false)
   const type = item.media_type || (item.first_air_date ? 'tv' : 'movie')
   const title = item.title || item.name || 'Untitled'
@@ -23,6 +25,10 @@ export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = 
   const aspectRatio = useBackdrop ? '16/9' : '2/3'
   const saved   = isSaved(item.id, type)
   const isLocal = hasLocal(item.id, type)
+  const historyEntry = watchHistory.find(h => h.id === item.id && h.type === type)
+  const isWatched = historyEntry && (
+    type === 'movie' ? (historyEntry.progress || 0) >= 0.85 : false
+  )
   const year = (item.release_date || item.first_air_date || '').slice(0, 4)
   const rating = item.vote_average?.toFixed(1)
 
@@ -76,6 +82,14 @@ export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = 
         ? <img src={poster} alt={title} style={{ width: '100%', aspectRatio, objectFit: 'cover', display: 'block' }} />
         : <div style={{ width: '100%', aspectRatio, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>No Image</div>
       }
+
+      {/* Watched badge — top-left corner */}
+      {isWatched && (
+        <div style={{ position: 'absolute', top: 6, left: 6, zIndex: 4, background: 'rgba(0,0,0,0.72)', borderRadius: 4, padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
+          <FiCheck size={10} strokeWidth={3} style={{ color: '#34d399' }} />
+          <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#34d399', letterSpacing: '0.03em' }}>WATCHED</span>
+        </div>
+      )}
 
       {/* Hover overlay — in backdrop mode: always show bottom gradient + title, darken on hover */}
       <div style={{
