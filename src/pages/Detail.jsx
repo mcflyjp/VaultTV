@@ -318,10 +318,10 @@ export default function Detail() {
 
   /**
    * Returns a callback for PlayerContext to fire when an episode finishes.
-   * Tries to play the next episode automatically; if no next ep exists, closes
-   * the player so the user lands back on the episode list.
+   * preferLocal=true means the current episode was playing from a local file —
+   * try local first for the next episode before falling back to addon streams.
    */
-  function makeNextEpisodeHandler(currentSeason, currentEpisode, preferAddonName) {
+  function makeNextEpisodeHandler(currentSeason, currentEpisode, preferAddonName, preferLocal = false) {
     return async function onEpisodeEnded() {
       setLoadingNextEp(true)
       try {
@@ -346,6 +346,37 @@ export default function Detail() {
         }
 
         const epTitle = `${title} · S${String(nextSeason).padStart(2,'0')}E${String(nextEp.episode_number).padStart(2,'0')} · ${nextEp.name}`
+        const poster  = IMG(detail?.poster_path, 'w780')
+
+        // ── Try local file first if previous episode was local ──────────────
+        if (preferLocal) {
+          const localVersions = getLocalVersions(Number(id), 'tv', nextSeason, nextEp.episode_number)
+          if (localVersions.length > 0) {
+            try {
+              const url = await getFileUrl(localVersions[0].filename)
+              setLoadingNextEp(false)
+              play({
+                url,
+                title:          epTitle,
+                poster,
+                subtitleTracks: autoSubs,
+                imdbId,
+                mediaType:      'tv',
+                season:         nextSeason,
+                episode:        nextEp.episode_number,
+                onProgress:     makeProgressHandler(id, 'tv', nextSeason, nextEp.episode_number),
+                onEpisodeEnded: makeNextEpisodeHandler(nextSeason, nextEp.episode_number, null, true),
+                onPlaybackEnded: () => { closePlayer() },
+              })
+              startWatching({ id: Number(id), type: 'tv', title, poster })
+              return
+            } catch {
+              // local file unavailable — fall through to streams
+            }
+          }
+        }
+
+        // ── Addon streams ───────────────────────────────────────────────────
         const [streamResults, subResults] = await Promise.all([
           getStreams(type, imdbId, nextSeason, nextEp.episode_number, { preferAddonName }),
           getSubtitles(type, imdbId, nextSeason, nextEp.episode_number).catch(() => []),
@@ -369,7 +400,7 @@ export default function Detail() {
         play({
           url:            stream.url,
           title:          epTitle,
-          poster:         IMG(detail?.poster_path, 'w780'),
+          poster,
           subtitleTracks: stream._subtitles || [],
           imdbId,
           mediaType:      'tv',
@@ -378,11 +409,11 @@ export default function Detail() {
           streamLangs:    langs,
           rawStreamUrl:   stream.url,
           transcodeVideo: !!needsVideoTranscode,
-          onProgress:     makeProgressHandler(id, 'tv'),
-          onEpisodeEnded: makeNextEpisodeHandler(nextSeason, nextEp.episode_number, stream.addonName),
+          onProgress:     makeProgressHandler(id, 'tv', nextSeason, nextEp.episode_number),
+          onEpisodeEnded: makeNextEpisodeHandler(nextSeason, nextEp.episode_number, stream.addonName, false),
           onPlaybackEnded: () => { closePlayer() },
         })
-        startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
+        startWatching({ id: Number(id), type: 'tv', title, poster })
         saveLastStream(Number(id), 'tv', {
           url: stream.url, streamLangs: langs, rawStreamUrl: stream.url,
           transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream._subtitles || [],
@@ -720,7 +751,7 @@ export default function Detail() {
                             episode: ep.episode_number,
                             onProgress: makeProgressHandler(id, 'tv', selectedSeason, ep.episode_number),
                             startTime: getSavedProgress(id, 'tv'),
-                            onEpisodeEnded: makeNextEpisodeHandler(selectedSeason, ep.episode_number, null),
+                            onEpisodeEnded: makeNextEpisodeHandler(selectedSeason, ep.episode_number, null, true),
                             onPlaybackEnded: () => { closePlayer() },
                           })
                           startWatching({ id: Number(id), type: 'tv', title, poster: IMG(detail?.poster_path, 'w780') })
