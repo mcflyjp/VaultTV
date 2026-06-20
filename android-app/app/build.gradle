@@ -10,8 +10,8 @@ android {
         applicationId   'app.vaulttv'
         minSdk          22          // Fire OS 5+ / Android 5.1+
         targetSdk       34
-        versionCode     21
-        versionName     '0.20.0'
+        versionCode     22
+        versionName     '0.21.0'
     }
 
     buildTypes {
