@@ -1228,22 +1228,37 @@ function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = fals
         {s.name || s.title || 'Stream'}
       </p>
 
-      {/* Torrent / file name — first line of title, description, or behaviorHints.filename */}
+      {/* Torrent / file name */}
       {(() => {
         const nameLower = (s.name || '').toLowerCase()
-        // Extract first non-empty line from each candidate field
-        const firstLine = str => str?.split('\n').map(l => l.trim()).find(l => l.length > 2) || ''
-        const fn = firstLine(s.behaviorHints?.filename)
-          || firstLine(s.title)
-          || firstLine(s.description)
-        // Skip if it's redundant with the name line or looks like pure emoji/metadata
-        if (!fn || nameLower.includes(fn.toLowerCase()) || fn.toLowerCase().includes(nameLower)) return null
-        return (
-          <p style={{ margin: '1px 0 0', fontSize: '0.66rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-            {fn}
-          </p>
-        )
+        const addonLower = (s.addonName || '').toLowerCase()
+        const firstLine = str => str?.split('\n').map(l => l.trim()).find(l => l.length > 3) || ''
+        // looks like a real filename/torrent name: has a video extension, or has dots/dots+year pattern, or is long (>25 chars)
+        const looksLikeFilename = str => /\.(mkv|mp4|avi|mov|ts|m2ts|webm)$/i.test(str) || str.length > 25
+        // looksLikeSource: short string that's just a rehash of the addon/cache source
+        const looksLikeSource = str => {
+          const l = str.toLowerCase()
+          return str.length < 20 && (
+            l.includes(addonLower) || (addonLower && addonLower.includes(l.split(' ')[0]))
+          )
+        }
+
+        // behaviorHints.filename is the most reliable — always use if present
+        const hintFile = firstLine(s.behaviorHints?.filename)
+        if (hintFile && !nameLower.includes(hintFile.toLowerCase())) {
+          return <p style={{ margin: '1px 0 0', fontSize: '0.66rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{hintFile}</p>
+        }
+
+        // Fall back to first line of title/description only if it looks like a real filename
+        const candidate = firstLine(s.title) || firstLine(s.description)
+        if (!candidate) return null
+        if (nameLower.includes(candidate.toLowerCase())) return null
+        if (looksLikeSource(candidate)) return null
+        if (!looksLikeFilename(candidate)) return null
+
+        return <p style={{ margin: '1px 0 0', fontSize: '0.66rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{candidate}</p>
       })()}
 
       {/* Addon name + seeds + size */}
