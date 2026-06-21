@@ -663,7 +663,7 @@ export default function Detail() {
                 {/* Save to library */}
                 {detail && (
                   <button
-                    onClick={() => toggleSave({ id: Number(id), type, title: detail.title || detail.name, poster: IMG(detail.poster_path, 'w780') })}
+                    onClick={() => toggleSave({ id: Number(id), type, title: detail.title || detail.name, poster_path: detail.poster_path || null })}
                     title={isSaved(Number(id), type) ? `Remove from My ${type === 'tv' ? 'Shows' : 'Movies'}` : `Add to My ${type === 'tv' ? 'Shows' : 'Movies'}`}
                     style={{
                       background: isSaved(Number(id), type) ? 'var(--accent)' : 'rgba(255,255,255,0.1)',

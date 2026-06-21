@@ -64,7 +64,8 @@ export default function ContextMenu() {
 
   function action(fn) { fn(); hide() }
 
-  const libraryItem = { id: item.id, type, title, poster }
+  const libraryItem = { id: item.id, type, title, poster_path: item.poster_path || null }
+  const watchItem   = { ...libraryItem, poster }
 
   // Local versions (movies only in context menu — TV needs episode selection)
   const localVersions = type === 'movie' ? getLocalVersions(item.id, 'movie') : []
@@ -225,7 +226,7 @@ export default function ContextMenu() {
             <MenuItem
               icon={<FiCheck />}
               label="Mark as Watched"
-              onClick={() => action(() => startWatching({ ...libraryItem, durationSec: 1, progressSec: 1 }))}
+              onClick={() => action(() => startWatching({ ...watchItem, durationSec: 1, progressSec: 1 }))}
             />
           </>
         )}

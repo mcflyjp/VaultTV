@@ -97,7 +97,7 @@ export function LibraryProvider({ children }) {
         id:         item.id,
         type:       item.type || (item.first_air_date ? 'tv' : 'movie'),
         title:      item.title || item.name || '',
-        poster:     item.poster || item.poster_path || null,
+        poster_path: item.poster_path || null,
         genre_ids:  item.genre_ids || [],
         savedAt:    Date.now(),
       }
