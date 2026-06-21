@@ -1228,13 +1228,23 @@ function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = fals
         {s.name || s.title || 'Stream'}
       </p>
 
-      {/* Torrent / file name — shown when it differs from the name line */}
-      {s.title && s.title !== s.name && (
-        <p style={{ margin: '1px 0 0', fontSize: '0.68rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
-          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {s.title}
-        </p>
-      )}
+      {/* Torrent / file name — first line of title, description, or behaviorHints.filename */}
+      {(() => {
+        const nameLower = (s.name || '').toLowerCase()
+        // Extract first non-empty line from each candidate field
+        const firstLine = str => str?.split('\n').map(l => l.trim()).find(l => l.length > 2) || ''
+        const fn = firstLine(s.behaviorHints?.filename)
+          || firstLine(s.title)
+          || firstLine(s.description)
+        // Skip if it's redundant with the name line or looks like pure emoji/metadata
+        if (!fn || nameLower.includes(fn.toLowerCase()) || fn.toLowerCase().includes(nameLower)) return null
+        return (
+          <p style={{ margin: '1px 0 0', fontSize: '0.66rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {fn}
+          </p>
+        )
+      })()}
 
       {/* Addon name + seeds + size */}
       <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', margin: '2px 0 4px', flexWrap: 'wrap' }}>
