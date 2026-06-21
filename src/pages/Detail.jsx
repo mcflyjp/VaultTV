@@ -1238,9 +1238,11 @@ function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = fals
 
       {/* Addon name + seeds + size */}
       <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', margin: '2px 0 4px', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1 }}>
-          {s.addonName}
-        </span>
+        {s.addonName && !(s.name || '').toLowerCase().includes(s.addonName.toLowerCase()) && (
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1 }}>
+            {s.addonName}
+          </span>
+        )}
         {meta.seeds != null && (
           <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>👤{meta.seeds}</span>
         )}
