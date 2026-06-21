@@ -1228,6 +1228,14 @@ function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = fals
         {s.name || s.title || 'Stream'}
       </p>
 
+      {/* Torrent / file name — shown when it differs from the name line */}
+      {s.title && s.title !== s.name && (
+        <p style={{ margin: '1px 0 0', fontSize: '0.68rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {s.title}
+        </p>
+      )}
+
       {/* Addon name + seeds + size */}
       <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', margin: '2px 0 4px', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1 }}>
