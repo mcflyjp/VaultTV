@@ -13,8 +13,9 @@ import { IMG } from '../lib/tmdb'
 import {
   FiPlay, FiList, FiBookmark, FiCheck, FiStar, FiImage,
   FiInfo, FiPlusSquare, FiX, FiPlus, FiHardDrive, FiLayers, FiChevronRight,
-  FiFolder, FiCopy
+  FiFolder, FiCopy, FiEdit2
 } from 'react-icons/fi'
+import { useMetadata } from '../context/MetadataContext'
 import ArtworkPicker from './ArtworkPicker'
 import RatingPicker from './RatingPicker'
 import PlaylistModal from './PlaylistModal'
@@ -30,7 +31,8 @@ export default function ContextMenu() {
   const navigate = useNavigate()
   const ref = useRef(null)
 
-  const [subModal, setSubModal] = useState(null) // 'artwork' | 'rating' | 'playlist'
+  const { setMetadata, getMetadata } = useMetadata()
+  const [subModal, setSubModal] = useState(null) // 'artwork' | 'rating' | 'playlist' | 'editinfo'
   const [versionsOpen, setVersionsOpen] = useState(false)
 
   // Click outside to close
@@ -100,6 +102,9 @@ export default function ContextMenu() {
   )
   if (subModal === 'fileinfo') return (
     <FileInfoModal versions={localVersions} title={title} onClose={() => { setSubModal(null); hide() }} />
+  )
+  if (subModal === 'editinfo') return (
+    <EditInfoModal item={item} type={type} existingMeta={getMetadata(item.id, type)} onSave={(fields) => { setMetadata(item.id, type, fields); setSubModal(null); hide() }} onClose={() => { setSubModal(null); hide() }} />
   )
 
   return (
@@ -229,6 +234,7 @@ export default function ContextMenu() {
         <MenuSection label="Organize" />
         {!isUnmatched && <MenuItem icon={<FiPlusSquare />} label="Add to Playlist…" onClick={() => setSubModal('playlist')} />}
         <MenuItem icon={<FiImage />} label="Change Artwork…" onClick={() => setSubModal('artwork')} />
+        <MenuItem icon={<FiEdit2 />} label="Edit Info…" onClick={() => setSubModal('editinfo')} />
 
         {!isUnmatched && (
           <>
@@ -344,6 +350,84 @@ function FileInfoModal({ versions, title, onClose }) {
 
         <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border)', textAlign: 'right' }}>
           <button onClick={onClose} className="btn-ghost" style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditInfoModal({ item, type, existingMeta, onSave, onClose }) {
+  const originalTitle = item.title || item.name || ''
+  const originalYear  = (item.release_date || item.first_air_date || '').slice(0, 4)
+  const originalImdb  = item.external_ids?.imdb_id || ''
+
+  const [titleVal, setTitleVal] = useState(existingMeta?.title ?? originalTitle)
+  const [yearVal,  setYearVal]  = useState(existingMeta?.year  ?? originalYear)
+  const [imdbVal,  setImdbVal]  = useState(existingMeta?.imdb_id ?? originalImdb)
+
+  function handleSave() {
+    onSave({
+      title:   titleVal.trim() !== originalTitle ? titleVal.trim() : '',
+      year:    yearVal.trim()  !== originalYear  ? yearVal.trim()  : '',
+      imdb_id: imdbVal.trim(),
+    })
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '0.5rem 0.75rem',
+    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+    borderRadius: 6, color: 'var(--text-primary)', fontSize: '0.9rem',
+    outline: 'none', boxSizing: 'border-box',
+  }
+  const labelStyle = { fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block', fontWeight: 600 }
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 9100, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={onClose}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 460, boxShadow: '0 24px 80px rgba(0,0,0,0.8)', overflow: 'hidden' }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <FiEdit2 size={16} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Edit Info</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 4, display: 'flex' }}>
+            <FiX size={18} />
+          </button>
+        </div>
+
+        <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Override how this title is identified when fetching streams. Leave a field blank to use the original value.
+          </p>
+
+          <div>
+            <label style={labelStyle}>Title</label>
+            <input style={inputStyle} value={titleVal} onChange={e => setTitleVal(e.target.value)} placeholder={originalTitle} />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Year</label>
+            <input style={{ ...inputStyle, width: 120 }} value={yearVal} onChange={e => setYearVal(e.target.value)} placeholder={originalYear} maxLength={4} />
+          </div>
+
+          <div>
+            <label style={labelStyle}>IMDB ID <span style={{ fontWeight: 400, opacity: 0.6 }}>(e.g. tt0123456)</span></label>
+            <input style={inputStyle} value={imdbVal} onChange={e => setImdbVal(e.target.value)} placeholder="tt…" />
+            <p style={{ margin: '0.3rem 0 0', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              Setting the IMDB ID ensures addons like Torrentio match the correct title.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+          <button onClick={onClose} className="btn-ghost" style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}>Cancel</button>
+          <button onClick={handleSave} className="btn-primary" style={{ fontSize: '0.85rem', padding: '0.4rem 1.25rem' }}>Save</button>
         </div>
       </div>
     </div>

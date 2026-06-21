@@ -8,6 +8,7 @@ import { useWatchHistory } from '../context/WatchHistoryContext'
 import { usePlayer } from '../context/PlayerContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useArtwork } from '../context/ArtworkContext'
+import { useMetadata } from '../context/MetadataContext'
 import ArtworkPicker from '../components/ArtworkPicker'
 import { useLanguage } from '../context/LanguageContext'
 import { useTrakt } from '../context/TraktContext'
@@ -57,6 +58,7 @@ export default function Detail() {
   const { play, closePlayer } = usePlayer()
   const { getLocalFile, getLocalVersions, getFileUrl } = useLocalLibrary()
   const { getPoster, getBackdrop } = useArtwork()
+  const { getMetadata } = useMetadata()
   const { audioLang } = useLanguage()
   const episodesRef = useRef(null)
   const [artPicker, setArtPicker]     = useState(null) // null | 'poster' | 'backdrop'
@@ -93,7 +95,9 @@ export default function Detail() {
   })
 
   // imdbId must be declared before any useEffect that references it
-  const imdbId = detail?.external_ids?.imdb_id || `tmdb:${id}`
+  // Metadata override lets users correct the IMDB ID when addons mismatch
+  const _metaOverride = getMetadata(id, type)
+  const imdbId = _metaOverride?.imdb_id || detail?.external_ids?.imdb_id || `tmdb:${id}`
 
   // Reset music state on navigation; pre-fetch subtitles for local playback
   useEffect(() => {

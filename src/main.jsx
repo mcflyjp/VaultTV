@@ -13,6 +13,7 @@ import { QueueProvider } from './context/QueueContext'
 import { RatingsProvider } from './context/RatingsContext'
 import { PlaylistProvider } from './context/PlaylistContext'
 import { ArtworkProvider } from './context/ArtworkContext'
+import { MetadataProvider } from './context/MetadataContext'
 import { ContextMenuProvider } from './context/ContextMenuContext'
 import { TraktProvider } from './context/TraktContext'
 import { PlayerProvider } from './context/PlayerContext'
@@ -58,6 +59,7 @@ createRoot(document.getElementById('root')).render(
             <RatingsProvider>
             <PlaylistProvider>
             <ArtworkProvider>
+            <MetadataProvider>
             <ContextMenuProvider>
             <ParentalProvider>
               <LocalLibraryProvider>
@@ -74,6 +76,7 @@ createRoot(document.getElementById('root')).render(
               </LocalLibraryProvider>
             </ParentalProvider>
             </ContextMenuProvider>
+            </MetadataProvider>
             </ArtworkProvider>
             </PlaylistProvider>
             </RatingsProvider>
