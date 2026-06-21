@@ -10,14 +10,13 @@ import { usePlaylist } from '../context/PlaylistContext'
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
 // ── Library item definitions (canonical order) ──
-const ALL_LIB_IDS = ['movies', 'shows', 'saved', 'queue', 'playlists']
+const ALL_LIB_IDS = ['movies', 'shows', 'queue', 'playlists']
 
 const LIB_META = {
-  movies:    { label: 'My Movies',   icon: FiFilm,     to: '/library/movies' },
-  shows:     { label: 'My TV Shows', icon: FiTv,       to: '/library/shows' },
-  saved:     { label: 'Saved',       icon: FiBookmark, to: '/library/saved' },
-  queue:     { label: 'Queue',       icon: FiList,     to: '/queue' },
-  playlists: { label: 'Playlists',   icon: FiMusic,    to: '/playlists' },
+  movies:    { label: 'My Movies',   icon: FiFilm,  to: '/library/movies' },
+  shows:     { label: 'My TV Shows', icon: FiTv,    to: '/library/shows' },
+  queue:     { label: 'Queue',       icon: FiList,  to: '/queue' },
+  playlists: { label: 'Playlists',   icon: FiMusic, to: '/playlists' },
 }
 
 function loadLibOrder() {

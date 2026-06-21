@@ -664,7 +664,7 @@ export default function Detail() {
                 {detail && (
                   <button
                     onClick={() => toggleSave({ id: Number(id), type, title: detail.title || detail.name, poster: IMG(detail.poster_path, 'w780') })}
-                    title={isSaved(Number(id), type) ? 'Remove from library' : 'Save to library'}
+                    title={isSaved(Number(id), type) ? `Remove from My ${type === 'tv' ? 'Shows' : 'Movies'}` : `Add to My ${type === 'tv' ? 'Shows' : 'Movies'}`}
                     style={{
                       background: isSaved(Number(id), type) ? 'var(--accent)' : 'rgba(255,255,255,0.1)',
                       border: '1px solid rgba(255,255,255,0.2)', borderRadius: 'var(--radius)',
@@ -674,7 +674,7 @@ export default function Detail() {
                     }}
                   >
                     <FiBookmark size={15} fill={isSaved(Number(id), type) ? '#fff' : 'none'} />
-                    {isSaved(Number(id), type) ? 'Saved' : 'Save'}
+                    {isSaved(Number(id), type) ? 'In My ' + (type === 'tv' ? 'Shows' : 'Movies') : '+ My ' + (type === 'tv' ? 'Shows' : 'Movies')}
                   </button>
                 )}
               </div>

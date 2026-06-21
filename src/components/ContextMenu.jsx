@@ -212,7 +212,7 @@ export default function ContextMenu() {
           <>
             <MenuItem
               icon={<FiBookmark />}
-              label={saved ? 'Remove from Library' : 'Save to Library'}
+              label={saved ? `Remove from My ${type === 'tv' ? 'Shows' : 'Movies'}` : `Add to My ${type === 'tv' ? 'Shows' : 'Movies'}`}
               onClick={() => action(() => toggleSave(libraryItem))}
               active={saved}
             />

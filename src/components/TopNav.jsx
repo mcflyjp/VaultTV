@@ -52,13 +52,11 @@ export default function TopNav() {
         { label: 'Home',       path: '/' },
         { label: 'Movies',     path: '/library/movies' },
         { label: 'Series',     path: '/library/shows' },
-        { label: 'My List',    path: '/library/saved' },
       ]
     : [
         { label: 'Home',       path: '/' },
         { label: 'TV Shows',   path: '/library/shows' },
         { label: 'Movies',     path: '/library/movies' },
-        { label: 'My List',    path: '/library/saved' },
       ]
 
   const VAULT_PLUS_BRANDS = ['All', 'Disney', 'Pixar', 'Marvel', 'Star Wars', 'Nat Geo']

@@ -83,6 +83,7 @@ export default function App() {
           <Route path="/detail/:type/:id" element={<Detail />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/addons" element={<Addons />} />
+          <Route path="/library/saved" element={<Navigate to="/library/movies" replace />} />
           <Route path="/library/:section" element={<Library />} />
           <Route path="/queue" element={<Queue />} />
           <Route path="/playlists" element={<Playlists />} />
