@@ -1,5 +1,24 @@
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts'])
 
+// Subfolder names that contain extras, not the main feature
+const SKIP_FOLDERS = new Set([
+  'shorts', 'short', 'featurettes', 'featurette', 'samples', 'sample',
+  'extras', 'extra', 'behind the scenes', 'behindthescenes',
+  'deleted scenes', 'deletedscenes', 'interviews', 'interview',
+  'scenes', 'trailers', 'trailer', 'specials', 'special',
+  'bonus', 'bonus content', 'making of', 'makingof',
+])
+
+function shouldSkipFolder(name) {
+  return SKIP_FOLDERS.has(name.toLowerCase().replace(/[-_.]/g, ' ').trim())
+}
+
+function shouldSkipFile(name) {
+  const lower = name.toLowerCase()
+  // Common sample file patterns
+  return /[.\s_-]sample[.\s_-]|[.\s_-]sample\.|^sample[.\s_-]/i.test(lower)
+}
+
 /**
  * Parse quality metadata from a filename.
  * Returns { resolution, source, codec, score, label }
@@ -53,11 +72,17 @@ export async function scanDirectory(dirHandle, depth = 0, rootFolderName = null)
       if (handle.kind === 'file') {
         const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
         if (VIDEO_EXTS.has(ext)) {
-          files.push({ name, handle, dirHandle, rootFolderName })
-        } else if (depth === 0) {
-          console.log(`[scanner] Skipping non-video at root: ${name}`)
+          if (shouldSkipFile(name)) {
+            console.log(`[scanner] Skipping sample file: ${name}`)
+          } else {
+            files.push({ name, handle, dirHandle, rootFolderName })
+          }
         }
       } else if (handle.kind === 'directory') {
+        if (shouldSkipFolder(name)) {
+          console.log(`[scanner] Skipping extras folder: ${name}`)
+          continue
+        }
         const childRoot = depth === 0 ? name : rootFolderName
         console.log(`[scanner] Entering subdir: ${name} (depth ${depth + 1}, rootFolder: ${childRoot})`)
         try {

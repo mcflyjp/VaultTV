@@ -343,14 +343,33 @@ function handleChange(folder, action, filePath) {
   }, 2000)
 }
 
+const SKIP_FOLDERS = new Set([
+  'shorts', 'short', 'featurettes', 'featurette', 'samples', 'sample',
+  'extras', 'extra', 'behind the scenes', 'behindthescenes',
+  'deleted scenes', 'deletedscenes', 'interviews', 'interview',
+  'scenes', 'trailers', 'trailer', 'specials', 'special',
+  'bonus', 'bonus content', 'making of', 'makingof',
+])
+
+function shouldSkipFolder(name) {
+  return SKIP_FOLDERS.has(name.toLowerCase().replace(/[-_.]/g, ' ').trim())
+}
+
+function shouldSkipFile(name) {
+  return /[.\s_-]sample[.\s_-]|[.\s_-]sample\.|^sample[.\s_-]/i.test(name)
+}
+
 function scanDir(dir, depth = 0, results = [], rootFolder = null) {
   if (depth > 8) return results
   let entries
   try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) { console.warn(`[scan] cannot read dir: ${dir} — ${e.message}`); return results }
   for (const e of entries) {
     const full = path.join(dir, e.name)
-    if (e.isDirectory()) scanDir(full, depth + 1, results, depth === 0 ? e.name : rootFolder)
-    else if (e.isFile() && VIDEO_EXTS.has(path.extname(e.name).toLowerCase())) {
+    if (e.isDirectory()) {
+      if (shouldSkipFolder(e.name)) { console.log(`[scan] Skipping extras folder: ${e.name}`); continue }
+      scanDir(full, depth + 1, results, depth === 0 ? e.name : rootFolder)
+    } else if (e.isFile() && VIDEO_EXTS.has(path.extname(e.name).toLowerCase())) {
+      if (shouldSkipFile(e.name)) { console.log(`[scan] Skipping sample file: ${e.name}`); continue }
       results.push({ name: e.name, path: full, rootFolder: rootFolder || null })
     }
   }
