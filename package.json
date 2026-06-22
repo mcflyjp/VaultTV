@@ -16,7 +16,8 @@
     "electron:build": "npm run build && electron-builder --config electron-builder.config.cjs",
     "electron:build:win": "npm run build && electron-builder --win --config electron-builder.config.cjs",
     "server:build": "npm run build && electron-builder --win --config server-builder.config.cjs",
-    "server:dev": "electron server/tray.cjs"
+    "server:dev": "electron server/tray.cjs",
+    "icons": "node scripts/generate-icons.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",

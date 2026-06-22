@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { FiSearch, FiSettings, FiGrid, FiHome } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
+import LogoIcon from './LogoIcon'
 
 export default function Navbar() {
   const { theme, changeTheme } = useTheme()
@@ -30,8 +31,9 @@ export default function Navbar() {
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 1.5rem', height: 60, display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
 
         {/* Logo */}
-        <Link to="/" style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="VaultTV" style={{ height: 52, width: 'auto' }} />
+        <Link to="/" style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <LogoIcon size={36} />
+          <span style={{ fontWeight: 800, fontSize: '1.2rem', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>VaultTV</span>
         </Link>
 
         {/* Nav links */}

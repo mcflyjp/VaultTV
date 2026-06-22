@@ -6,6 +6,7 @@ import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useQueue } from '../context/QueueContext'
 import { usePlaylist } from '../context/PlaylistContext'
+import LogoIcon from './LogoIcon'
 
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
@@ -126,8 +127,9 @@ export default function Sidebar() {
       }}>
       {/* Logo */}
       <div style={{ padding: IS_FIRETV ? '0.4rem 1rem' : '0.75rem 1rem' }}>
-        <Link to="/" style={{ display: 'flex', alignItems: 'center' }}>
-          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="VaultTV" style={{ width: '100%', height: 'auto', maxHeight: IS_FIRETV ? 44 : 80, objectFit: 'contain', objectPosition: 'left center' }} />
+        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', textDecoration: 'none' }}>
+          <LogoIcon size={IS_FIRETV ? 32 : 40} />
+          <span style={{ fontWeight: 800, fontSize: IS_FIRETV ? '1rem' : '1.15rem', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>VaultTV</span>
         </Link>
       </div>
 

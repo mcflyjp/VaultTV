@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <!-- TV body -->
+  <rect fill="#7c3aed" x="75" y="140" width="350" height="240" rx="28" ry="28"/>
+  <!-- Screen -->
+  <rect fill="#1a0a2e" x="92" y="153" width="278" height="200" rx="22" ry="22"/>
+  <!-- Antenna left -->
+  <line stroke="#7c3aed" stroke-width="14" stroke-linecap="round" x1="155" y1="140" x2="100" y2="55"/>
+  <circle fill="#7c3aed" cx="100" cy="52" r="10"/>
+  <!-- Antenna right -->
+  <line stroke="#7c3aed" stroke-width="14" stroke-linecap="round" x1="345" y1="140" x2="400" y2="55"/>
+  <circle fill="#7c3aed" cx="400" cy="52" r="10"/>
+  <!-- Legs -->
+  <rect fill="#5b21b6" x="140" y="378" width="52" height="24" rx="6"/>
+  <rect fill="#5b21b6" x="308" y="378" width="52" height="24" rx="6"/>
+  <!-- Speaker lines -->
+  <line stroke="#5b21b6" stroke-width="6" stroke-linecap="round" x1="388" y1="218" x2="388" y2="242"/>
+  <line stroke="#5b21b6" stroke-width="6" stroke-linecap="round" x1="402" y1="210" x2="402" y2="250"/>
+  <line stroke="#5b21b6" stroke-width="6" stroke-linecap="round" x1="416" y1="218" x2="416" y2="242"/>
+  <!-- Knob -->
+  <circle fill="#5b21b6" cx="402" cy="300" r="18"/>
+  <circle fill="#4c1d95" cx="402" cy="300" r="9"/>
+  <!-- V (accent) on screen -->
+  <text x="100" y="296" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="130" fill="#7c3aed">V</text>
+  <!-- TV (white) on screen -->
+  <text x="196" y="296" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="130" fill="#ffffff">TV</text>
+</svg>

@@ -4,6 +4,7 @@ import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { FiSearch, FiSettings, FiChevronDown, FiLogOut } from 'react-icons/fi'
+import LogoIcon from './LogoIcon'
 
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
@@ -77,22 +78,10 @@ export default function TopNav() {
       {/* Logo */}
       <button
         onClick={() => navigate('/')}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          marginRight: isVaultflix ? '2rem' : '2.5rem', flexShrink: 0, lineHeight: 1, padding: 0,
-          fontWeight: 900,
-          fontSize: isVaultflix ? '1.75rem' : isVaultPlus ? '1.55rem' : '1.6rem',
-          letterSpacing: isVaultflix ? '0.06em' : isVaultPlus ? '-0.02em' : '-0.03em',
-          color: isVaultflix ? '#e50914' : '#f9f9f9',
-          fontFamily: isVaultflix
-            ? '"Netflix Sans", "Helvetica Neue", Helvetica, Arial, sans-serif'
-            : isVaultPlus ? '"Avenir Next", "Century Gothic", Arial Black, sans-serif' : 'inherit',
-          textShadow: isVaultPlus ? '0 0 24px rgba(0,99,229,0.5)' : 'none',
-          textTransform: isVaultflix ? 'uppercase' : 'none',
-        }}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: '2rem', flexShrink: 0, lineHeight: 1, padding: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}
       >
-        {isVaultPlus ? 'VAULT' : isVaultflix ? 'VaultTV' : 'VAULTTV'}
-        {isVaultPlus && <span style={{ color: '#0063e5', marginLeft: 2, fontWeight: 900 }}>+</span>}
+        <LogoIcon size={36} />
+        <span style={{ fontWeight: 800, fontSize: '1.2rem', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>VaultTV</span>
       </button>
 
       {/* Nav links */}
