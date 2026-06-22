@@ -27,7 +27,7 @@ export default function ContextMenu() {
   const { isQueued, addToQueue, removeFromQueue } = useQueue()
   const { getRating } = useRatings()
   const { inProgress, startWatching } = useWatchHistory()
-  const { getLocalVersions, getFileUrl, matchFile } = useLocalLibrary()
+  const { getLocalVersions, getFileUrl, matchFile, files: localFiles } = useLocalLibrary()
   const { play } = usePlayer()
   const navigate = useNavigate()
   const ref = useRef(null)
@@ -103,9 +103,10 @@ export default function ContextMenu() {
     <PlaylistModal item={libraryItem} onClose={() => { setSubModal(null); hide() }} />
   )
   if (subModal === 'fileinfo') {
+    const findPath = (filename) => localFiles?.find(f => f.filename === filename)?.companionPath || null
     const infoVersions = localVersions.length > 0
-      ? localVersions
-      : item._filename ? [{ id: 'unmatched', filename: item._filename, showFolder: item._showFolder || null, sourceType: type === 'tv' ? 'tv' : 'movie' }] : []
+      ? localVersions.map(v => ({ ...v, companionPath: findPath(v.filename) }))
+      : item._filename ? [{ id: 'unmatched', filename: item._filename, showFolder: item._showFolder || null, sourceType: type === 'tv' ? 'tv' : 'movie', companionPath: findPath(item._filename) }] : []
     return <FileInfoModal versions={infoVersions} title={title} onClose={() => { setSubModal(null); hide() }} />
   }
   if (subModal === 'editinfo') return (
@@ -302,33 +303,29 @@ function FileInfoModal({ versions, title, onClose }) {
           </button>
         </div>
 
-        {/* Note about path */}
-        <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border)', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          ⚠ Browsers don't expose full file paths for security reasons. The info below is what VaultTV can see.
-        </div>
 
         {/* File list */}
         <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: 400, overflowY: 'auto' }} onWheel={e => e.stopPropagation()} onTouchMove={e => e.stopPropagation()}>
           {versions.map((v, i) => {
-            // Reconstruct a best-guess path from what we have
-            const parts = [v.showFolder, v.filename].filter(Boolean)
-            const displayPath = parts.join(' / ')
+            const rows = [
+              { label: 'Filename', value: v.filename },
+              { label: 'Source',   value: v.sourceType === 'movie' ? 'Movies' : 'TV Shows' },
+              v.showFolder ? { label: 'Show Folder', value: v.showFolder } : null,
+              v.companionPath
+                ? { label: 'Full Path', value: v.companionPath, copy: true }
+                : null,
+            ].filter(Boolean)
 
             return (
               <div key={v.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.75rem 1rem' }}>
                 {/* Version badge */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                  {i === 0 && <span style={{ fontSize: '0.62rem', background: '#16a34a', color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>BEST</span>}
+                  {i === 0 && versions.length > 1 && <span style={{ fontSize: '0.62rem', background: '#16a34a', color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>BEST</span>}
                   {v.qualityLabel && <span style={{ fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 600 }}>{v.qualityLabel}</span>}
                 </div>
 
                 {/* Rows */}
-                {[
-                  { label: 'Show Folder', value: v.showFolder || '—' },
-                  { label: 'Filename',    value: v.filename },
-                  { label: 'Source',      value: v.sourceType === 'movie' ? 'Movies' : 'TV Shows' },
-                  { label: 'Path (approx)', value: displayPath, copy: true },
-                ].map(row => (
+                {rows.map(row => (
                   <div key={row.label} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', marginBottom: '0.3rem' }}>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', minWidth: 90, flexShrink: 0, paddingTop: 2 }}>{row.label}</span>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{row.value}</span>
