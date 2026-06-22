@@ -102,9 +102,12 @@ export default function ContextMenu() {
   if (subModal === 'playlist') return (
     <PlaylistModal item={libraryItem} onClose={() => { setSubModal(null); hide() }} />
   )
-  if (subModal === 'fileinfo') return (
-    <FileInfoModal versions={localVersions} title={title} onClose={() => { setSubModal(null); hide() }} />
-  )
+  if (subModal === 'fileinfo') {
+    const infoVersions = localVersions.length > 0
+      ? localVersions
+      : item._filename ? [{ id: 'unmatched', filename: item._filename, showFolder: item._showFolder || null, sourceType: type === 'tv' ? 'tv' : 'movie' }] : []
+    return <FileInfoModal versions={infoVersions} title={title} onClose={() => { setSubModal(null); hide() }} />
+  }
   if (subModal === 'editinfo') return (
     <EditInfoModal item={item} type={type} existingMeta={getMetadata(item.id, type)} onSave={(fields) => { setMetadata(item.id, type, fields); setSubModal(null); hide() }} onClose={() => { setSubModal(null); hide() }} />
   )
@@ -236,6 +239,7 @@ export default function ContextMenu() {
         <Divider />
         <MenuSection label="Organize" />
         {isUnmatched && <MenuItem icon={<FiLink />} label="Match to Title…" accent onClick={() => setSubModal('match')} />}
+        {isUnmatched && item._filename && <MenuItem icon={<FiFolder />} label="Get Info…" onClick={() => setSubModal('fileinfo')} />}
         {!isUnmatched && <MenuItem icon={<FiPlusSquare />} label="Add to Playlist…" onClick={() => setSubModal('playlist')} />}
         <MenuItem icon={<FiImage />} label="Change Artwork…" onClick={() => setSubModal('artwork')} />
         <MenuItem icon={<FiEdit2 />} label="Edit Info…" onClick={() => setSubModal('editinfo')} />
