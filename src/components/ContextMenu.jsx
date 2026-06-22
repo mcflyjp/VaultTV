@@ -58,9 +58,9 @@ export default function ContextMenu() {
 
   // Position: keep menu in viewport
   const vw = window.innerWidth, vh = window.innerHeight
-  const menuW = 240, menuH = 340
+  const menuW = 240, menuH = 500
   const x = menu.x + menuW > vw ? vw - menuW - 8 : menu.x
-  const y = menu.y + menuH > vh ? vh - menuH - 8 : menu.y
+  const y = Math.max(8, menu.y + menuH > vh ? vh - menuH - 8 : menu.y)
 
   function action(fn) { fn(); hide() }
 
@@ -139,7 +139,7 @@ export default function ContextMenu() {
       </div>
 
       {/* Menu items */}
-      <div style={{ padding: '0.35rem 0' }}>
+      <div style={{ padding: '0.35rem 0', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
 
         <MenuSection label="Playback" />
         {isUnmatched
@@ -207,10 +207,9 @@ export default function ContextMenu() {
           />
         )}
 
+        {!isUnmatched && <>
         <Divider />
         <MenuSection label="My Library" />
-        {!isUnmatched && (
-          <>
             <MenuItem
               icon={<FiBookmark />}
               label={saved ? `Remove from My ${type === 'tv' ? 'Shows' : 'Movies'}` : `Add to My ${type === 'tv' ? 'Shows' : 'Movies'}`}
@@ -228,8 +227,7 @@ export default function ContextMenu() {
               label="Mark as Watched"
               onClick={() => action(() => startWatching({ ...watchItem, durationSec: 1, progressSec: 1 }))}
             />
-          </>
-        )}
+        </>}
 
         <Divider />
         <MenuSection label="Organize" />
