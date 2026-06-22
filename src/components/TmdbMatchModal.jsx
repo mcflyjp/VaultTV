@@ -8,8 +8,9 @@ export default function TmdbMatchModal({ file, onMatch, onClose }) {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [matched, setMatched] = useState(null) // id of just-matched result
-  const inputRef = useRef(null)
+  const inputRef    = useRef(null)
   const debounceRef = useRef(null)
+  const backdropRef = useRef(null)
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -41,11 +42,12 @@ export default function TmdbMatchModal({ file, onMatch, onClose }) {
 
   return (
     <div
+      ref={backdropRef}
       style={{ position: 'fixed', inset: 0, zIndex: 9100, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-      onClick={onClose}
+      onMouseDown={e => { if (e.target === backdropRef.current) onClose() }}
     >
       <div
-        onClick={e => e.stopPropagation()}
+        onMouseDown={e => e.stopPropagation()}
         style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 14, width: '100%', maxWidth: 560, boxShadow: '0 24px 80px rgba(0,0,0,0.8)', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '85vh' }}
       >
         {/* Header */}

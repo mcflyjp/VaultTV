@@ -109,7 +109,7 @@ export default function ContextMenu() {
     <EditInfoModal item={item} type={type} existingMeta={getMetadata(item.id, type)} onSave={(fields) => { setMetadata(item.id, type, fields); setSubModal(null); hide() }} onClose={() => { setSubModal(null); hide() }} />
   )
   if (subModal === 'match') return (
-    <TmdbMatchModal file={item} onMatch={result => matchFile(item.id, result)} onClose={() => { setSubModal(null); hide() }} />
+    <TmdbMatchModal file={item} onMatch={result => matchFile(String(item.id).replace(/^local_/, ''), result)} onClose={() => { setSubModal(null); hide() }} />
   )
 
   return (
