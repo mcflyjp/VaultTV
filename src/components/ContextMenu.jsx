@@ -13,12 +13,13 @@ import { IMG } from '../lib/tmdb'
 import {
   FiPlay, FiList, FiBookmark, FiCheck, FiStar, FiImage,
   FiInfo, FiPlusSquare, FiX, FiPlus, FiHardDrive, FiLayers, FiChevronRight,
-  FiFolder, FiCopy, FiEdit2
+  FiFolder, FiCopy, FiEdit2, FiLink
 } from 'react-icons/fi'
 import { useMetadata } from '../context/MetadataContext'
 import ArtworkPicker from './ArtworkPicker'
 import RatingPicker from './RatingPicker'
 import PlaylistModal from './PlaylistModal'
+import TmdbMatchModal from './TmdbMatchModal'
 
 export default function ContextMenu() {
   const { menu, hide } = useContextMenu()
@@ -26,7 +27,7 @@ export default function ContextMenu() {
   const { isQueued, addToQueue, removeFromQueue } = useQueue()
   const { getRating } = useRatings()
   const { inProgress, startWatching } = useWatchHistory()
-  const { getLocalVersions, getFileUrl } = useLocalLibrary()
+  const { getLocalVersions, getFileUrl, matchFile } = useLocalLibrary()
   const { play } = usePlayer()
   const navigate = useNavigate()
   const ref = useRef(null)
@@ -106,6 +107,9 @@ export default function ContextMenu() {
   )
   if (subModal === 'editinfo') return (
     <EditInfoModal item={item} type={type} existingMeta={getMetadata(item.id, type)} onSave={(fields) => { setMetadata(item.id, type, fields); setSubModal(null); hide() }} onClose={() => { setSubModal(null); hide() }} />
+  )
+  if (subModal === 'match') return (
+    <TmdbMatchModal file={item} onMatch={result => matchFile(item.id, result)} onClose={() => { setSubModal(null); hide() }} />
   )
 
   return (
@@ -231,6 +235,7 @@ export default function ContextMenu() {
 
         <Divider />
         <MenuSection label="Organize" />
+        {isUnmatched && <MenuItem icon={<FiLink />} label="Match to Title…" accent onClick={() => setSubModal('match')} />}
         {!isUnmatched && <MenuItem icon={<FiPlusSquare />} label="Add to Playlist…" onClick={() => setSubModal('playlist')} />}
         <MenuItem icon={<FiImage />} label="Change Artwork…" onClick={() => setSubModal('artwork')} />
         <MenuItem icon={<FiEdit2 />} label="Edit Info…" onClick={() => setSubModal('editinfo')} />

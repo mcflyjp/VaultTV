@@ -700,6 +700,22 @@ export function LocalLibraryProvider({ children }) {
     return files.filter(f => f.tmdbId === tmdbId && f.media_type === 'tv').length
   }
 
+  /** Manually link an unmatched file to a TMDB result */
+  function matchFile(fileId, tmdbResult) {
+    const next = files.map(f => f.id !== fileId ? f : {
+      ...f,
+      tmdbId:       tmdbResult.id,
+      title:        tmdbResult.title || tmdbResult.name || f.title,
+      media_type:   tmdbResult.media_type || f.media_type,
+      poster_path:  tmdbResult.poster_path || null,
+      year:         (tmdbResult.release_date || tmdbResult.first_air_date || '').slice(0, 4),
+      overview:     tmdbResult.overview || '',
+      vote_average: tmdbResult.vote_average || 0,
+      matched:      true,
+    })
+    saveFiles(next)
+  }
+
   function clearAll() {
     dirHandles.current  = {}
     fileHandles.current = {}
@@ -713,7 +729,7 @@ export function LocalLibraryProvider({ children }) {
     <LocalLibraryContext.Provider value={{
       sources, files, scanning, progress, error, hasHandles, companionOnline,
       addSource, removeSource, rescanSource, reGrantAll, recheckCompanion,
-      getFileUrl, getLocalFile, getLocalVersions, hasLocal, getLocalEpisodeCount, clearAll,
+      getFileUrl, getLocalFile, getLocalVersions, hasLocal, getLocalEpisodeCount, matchFile, clearAll,
     }}>
       {children}
     </LocalLibraryContext.Provider>
