@@ -21,16 +21,10 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
-import androidx.media3.common.audio.AudioProcessor;
-import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.audio.AudioSink;
-import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.List;
 
 @SuppressWarnings("UnsafeOptInUsageError")
@@ -41,22 +35,19 @@ public class PlayerActivity extends Activity {
     private static final long CREDITS_THRESHOLD_MS  = 20_000;
     private static final long UNKNOWN_DUR_BANNER_MS = 30 * 60_000L;
     private static final long DIM_DELAY_MS          = 5 * 60_000L;
-    private static final long AUDIO_STEP_MS         = 100; // match VLC's 100ms steps
     private static final long HUD_DURATION_MS       = 2_500;
 
-    private ExoPlayer           player;
-    private PlayerView          playerView;
-    private AudioDelayProcessor audioDelayProcessor;
+    private ExoPlayer            player;
+    private PlayerView           playerView;
     private DefaultTrackSelector trackSelector;
-    private String              url;
-    private long                startTimeMs;
-    private boolean             finished        = false;
-    private boolean             dimmed          = false;
-    private boolean             bannerDismissed = false;
-    private boolean             subsEnabled     = true;
-    private long                audioDelayMs    = 0;
-    private TextView            nextEpBanner;
-    private TextView            hudView;
+    private String               url;
+    private long                 startTimeMs;
+    private boolean              finished        = false;
+    private boolean              dimmed          = false;
+    private boolean              bannerDismissed = false;
+    private boolean              subsEnabled     = true;
+    private TextView             nextEpBanner;
+    private TextView             hudView;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -78,54 +69,6 @@ public class PlayerActivity extends Activity {
         }
     };
 
-    // ── AudioDelayProcessor ───────────────────────────────────────────────────
-    // Buffers PCM audio to introduce a positive sync delay (audio plays later).
-    static class AudioDelayProcessor implements AudioProcessor {
-        AudioFormat format     = AudioFormat.NOT_SET;
-        private int delayBytes = 0;
-        private int silenceFed = 0;
-        private ByteBuffer output    = ByteBuffer.allocate(0);
-        private boolean    inputEnded = false;
-
-        void setDelayMs(long ms) {
-            if (format.equals(AudioFormat.NOT_SET)) return;
-            if (ms < 0) ms = 0;
-            int bytes = (int)(ms / 1000.0 * format.sampleRate * format.channelCount * 2);
-            int frame = format.channelCount * 2;
-            delayBytes = (bytes / frame) * frame;
-            silenceFed = 0;
-        }
-
-        @Override
-        public AudioFormat configure(AudioFormat f) throws UnhandledAudioFormatException {
-            // Accept any format — only activate for PCM_16BIT (passthrough/AC3/DTS are left alone)
-            format = (f.encoding == C.ENCODING_PCM_16BIT) ? f : AudioFormat.NOT_SET;
-            return f;
-        }
-
-        @Override public boolean isActive() { return delayBytes > 0 && !format.equals(AudioFormat.NOT_SET); }
-
-        @Override
-        public void queueInput(ByteBuffer in) {
-            if (silenceFed < delayBytes) {
-                int consume = Math.min(in.remaining(), delayBytes - silenceFed);
-                output = ByteBuffer.allocate(consume).order(ByteOrder.nativeOrder());
-                in.position(in.position() + consume);
-                silenceFed += consume;
-                return;
-            }
-            output = in.duplicate();
-            in.position(in.limit());
-        }
-
-        @Override public void queueEndOfStream() { inputEnded = true; }
-        @Override public ByteBuffer getOutput() { ByteBuffer r = output; output = ByteBuffer.allocate(0); return r; }
-        @Override public boolean isEnded()       { return inputEnded && output.remaining() == 0; }
-        @Override public void flush()            { silenceFed = 0; output = ByteBuffer.allocate(0); inputEnded = false; }
-        @Override public void reset()            { flush(); format = AudioFormat.NOT_SET; }
-    }
-
-    // ── onCreate ──────────────────────────────────────────────────────────────
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -145,22 +88,9 @@ public class PlayerActivity extends Activity {
                 .setExceedAudioConstraintsIfNecessary(true)
                 .build());
 
-        audioDelayProcessor = new AudioDelayProcessor();
-
-        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
-            @Override
-            protected AudioSink buildAudioSink(android.content.Context context,
-                    boolean enableFloatOutput, boolean enableAudioTrackPlaybackParams) {
-                return new DefaultAudioSink.Builder(context)
-                        .setAudioProcessors(new AudioProcessor[]{ audioDelayProcessor })
-                        .setEnableFloatOutput(enableFloatOutput)
-                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                        .build();
-            }
-        };
-
+        // Default ExoPlayer — hardware MediaCodec supports HEVC, AC3, DTS on FireTV natively.
+        // No custom renderers factory; any audio processor injection breaks AC3/DTS passthrough.
         player = new ExoPlayer.Builder(this)
-                .setRenderersFactory(renderersFactory)
                 .setTrackSelector(trackSelector)
                 .setSeekBackIncrementMs(10000)
                 .setSeekForwardIncrementMs(10000)
@@ -172,7 +102,7 @@ public class PlayerActivity extends Activity {
         playerView.requestFocus();
         playerView.setControllerAutoShow(false);
 
-        // Build MediaItem with optional subtitle track
+        // Build MediaItem — attach external subtitle if provided
         MediaItem mediaItem;
         if (subtitleUrl != null && !subtitleUrl.isEmpty()) {
             String mime = subtitleUrl.toLowerCase().endsWith(".srt")
@@ -199,7 +129,7 @@ public class PlayerActivity extends Activity {
 
         FrameLayout root = (FrameLayout) playerView.getParent();
 
-        // ── HUD (toast-style, centre-top) — same pattern as VLC ──────────────
+        // HUD — toast-style, top-centre, same pattern as VLC player
         hudView = new TextView(this);
         hudView.setTextColor(Color.WHITE);
         hudView.setTextSize(18);
@@ -213,7 +143,7 @@ public class PlayerActivity extends Activity {
         hudLp.topMargin = 60;
         root.addView(hudView, hudLp);
 
-        // ── Next Episode banner ───────────────────────────────────────────────
+        // Next Episode banner — bottom-right, shown in last 20s
         nextEpBanner = new TextView(this);
         nextEpBanner.setText("▶  Next Episode  (●)");
         nextEpBanner.setTextColor(Color.WHITE);
@@ -271,13 +201,6 @@ public class PlayerActivity extends Activity {
         handler.postDelayed(hideHud, HUD_DURATION_MS);
     }
 
-    private void adjustAudioDelay(long stepMs) {
-        audioDelayMs = Math.max(0, audioDelayMs + stepMs);
-        audioDelayProcessor.setDelayMs(audioDelayMs);
-        String sign = audioDelayMs >= 0 ? "+" : "";
-        showHud("Audio delay: " + sign + audioDelayMs + " ms\n(↑ later  ↓ earlier)");
-    }
-
     private void toggleSubtitles() {
         subsEnabled = !subsEnabled;
         trackSelector.setParameters(trackSelector.buildUponParameters()
@@ -330,15 +253,11 @@ public class PlayerActivity extends Activity {
     // ── Key handling — mirrors VLC player ────────────────────────────────────
     //
     //  Controls HIDDEN:
-    //    Up        → audio delay +100ms
-    //    Down      → audio delay -100ms
     //    Any key   → show ExoPlayer controls bar
     //
     //  Controls VISIBLE:
-    //    Up/Down   → audio delay (same as VLC — works from any focused button)
-    //    Left/Right → seek / navigate buttons (handled by PlayerView)
-    //    Menu      → toggle subtitles (HUD flash)
-    //    Back      → hide controls bar (first press); exit (second press)
+    //    Menu      → subtitle toggle (HUD flash)
+    //    Back      → hide controls (first press); exit (second press)
     //
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
@@ -364,33 +283,13 @@ public class PlayerActivity extends Activity {
             boolean controlsVisible = playerView.isControllerFullyVisible();
 
             if (keyCode == KeyEvent.KEYCODE_BACK) {
-                if (controlsVisible) {
-                    playerView.hideController();
-                } else {
-                    finishWithProgress(false);
-                }
+                if (controlsVisible) { playerView.hideController(); }
+                else { finishWithProgress(false); }
                 return true;
             }
 
-            // Up/Down always adjust audio delay (same in both states — matches VLC)
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                adjustAudioDelay(+AUDIO_STEP_MS);
-                if (!controlsVisible) return true; // don't also show controls
-            }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                adjustAudioDelay(-AUDIO_STEP_MS);
-                if (!controlsVisible) return true;
-            }
-
-            // Menu / options = subtitle toggle (HUD flash, no overlay)
             if (keyCode == KeyEvent.KEYCODE_MENU) {
                 toggleSubtitles();
-                return true;
-            }
-
-            // Any other key while controls hidden = show controls
-            if (!controlsVisible) {
-                playerView.showController();
                 return true;
             }
         }
@@ -399,11 +298,8 @@ public class PlayerActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (playerView.isControllerFullyVisible()) {
-            playerView.hideController();
-        } else {
-            finishWithProgress(false);
-        }
+        if (playerView.isControllerFullyVisible()) { playerView.hideController(); }
+        else { finishWithProgress(false); }
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
