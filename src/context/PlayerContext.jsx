@@ -38,7 +38,11 @@ export function PlayerProvider({ children }) {
       if (url && typeof window.vaulttvBridge !== 'undefined') {
         try {
           lastOptsRef.current = opts
-          window.vaulttvBridge.playVideo(url, opts.title || '', opts.startTime || 0)
+          // Pick the best subtitle URL to pass to native ExoPlayer (first English VTT)
+          const tracks = opts.subtitleTracks || []
+          const subTrack = tracks.find(t => /^en/i.test(t.lang || '') || /english/i.test(t.label || '')) || tracks[0] || null
+          const subUrl = subTrack?.url || ''
+          window.vaulttvBridge.playVideo(url, opts.title || '', opts.startTime || 0, subUrl)
           return
         } catch (e) {
           console.warn('[player] ExoPlayer bridge failed, falling back to web player:', e)

@@ -327,12 +327,13 @@ public class MainActivity extends Activity {
          * Called by the web app to launch the native ExoPlayer.
          * Runs on a background thread — post to main thread before starting Activity.
          *
-         * @param url         Stream URL (HLS, MP4, etc.)
-         * @param title       Title shown in recents / task switcher
+         * @param url          Stream URL (HLS, MP4, etc.)
+         * @param title        Title shown in recents / task switcher
          * @param startTimeSec Resume position in seconds (0 = from start)
+         * @param subtitleUrl  Optional external subtitle URL (VTT/SRT); empty string = none
          */
         @JavascriptInterface
-        public void playVideo(String url, String title, double startTimeSec) {
+        public void playVideo(String url, String title, double startTimeSec, String subtitleUrl) {
             mainHandler.post(() -> {
                 // Always try ExoPlayer first — hardware decode where supported.
                 // If ExoPlayer signals RESULT_RETRY_VLC (unsupported audio codec),
@@ -341,6 +342,7 @@ public class MainActivity extends Activity {
                 intent.putExtra("url",           url);
                 intent.putExtra("title",         title);
                 intent.putExtra("start_time_ms", (long)(startTimeSec * 1000));
+                intent.putExtra("subtitle_url",  subtitleUrl != null ? subtitleUrl : "");
                 //noinspection deprecation
                 startActivityForResult(intent, REQUEST_PLAY_VIDEO);
             });
