@@ -98,12 +98,12 @@ public class PlayerActivity extends Activity {
 
         @Override
         public AudioFormat configure(AudioFormat f) throws UnhandledAudioFormatException {
-            if (f.encoding != C.ENCODING_PCM_16BIT) throw new UnhandledAudioFormatException(f);
-            format = f;
+            // Accept any format — only activate for PCM_16BIT (passthrough/AC3/DTS are left alone)
+            format = (f.encoding == C.ENCODING_PCM_16BIT) ? f : AudioFormat.NOT_SET;
             return f;
         }
 
-        @Override public boolean isActive() { return delayBytes > 0; }
+        @Override public boolean isActive() { return delayBytes > 0 && !format.equals(AudioFormat.NOT_SET); }
 
         @Override
         public void queueInput(ByteBuffer in) {
