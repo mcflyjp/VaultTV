@@ -21,10 +21,16 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.audio.AudioProcessor;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.List;
 
 @SuppressWarnings("UnsafeOptInUsageError")
@@ -35,10 +41,12 @@ public class PlayerActivity extends Activity {
     private static final long CREDITS_THRESHOLD_MS  = 20_000;
     private static final long UNKNOWN_DUR_BANNER_MS = 30 * 60_000L;
     private static final long DIM_DELAY_MS          = 5 * 60_000L;
+    private static final long AUDIO_STEP_MS         = 100;
     private static final long HUD_DURATION_MS       = 2_500;
 
     private ExoPlayer            player;
     private PlayerView           playerView;
+    private AudioDelayProcessor  audioDelayProcessor;
     private DefaultTrackSelector trackSelector;
     private String               url;
     private long                 startTimeMs;
@@ -46,6 +54,7 @@ public class PlayerActivity extends Activity {
     private boolean              dimmed          = false;
     private boolean              bannerDismissed = false;
     private boolean              subsEnabled     = true;
+    private long                 audioDelayMs    = 0;
     private TextView             nextEpBanner;
     private TextView             hudView;
 
@@ -69,6 +78,86 @@ public class PlayerActivity extends Activity {
         }
     };
 
+    // ── AudioDelayProcessor ───────────────────────────────────────────────────
+    //
+    // Injected via DefaultAudioProcessorChain so it sits alongside Sonic/silence
+    // processors rather than replacing them. Only activates when delay > 0 AND
+    // the format is PCM_16BIT — AC3/DTS passthrough bypasses the chain entirely
+    // at the DefaultAudioSink level, so this never interferes with it.
+    //
+    static class AudioDelayProcessor implements AudioProcessor {
+
+        // Package-visible so PlayerActivity can read format for setDelayMs()
+        AudioProcessor.AudioFormat format = AudioProcessor.AudioFormat.NOT_SET;
+
+        private int        delayBytes = 0;
+        private int        silenceFed = 0;
+        private ByteBuffer output     = AudioProcessor.EMPTY_BUFFER;
+        private boolean    inputEnded = false;
+
+        void setDelayMs(long ms) {
+            if (format.equals(AudioProcessor.AudioFormat.NOT_SET)) return;
+            if (ms < 0) ms = 0;
+            // bytes = ms/1000 * sampleRate * channels * 2 (PCM_16BIT = 2 bytes/sample)
+            int bytes     = (int)(ms / 1000.0 * format.sampleRate * format.channelCount * 2);
+            int frameSize = format.channelCount * 2;
+            delayBytes = (bytes / frameSize) * frameSize; // align to frame boundary
+            silenceFed = 0;
+        }
+
+        @Override
+        public AudioProcessor.AudioFormat configure(AudioProcessor.AudioFormat f)
+                throws AudioProcessor.UnhandledAudioFormatException {
+            // Accept any format — only become active for PCM_16BIT.
+            // Non-PCM (AC3/DTS passthrough) bypasses the processor chain at the
+            // sink level anyway, so this branch is never reached for passthrough.
+            format = (f.encoding == C.ENCODING_PCM_16BIT)
+                    ? f : AudioProcessor.AudioFormat.NOT_SET;
+            return f;
+        }
+
+        @Override
+        public boolean isActive() {
+            return delayBytes > 0 && !format.equals(AudioProcessor.AudioFormat.NOT_SET);
+        }
+
+        @Override
+        public void queueInput(ByteBuffer in) {
+            // Output silence for the first delayBytes worth of input, then pass through
+            if (silenceFed < delayBytes) {
+                int consume = Math.min(in.remaining(), delayBytes - silenceFed);
+                // Allocate a zeroed buffer (silence) the same size as what we consumed
+                output = ByteBuffer.allocate(consume).order(ByteOrder.nativeOrder());
+                in.position(in.position() + consume);
+                silenceFed += consume;
+                return;
+            }
+            output = in.duplicate();
+            in.position(in.limit());
+        }
+
+        @Override public void queueEndOfStream() { inputEnded = true; }
+
+        @Override
+        public ByteBuffer getOutput() {
+            ByteBuffer result = output;
+            output = AudioProcessor.EMPTY_BUFFER;
+            return result;
+        }
+
+        @Override public boolean isEnded() { return inputEnded && output.remaining() == 0; }
+
+        @Override
+        public void flush() {
+            silenceFed = 0;
+            output     = AudioProcessor.EMPTY_BUFFER;
+            inputEnded = false;
+        }
+
+        @Override public void reset() { flush(); format = AudioProcessor.AudioFormat.NOT_SET; }
+    }
+
+    // ── onCreate ──────────────────────────────────────────────────────────────
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -88,9 +177,29 @@ public class PlayerActivity extends Activity {
                 .setExceedAudioConstraintsIfNecessary(true)
                 .build());
 
-        // Default ExoPlayer — hardware MediaCodec supports HEVC, AC3, DTS on FireTV natively.
-        // No custom renderers factory; any audio processor injection breaks AC3/DTS passthrough.
+        audioDelayProcessor = new AudioDelayProcessor();
+
+        // Use DefaultAudioProcessorChain (varargs constructor) — this keeps SonicAudioProcessor
+        // for playback speed while adding our delay processor. Unlike setAudioProcessors(),
+        // DefaultAudioProcessorChain does NOT interfere with AC3/DTS passthrough because
+        // DefaultAudioSink skips the processor chain entirely for passthrough formats.
+        DefaultAudioSink.DefaultAudioProcessorChain processorChain =
+                new DefaultAudioSink.DefaultAudioProcessorChain(audioDelayProcessor);
+
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
+            @Override
+            protected AudioSink buildAudioSink(android.content.Context context,
+                    boolean enableFloatOutput, boolean enableAudioTrackPlaybackParams) {
+                return new DefaultAudioSink.Builder(context)
+                        .setAudioProcessorChain(processorChain)
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        .build();
+            }
+        };
+
         player = new ExoPlayer.Builder(this)
+                .setRenderersFactory(renderersFactory)
                 .setTrackSelector(trackSelector)
                 .setSeekBackIncrementMs(10000)
                 .setSeekForwardIncrementMs(10000)
@@ -129,7 +238,7 @@ public class PlayerActivity extends Activity {
 
         FrameLayout root = (FrameLayout) playerView.getParent();
 
-        // HUD — toast-style, top-centre, same pattern as VLC player
+        // HUD — top-centre toast, same pattern as VLC player
         hudView = new TextView(this);
         hudView.setTextColor(Color.WHITE);
         hudView.setTextSize(18);
@@ -201,6 +310,13 @@ public class PlayerActivity extends Activity {
         handler.postDelayed(hideHud, HUD_DURATION_MS);
     }
 
+    private void adjustAudioDelay(long stepMs) {
+        audioDelayMs = Math.max(0, audioDelayMs + stepMs);
+        audioDelayProcessor.setDelayMs(audioDelayMs);
+        showHud("Audio delay: " + (audioDelayMs >= 0 ? "+" : "") + audioDelayMs + " ms"
+                + "\n(↑ later   ↓ earlier)");
+    }
+
     private void toggleSubtitles() {
         subsEnabled = !subsEnabled;
         trackSelector.setParameters(trackSelector.buildUponParameters()
@@ -253,9 +369,12 @@ public class PlayerActivity extends Activity {
     // ── Key handling — mirrors VLC player ────────────────────────────────────
     //
     //  Controls HIDDEN:
-    //    Any key   → show ExoPlayer controls bar
+    //    Up        → audio delay +100ms  (HUD flash)
+    //    Down      → audio delay −100ms  (HUD flash)
+    //    Any key   → show controls bar
     //
     //  Controls VISIBLE:
+    //    Up/Down   → audio delay (same, regardless of focus position)
     //    Menu      → subtitle toggle (HUD flash)
     //    Back      → hide controls (first press); exit (second press)
     //
@@ -290,6 +409,21 @@ public class PlayerActivity extends Activity {
 
             if (keyCode == KeyEvent.KEYCODE_MENU) {
                 toggleSubtitles();
+                return true;
+            }
+
+            // Up/Down always adjust audio delay — same in both states (matches VLC)
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                adjustAudioDelay(+AUDIO_STEP_MS);
+                if (!controlsVisible) return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                adjustAudioDelay(-AUDIO_STEP_MS);
+                if (!controlsVisible) return true;
+            }
+
+            if (!controlsVisible) {
+                playerView.showController();
                 return true;
             }
         }
