@@ -38,8 +38,9 @@ export function PlayerProvider({ children }) {
       if (url && typeof window.vaulttvBridge !== 'undefined') {
         try {
           lastOptsRef.current = opts
-          // Pick the best subtitle URL to pass to native ExoPlayer (first English VTT)
-          const tracks = opts.subtitleTracks || []
+          // Pick the best subtitle URL to pass to native ExoPlayer (first English, direct HTTP only)
+          // Blob URLs (from companion/createObjectURL) are browser-local and crash ExoPlayer
+          const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
           const subTrack = tracks.find(t => /^en/i.test(t.lang || '') || /english/i.test(t.label || '')) || tracks[0] || null
           const subUrl = subTrack?.url || ''
           window.vaulttvBridge.playVideo(url, opts.title || '', opts.startTime || 0, subUrl)
@@ -53,12 +54,26 @@ export function PlayerProvider({ children }) {
     setSession(opts)
   }
 
+  function playVlc(opts) {
+    if (IS_FIRETV && typeof window.vaulttvBridge !== 'undefined') {
+      try {
+        lastOptsRef.current = opts
+        window.vaulttvBridge.playVideoVlc(opts.url || '', opts.title || '', opts.startTime || 0)
+        return
+      } catch (e) {
+        console.warn('[player] VLC bridge failed, falling back to web player:', e)
+      }
+    }
+    // Non-FireTV: fall through to JS player as normal
+    setSession(opts)
+  }
+
   function closePlayer() {
     setSession(null)
   }
 
   return (
-    <PlayerContext.Provider value={{ session, play, closePlayer }}>
+    <PlayerContext.Provider value={{ session, play, playVlc, closePlayer }}>
       {children}
     </PlayerContext.Provider>
   )
@@ -67,3 +82,5 @@ export function PlayerProvider({ children }) {
 export function usePlayer() {
   return useContext(PlayerContext)
 }
+
+export { IS_FIRETV }

@@ -46,6 +46,8 @@ public class PlayerActivity extends Activity {
     private boolean              dimmed          = false;
     private boolean              bannerDismissed = false;
     private boolean              subsEnabled     = true;
+    private float                playbackSpeed   = 1.0f;
+    private long                 lastMenuPressMs = 0;
     private TextView             nextEpBanner;
     private TextView             hudView;
 
@@ -205,7 +207,17 @@ public class PlayerActivity extends Activity {
         trackSelector.setParameters(trackSelector.buildUponParameters()
                 .setRendererDisabled(C.TRACK_TYPE_TEXT, !subsEnabled)
                 .build());
-        showHud("Subtitles: " + (subsEnabled ? "ON" : "OFF"));
+        showHud("Subtitles: " + (subsEnabled ? "ON" : "OFF") + "   |   Hold ☰ → VLC");
+    }
+
+    private void adjustSpeed(float delta) {
+        playbackSpeed = Math.round((playbackSpeed + delta) * 100) / 100f;
+        playbackSpeed = Math.max(0.80f, Math.min(1.20f, playbackSpeed));
+        if (player != null) {
+            player.setPlaybackParameters(new androidx.media3.common.PlaybackParameters(playbackSpeed));
+        }
+        String label = playbackSpeed == 1.0f ? "Normal" : String.format("%.2fx", playbackSpeed);
+        showHud("Speed: " + label + "   ↑/↓ adjust");
     }
 
     // ── Lifecycle helpers ─────────────────────────────────────────────────────
@@ -280,22 +292,49 @@ public class PlayerActivity extends Activity {
             return true;
         }
 
+        // Consume both ACTION_DOWN and ACTION_UP for KEYCODE_BACK — prevents
+        // ACTION_UP reaching super.dispatchKeyEvent which triggers onBackPressed
+        // on an already-finishing activity and causes a freeze.
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                undim();
+                boolean controlsVisible = playerView.isControllerFullyVisible();
+                if (controlsVisible) { playerView.hideController(); }
+                else { finishWithProgress(false); }
+            }
+            return true;
+        }
+
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             undim();
             boolean controlsVisible = playerView.isControllerFullyVisible();
 
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                if (controlsVisible) { playerView.hideController(); }
-                else { finishWithProgress(false); }
+            if (keyCode == KeyEvent.KEYCODE_BACK) {  // unreachable — kept for clarity
                 return true;
             }
 
             if (keyCode == KeyEvent.KEYCODE_MENU) {
-                toggleSubtitles();
+                long now = System.currentTimeMillis();
+                if (now - lastMenuPressMs < 1500) {
+                    // Double-tap MENU → switch to VLC
+                    showHud("Switching to VLC…");
+                    handler.postDelayed(this::finishForVlcFallback, 600);
+                } else {
+                    toggleSubtitles();
+                }
+                lastMenuPressMs = now;
                 return true;
             }
 
             if (!controlsVisible) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    adjustSpeed(+0.02f);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    adjustSpeed(-0.02f);
+                    return true;
+                }
                 playerView.showController();
                 return true;
             }
@@ -303,11 +342,9 @@ public class PlayerActivity extends Activity {
         return super.dispatchKeyEvent(event);
     }
 
-    @Override
-    public void onBackPressed() {
-        if (playerView.isControllerFullyVisible()) { playerView.hideController(); }
-        else { finishWithProgress(false); }
-    }
+    // onBackPressed intentionally omitted — dispatchKeyEvent handles KEYCODE_BACK
+    // for both ACTION_DOWN and ACTION_UP. Having both caused double-finish on exit
+    // (ACTION_UP fell through to super which called onBackPressed on a finishing activity).
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     @Override protected void onPause()  { super.onPause();  if (player != null) player.pause(); }

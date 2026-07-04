@@ -90,8 +90,7 @@ export function WatchHistoryProvider({ children }) {
       } else {
         current.unshift({ id, type, lastStream: streamData, progress: 0, progressSec: 0, durationSec: 0, timestamp: Date.now() })
       }
-      localStorage.setItem('vt-history', JSON.stringify(current))
-      setHistory(current)
+      save(current) // push to companion so lastStream syncs across devices
     } catch {}
   }
 

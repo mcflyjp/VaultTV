@@ -347,6 +347,20 @@ public class MainActivity extends Activity {
                 startActivityForResult(intent, REQUEST_PLAY_VIDEO);
             });
         }
+
+        /** Launch VLC directly — bypasses ExoPlayer entirely. Used when user wants
+         *  audio delay control or encounters A/V sync issues in ExoPlayer. */
+        @JavascriptInterface
+        public void playVideoVlc(String url, String title, double startTimeSec) {
+            mainHandler.post(() -> {
+                Intent intent = new Intent(MainActivity.this, VlcPlayerActivity.class);
+                intent.putExtra("url",           url);
+                intent.putExtra("title",         title);
+                intent.putExtra("start_time_ms", (long)(startTimeSec * 1000));
+                //noinspection deprecation
+                startActivityForResult(intent, REQUEST_PLAY_VIDEO);
+            });
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -469,9 +483,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_PLAY_VIDEO || data == null) return;
+        if (requestCode != REQUEST_PLAY_VIDEO) return;
 
-        if (resultCode == PlayerActivity.RESULT_RETRY_VLC) {
+        if (data != null && resultCode == PlayerActivity.RESULT_RETRY_VLC) {
             // ExoPlayer couldn't handle the audio codec — silently relaunch with VLC
             String url        = data.getStringExtra("url");
             long   startMs    = data.getLongExtra("start_time_ms", 0);
@@ -480,10 +494,10 @@ public class MainActivity extends Activity {
             vlcIntent.putExtra("start_time_ms", startMs);
             //noinspection deprecation
             startActivityForResult(vlcIntent, REQUEST_PLAY_VIDEO);
-            return;
+            return; // another Activity is starting — don't restore focus yet
         }
 
-        if (resultCode == RESULT_OK) {
+        if (data != null && resultCode == RESULT_OK) {
             long posMs       = data.getLongExtra("position_ms", 0);
             long durMs       = data.getLongExtra("duration_ms", 0);
             boolean autoAdv  = data.getBooleanExtra("auto_advance", false);
@@ -492,12 +506,11 @@ public class MainActivity extends Activity {
             webView.evaluateJavascript(js, null);
         }
 
-        // Re-focus WebView and restore D-pad navigation after returning from native player.
-        // WebView loses window focus when a child Activity is shown — without this,
-        // key events are not delivered and the app appears frozen.
-        // Set __playerReturn flag first so the keydown handler ignores stale key events
-        // (old-gen FireTV Stick: Back keyup bleeds into WebView and clicks the focused element).
+        // Always restore WebView focus — even when data is null (player killed by OS,
+        // or Back pressed before the Activity fully initialised). Without this the
+        // WebView stays unfocused and renders a blank screen on exit.
         webView.requestFocus();
+        webView.invalidate();
         webView.evaluateJavascript("window.__playerReturn=Date.now();", null);
         mainHandler.postDelayed(() ->
             webView.evaluateJavascript(
