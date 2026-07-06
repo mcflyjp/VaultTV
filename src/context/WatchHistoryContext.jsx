@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { fetchProgress, pushProgress, deleteProgress } from '../lib/companion'
+import { cloudFetchProgress, cloudPushProgress, cloudDeleteProgress } from '../lib/cloudSync'
+import { supabase } from '../lib/supabase'
 
 const WatchHistoryContext = createContext(null)
 
@@ -22,32 +24,55 @@ function merge(local, remote) {
     const existing = map.get(key)
     if (!existing || (item.timestamp || 0) > (existing.timestamp || 0)) map.set(key, item)
   }
-  return Array.from(map.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 30)
+  return Array.from(map.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 100)
 }
 
 export function WatchHistoryProvider({ children }) {
   const [history, setHistory] = useState(load)
   const [watchedEps, setWatchedEps] = useState(loadWatchedEps)
-  const pushTimerRef = useRef(null)
+  const pushTimerRef  = useRef(null)
+  const cloudTimerRef = useRef(null)
 
-  // On mount: pull server progress and merge with localStorage
-  useEffect(() => {
-    fetchProgress().then(remote => {
-      if (!remote?.length) return
-      setHistory(current => {
-        const merged = merge(current, remote)
-        localStorage.setItem('vt-history', JSON.stringify(merged))
-        return merged
-      })
+  /** Merge remote entries into state + localStorage */
+  function applyRemote(remote) {
+    if (!remote?.length) return
+    setHistory(current => {
+      const merged = merge(current, remote)
+      localStorage.setItem('vt-history', JSON.stringify(merged))
+      return merged
     })
+  }
+
+  // On mount: pull companion progress and merge
+  useEffect(() => {
+    fetchProgress().then(applyRemote)
+  }, [])
+
+  // On mount + on auth change: pull cloud progress and merge
+  useEffect(() => {
+    cloudFetchProgress().then(applyRemote)
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') {
+        // Pull cloud history on login and merge — this is the Plex-style sync moment
+        cloudFetchProgress().then(applyRemote)
+      }
+    })
+    return () => subscription.unsubscribe()
   }, [])
 
   function save(next) {
     setHistory(next)
     localStorage.setItem('vt-history', JSON.stringify(next))
-    // Debounce server push — at most once every 10 seconds
+
+    // Debounce companion push — at most once every 10s
     clearTimeout(pushTimerRef.current)
     pushTimerRef.current = setTimeout(() => pushProgress(next), 10_000)
+
+    // Debounce cloud push — at most once every 15s (Supabase has generous rate limits
+    // but we don't need sub-second granularity for watch progress)
+    clearTimeout(cloudTimerRef.current)
+    cloudTimerRef.current = setTimeout(() => cloudPushProgress(next), 15_000)
   }
 
   /** Call when user starts playing something */
@@ -76,7 +101,7 @@ export function WatchHistoryProvider({ children }) {
     if (!next.find(h => h.id === id && h.type === type)) {
       next.unshift({ id, type, title: title || '', poster: poster || null, progressSec, durationSec, progress, timestamp: Date.now() })
     }
-    save(next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 30))
+    save(next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100))
   }
 
   /** Save the stream URL used so resume can replay it directly.
@@ -90,7 +115,7 @@ export function WatchHistoryProvider({ children }) {
       } else {
         current.unshift({ id, type, lastStream: streamData, progress: 0, progressSec: 0, durationSec: 0, timestamp: Date.now() })
       }
-      save(current) // push to companion so lastStream syncs across devices
+      save(current) // push to companion + cloud so lastStream syncs across devices
     } catch {}
   }
 
@@ -98,6 +123,7 @@ export function WatchHistoryProvider({ children }) {
   function removeFromHistory(id, type) {
     save(history.filter(h => !(h.id === id && h.type === type)))
     deleteProgress(id, type)
+    cloudDeleteProgress(id, type)
   }
 
   /** Mark a specific TV episode as watched (called at 90%+ progress) */
