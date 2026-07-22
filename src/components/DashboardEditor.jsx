@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useDashboard } from '../context/DashboardContext'
 import { useAddons } from '../context/AddonsContext'
 import { useTrakt } from '../context/TraktContext'
@@ -12,6 +12,18 @@ export default function DashboardEditor({ onClose }) {
   const [dragOver, setDragOver]   = useState(null)
   const touchFrom  = useRef(null)
   const touchY     = useRef(null)
+
+  // Safety net: if the browser drops the dragend event (tab switch, ESC, etc.)
+  // clear the stuck highlight state on the next any-mouse-move or mouseup
+  useEffect(() => {
+    function cleanup() { setDragFrom(null); setDragOver(null) }
+    document.addEventListener('dragend', cleanup)
+    document.addEventListener('mouseup', cleanup)
+    return () => {
+      document.removeEventListener('dragend', cleanup)
+      document.removeEventListener('mouseup', cleanup)
+    }
+  }, [])
 
   // ── Desktop drag ──
   function onDragStart(e, idx) {

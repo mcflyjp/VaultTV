@@ -3,8 +3,10 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
-import { FiSearch, FiSettings, FiChevronDown, FiLogOut } from 'react-icons/fi'
+import { FiSearch, FiSettings, FiChevronDown, FiLogOut, FiFolder, FiUser } from 'react-icons/fi'
 import LogoIcon from './LogoIcon'
+import LibraryPanel from './LibraryPanel'
+import ProfilePanel from './ProfilePanel'
 
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
@@ -20,6 +22,8 @@ export default function TopNav() {
   const [scrolled, setScrolled] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const searchRef = useRef(null)
   const themeRef = useRef(null)
 
@@ -176,6 +180,10 @@ export default function TopNav() {
           )}
         </div>
 
+        {/* Library + Profile */}
+        <button onClick={() => setLibraryOpen(true)} title="Libraries" style={iconBtn}><FiFolder size={18} /></button>
+        <button onClick={() => setProfileOpen(true)} title="Profile" style={iconBtn}><FiUser size={18} /></button>
+
         {/* Settings */}
         <button onClick={() => navigate('/settings')} style={iconBtn}><FiSettings size={18} /></button>
 
@@ -199,6 +207,8 @@ export default function TopNav() {
         ))}
       </div>
     )}
+    {libraryOpen && <LibraryPanel onClose={() => setLibraryOpen(false)} />}
+    {profileOpen && <ProfilePanel onClose={() => setProfileOpen(false)} />}
     </div>
   )
 }

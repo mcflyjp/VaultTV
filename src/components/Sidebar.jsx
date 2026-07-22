@@ -1,14 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut, FiBookOpen } from 'react-icons/fi'
+import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut, FiBookOpen, FiFolder, FiUser, FiMenu, FiX } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useQueue } from '../context/QueueContext'
 import { usePlaylist } from '../context/PlaylistContext'
 import LogoIcon from './LogoIcon'
+import LibraryPanel from './LibraryPanel'
+import ProfilePanel from './ProfilePanel'
 
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
+const IS_ANDROID = /android/i.test(navigator.userAgent)
+// Treat narrow viewports OR Android as mobile (sidebar becomes a drawer)
+const IS_MOBILE = IS_ANDROID && !IS_FIRETV
 
 // ── Library item definitions (canonical order) ──
 const ALL_LIB_IDS = ['movies', 'shows', 'queue', 'playlists']
@@ -37,6 +42,9 @@ export default function Sidebar() {
   const { files: localFiles } = useLocalLibrary()
   const { queue } = useQueue()
   const { playlists } = usePlaylist()
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
 
   // Count unique local titles per type (merged with saved, deduplicated)
   const localMovieIds = new Set(localFiles.filter(f => f.media_type === 'movie' && f.tmdbId).map(f => f.tmdbId))
@@ -87,6 +95,55 @@ export default function Sidebar() {
     if (query.trim()) { navigate(`/search?q=${encodeURIComponent(query.trim())}`); setQuery('') }
   }
 
+  // Mobile: render a floating hamburger button; drawer opens as overlay
+  if (IS_MOBILE) {
+    return (
+      <>
+        {/* Hamburger trigger — always visible at top-left */}
+        <button
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation"
+          style={{
+            position: 'fixed', top: 12, left: 12, zIndex: 600,
+            width: 40, height: 40, borderRadius: 8,
+            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--text-primary)', cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+          }}
+        >
+          <FiMenu size={18} />
+        </button>
+
+        {/* Drawer overlay */}
+        {mobileOpen && (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex' }}
+            onClick={e => e.target === e.currentTarget && setMobileOpen(false)}
+          >
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} onClick={() => setMobileOpen(false)} />
+            <SidebarBody
+              asideRef={asideRef}
+              query={query} setQuery={setQuery}
+              handleSearch={handleSearch}
+              libOrder={libOrder} badges={badges}
+              current={current}
+              theme={theme} changeTheme={changeTheme}
+              themeOpen={themeOpen} setThemeOpen={setThemeOpen}
+              sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen}
+              onClose={() => setMobileOpen(false)}
+              onLibrary={() => { setMobileOpen(false); setLibraryOpen(true) }}
+              onProfile={() => { setMobileOpen(false); setProfileOpen(true) }}
+              style={{ position: 'relative', zIndex: 1 }}
+            />
+          </div>
+        )}
+
+        {libraryOpen && <LibraryPanel onClose={() => setLibraryOpen(false)} />}
+        {profileOpen && <ProfilePanel onClose={() => setProfileOpen(false)} />}
+      </>
+    )
+  }
+
   // FireTV collapsed state — render a thin focusable strip at the left edge.
   // Spatial nav beam will find it when the user presses Left from main content.
   if (IS_FIRETV && !sidebarOpen) {
@@ -107,12 +164,40 @@ export default function Sidebar() {
   }
 
   return (
+    <>
+      <SidebarBody
+        asideRef={asideRef}
+        query={query} setQuery={setQuery}
+        handleSearch={handleSearch}
+        libOrder={libOrder} badges={badges}
+        current={current}
+        theme={theme} changeTheme={changeTheme}
+        themeOpen={themeOpen} setThemeOpen={setThemeOpen}
+        sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen}
+        onLibrary={() => setLibraryOpen(true)}
+        onProfile={() => setProfileOpen(true)}
+      />
+      {libraryOpen && <LibraryPanel onClose={() => setLibraryOpen(false)} />}
+      {profileOpen && <ProfilePanel onClose={() => setProfileOpen(false)} />}
+    </>
+  )
+}
+
+function SidebarBody({
+  asideRef, query, setQuery, handleSearch,
+  libOrder, badges, current, theme, changeTheme,
+  themeOpen, setThemeOpen, sidebarOpen, setSidebarOpen,
+  onLibrary, onProfile, onClose, style,
+}) {
+  const location = useLocation()
+  const compact = IS_FIRETV
+
+  return (
     <aside
       ref={asideRef}
       onTouchMove={e => e.stopPropagation()}
       onWheel={e => e.stopPropagation()}
       onBlur={e => {
-        // Collapse when focus moves outside the sidebar
         if (IS_FIRETV && !asideRef.current?.contains(e.relatedTarget)) {
           setSidebarOpen(false)
         }
@@ -124,17 +209,22 @@ export default function Sidebar() {
         display: 'flex', flexDirection: 'column',
         height: '100vh', position: 'sticky', top: 0,
         overflowX: 'hidden', flexShrink: 0,
+        ...style,
       }}>
-      {/* Logo */}
-      <div style={{ padding: IS_FIRETV ? '0.4rem 1rem' : '0.75rem 1rem' }}>
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', textDecoration: 'none' }}>
-          <LogoIcon size={IS_FIRETV ? 32 : 40} />
-          <span style={{ fontWeight: 800, fontSize: IS_FIRETV ? '1rem' : '1.15rem', color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>VaultTV</span>
+      {/* Logo row + Folder + Profile icons */}
+      <div style={{ padding: IS_FIRETV ? '0.4rem 0.75rem' : '0.65rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+        <Link to="/" onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', textDecoration: 'none', flex: 1, minWidth: 0 }}>
+          <LogoIcon size={IS_FIRETV ? 28 : 34} />
+          <span style={{ fontWeight: 800, fontSize: IS_FIRETV ? '0.95rem' : '1.05rem', color: 'var(--text-primary)', letterSpacing: '-0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>VaultTV</span>
         </Link>
+        {/* Folder (Library) + Profile icon buttons */}
+        <button onClick={onLibrary} title="Libraries" style={iconBtn}><FiFolder size={15} /></button>
+        <button onClick={onProfile} title="Profile" style={iconBtn}><FiUser size={15} /></button>
+        {onClose && <button onClick={onClose} title="Close menu" style={iconBtn}><FiX size={15} /></button>}
       </div>
 
       {/* Search */}
-      <div style={{ padding: IS_FIRETV ? '0 0.75rem 0.4rem' : '0 0.75rem 0.75rem' }}>
+      <div style={{ padding: compact ? '0 0.75rem 0.4rem' : '0 0.75rem 0.75rem' }}>
         <form onSubmit={handleSearch}>
           <div style={{ position: 'relative' }}>
             <FiSearch style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none', fontSize: '0.8rem' }} />
@@ -151,15 +241,15 @@ export default function Sidebar() {
       <Divider />
 
       {/* Nav — FireTV: no overflow so all items are always in viewport and D-pad findable */}
-      <nav style={{ flex: 1, minHeight: 0, padding: IS_FIRETV ? '0.25rem 0.5rem 0' : '0.5rem 0.5rem 0', overflowY: IS_FIRETV ? 'visible' : 'auto', overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
+      <nav style={{ flex: 1, minHeight: 0, padding: compact ? '0.25rem 0.5rem 0' : '0.5rem 0.5rem 0', overflowY: compact ? 'visible' : 'auto', overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
 
         {/* Browse */}
         <SectionLabel>Browse</SectionLabel>
-        <NavItem to="/"       icon={<FiHome size={14} />}   label="Home"   active={location.pathname === '/'} compact={IS_FIRETV} />
-        <NavItem to="/search" icon={<FiSearch size={14} />} label="Search" active={location.pathname === '/search'} compact={IS_FIRETV} />
+        <NavItem to="/" onClick={onClose}     icon={<FiHome size={14} />}   label="Home"   active={location.pathname === '/'} compact={compact} />
+        <NavItem to="/search" onClick={onClose} icon={<FiSearch size={14} />} label="Search" active={location.pathname === '/search'} compact={compact} />
 
         {/* My Library — static nav items */}
-        <SectionLabel style={{ marginTop: IS_FIRETV ? '0.4rem' : '1rem' }}>My Library</SectionLabel>
+        <SectionLabel style={{ marginTop: compact ? '0.4rem' : '1rem' }}>My Library</SectionLabel>
 
         {libOrder.map(id => {
           const meta = LIB_META[id]
@@ -172,20 +262,21 @@ export default function Sidebar() {
             <NavItem
               key={id}
               to={meta.to}
+              onClick={onClose}
               icon={<Icon size={14} />}
               label={meta.label}
               active={isActive}
               badge={badge > 0 ? badge : null}
-              compact={IS_FIRETV}
+              compact={compact}
             />
           )
         })}
 
         {/* Manage */}
-        <SectionLabel style={{ marginTop: IS_FIRETV ? '0.4rem' : '1rem' }}>Manage</SectionLabel>
-        <NavItem to="/addons"   icon={<FiGrid size={14} />}     label="Add-ons"  active={location.pathname === '/addons'}   compact={IS_FIRETV} />
-        <NavItem to="/guide"    icon={<FiBookOpen size={14} />} label="How To"   active={location.pathname === '/guide'}    compact={IS_FIRETV} />
-        <NavItem to="/settings" icon={<FiSettings size={14} />} label="Settings" active={location.pathname === '/settings'} compact={IS_FIRETV} />
+        <SectionLabel style={{ marginTop: compact ? '0.4rem' : '1rem' }}>Manage</SectionLabel>
+        <NavItem to="/addons"   onClick={onClose} icon={<FiGrid size={14} />}     label="Add-ons"  active={location.pathname === '/addons'}   compact={compact} />
+        <NavItem to="/guide"    onClick={onClose} icon={<FiBookOpen size={14} />} label="How To"   active={location.pathname === '/guide'}    compact={compact} />
+        <NavItem to="/settings" onClick={onClose} icon={<FiSettings size={14} />} label="Settings" active={location.pathname === '/settings'} compact={compact} />
       </nav>
 
       {/* Exit button — FireTV only */}
@@ -237,9 +328,16 @@ export default function Sidebar() {
   )
 }
 
-function NavItem({ to, icon, label, active, badge, compact }) {
+const iconBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  color: 'var(--text-secondary)', padding: '0.3rem',
+  borderRadius: 4, display: 'flex', alignItems: 'center',
+  transition: 'color 0.15s', flexShrink: 0,
+}
+
+function NavItem({ to, icon, label, active, badge, compact, onClick }) {
   return (
-    <Link to={to} style={{
+    <Link to={to} onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: '0.6rem',
       padding: compact ? '0.28rem 0.75rem' : '0.5rem 0.75rem',
       borderRadius: 'var(--radius)',
