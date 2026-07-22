@@ -59,4 +59,11 @@ module.exports = {
     icon:   'public/icon.png',
     category: 'AudioVideo',
   },
+
+  // Publish releases to GitHub — electron-updater checks here for updates
+  publish: {
+    provider: 'github',
+    owner:    'mcflyjp',
+    repo:     'VaultTV',
+  },
 }

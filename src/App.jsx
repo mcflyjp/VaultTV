@@ -14,7 +14,7 @@ import Library from './pages/Library'
 import Queue from './pages/Queue'
 import Playlists from './pages/Playlists'
 import Guide from './pages/Guide'
-import { FiChevronLeft, FiMaximize, FiMinimize } from 'react-icons/fi'
+import { FiChevronLeft, FiMaximize, FiMinimize, FiDownload, FiX } from 'react-icons/fi'
 import { useState, useEffect } from 'react'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
@@ -25,6 +25,7 @@ export default function App() {
   const { density } = useLayout()
   const useTopNav = TOP_NAV_THEMES.has(theme)
   const [isFullScreen, setIsFullScreen] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState(null)   // { version, ready }
   const navigate = useNavigate()
 
   // After a theme switch on FireTV, React remounts Sidebar↔TopNav which drops focus.
@@ -51,6 +52,17 @@ export default function App() {
     // Clean up so VideoPlayer can take over when it mounts
     return () => { window.__vaulttvBack = null }
   }, [navigate])
+
+  // Auto-updater listeners — Electron only
+  useEffect(() => {
+    if (!IS_ELECTRON) return
+    window.electronAPI.onUpdateAvailable?.(info =>
+      setUpdateInfo({ version: info.version, ready: false })
+    )
+    window.electronAPI.onUpdateDownloaded?.(info =>
+      setUpdateInfo({ version: info.version, ready: true })
+    )
+  }, [])
 
   useEffect(() => {
     if (!IS_ELECTRON) return
@@ -94,6 +106,46 @@ export default function App() {
       </main>
       <ContextMenu />
       <VideoPlayer />
+
+      {/* Update banner — Electron only, slides in from bottom when an update is ready */}
+      {updateInfo && (
+        <div style={{
+          position: 'fixed', bottom: 20, right: 20, zIndex: 9000,
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '0.75rem 1rem',
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+          maxWidth: 340,
+        }}>
+          <FiDownload size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: '0.88rem' }}>
+              {updateInfo.ready ? 'Update ready' : 'Update downloading…'} — v{updateInfo.version}
+            </p>
+            <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+              {updateInfo.ready ? 'Restart to install the latest version.' : 'Will install automatically on next quit.'}
+            </p>
+          </div>
+          {updateInfo.ready && (
+            <button
+              onClick={() => window.electronAPI.installUpdate()}
+              style={{
+                background: 'var(--accent)', border: 'none', borderRadius: 6,
+                color: '#fff', cursor: 'pointer', padding: '0.4rem 0.75rem',
+                fontSize: '0.8rem', fontWeight: 700, flexShrink: 0,
+              }}
+            >
+              Restart
+            </button>
+          )}
+          <button
+            onClick={() => setUpdateInfo(null)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.2rem', display: 'flex', flexShrink: 0 }}
+          >
+            <FiX size={15} />
+          </button>
+        </div>
+      )}
 
       {/* App fullscreen toggle — Electron only, fixed top-right corner */}
       {IS_ELECTRON && (

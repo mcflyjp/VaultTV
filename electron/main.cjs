@@ -10,6 +10,12 @@ const path = require('path')
 const fs   = require('fs')
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
+// Auto-updater — only active in the packaged app (not dev builds)
+let autoUpdater = null
+if (!isDev) {
+  try { autoUpdater = require('electron-updater').autoUpdater } catch {}
+}
+
 // Enable platform HEVC decoder on Windows (Windows Media Foundation).
 // Must be called before app 'ready' event.
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport')
@@ -157,11 +163,43 @@ function createTray() {
   tray.on('click', () => { mainWindow?.show(); mainWindow?.focus() })
 }
 
+// ── Auto-updater ─────────────────────────────────────────────────────
+function initAutoUpdater() {
+  if (!autoUpdater) return
+
+  autoUpdater.autoDownload    = true   // download silently in background
+  autoUpdater.autoInstallOnAppQuit = true  // install when user quits normally
+
+  autoUpdater.on('update-available', info => {
+    mainWindow?.webContents.send('update-available', {
+      version: info.version,
+      releaseNotes: info.releaseNotes || '',
+    })
+  })
+
+  autoUpdater.on('update-downloaded', info => {
+    mainWindow?.webContents.send('update-downloaded', { version: info.version })
+  })
+
+  autoUpdater.on('error', err => {
+    console.error('[updater] error:', err?.message)
+  })
+
+  // Check on startup (5s delay so main window is visible first)
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000)
+}
+
+// IPC: renderer can trigger install-and-relaunch
+ipcMain.on('update-install', () => {
+  autoUpdater?.quitAndInstall(false, true)
+})
+
 // ── App lifecycle ────────────────────────────────────────────────────
 app.whenReady().then(() => {
   startCompanion()
   createWindow()
   createTray()
+  initAutoUpdater()
 
   // F11 — toggle app fullscreen
   globalShortcut.register('F11', () => {

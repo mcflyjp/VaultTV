@@ -30,4 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleFullscreen: () => ipcRenderer.send('toggle-fullscreen'),
   isFullScreen:     () => ipcRenderer.invoke('is-fullscreen'),
   onFullscreenChange: (cb) => ipcRenderer.on('fullscreen-changed', (_e, v) => cb(v)),
+
+  // Auto-updater — fires when a new version is available or downloaded
+  onUpdateAvailable:  (cb) => ipcRenderer.on('update-available',  (_e, info) => cb(info)),
+  onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, info) => cb(info)),
+  installUpdate:      ()   => ipcRenderer.send('update-install'),
 })
