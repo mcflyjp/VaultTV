@@ -9,8 +9,8 @@ A lightweight WebView wrapper that loads VaultTV — works on FireTV Stick, Andr
 ### Option A — Downloader App Short Code
 
 1. Install **Downloader** (free) from Amazon Appstore on your FireTV
-2. Open Downloader → enter code: **`7898681`**
-   - Short URL: `aftv.news/7898681`
+2. Open Downloader → enter code: **`6945467`**
+   - Short URL: `aftv.news/6945467`
 3. Tap Download → Install → Open
 
 > Settings → My Fire TV → Developer Options → **Apps from Unknown Sources: ON** (required once)
@@ -19,8 +19,9 @@ A lightweight WebView wrapper that loads VaultTV — works on FireTV Stick, Andr
 
 Open Downloader → enter this URL directly:
 ```
-https://github.com/mcflyjp/VaultTV/releases/download/v1.0.0/VaultTV-FireTV.apk
+https://github.com/mcflyjp/VaultTV/releases/download/v2026.06.08/VaultTV-FireTV.apk
 ```
+> The APK asset is always replaced in place on the `v2026.06.08` tag (never a new tag) so this URL — and the `aftv.news/6945467` short code above, which points at it — never change.
 
 ### Option C — ADB (same Wi-Fi as host PC)
 
@@ -34,7 +35,8 @@ adb install -r VaultTV-FireTV.apk
 
 ## GitHub Release
 
-Latest APK: https://github.com/mcflyjp/VaultTV/releases/tag/v1.0.0
+Latest desktop/full release notes: https://github.com/mcflyjp/VaultTV/releases/latest
+FireTV APK (stable link, see note above): https://github.com/mcflyjp/VaultTV/releases/tag/v2026.06.08
 
 ---
 
