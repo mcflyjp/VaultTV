@@ -28,8 +28,14 @@ module.exports = {
     'package.json',
   ],
 
-  // Point Electron at the built React app
+  // Point Electron at the built React app.
+  // "name" MUST differ from server-builder.config.cjs's — Electron reads package.json's
+  // "name" field at native bootstrap (before any JS runs) to resolve the userData path.
+  // Both builds previously inherited the same root "vaulttv" name, so they shared a
+  // userData folder + singleton lock: whichever app was NOT already running would see
+  // requestSingleInstanceLock() fail and quit silently with no window, no error.
   extraMetadata: {
+    name: 'vaulttv-desktop',
     main: 'electron/main.cjs',
   },
 

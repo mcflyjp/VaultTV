@@ -21,6 +21,12 @@ const http   = require('http')
 const os     = require('os')
 const { spawn } = require('child_process')
 
+// Must be set before any userData-path-dependent call. Without this, this app and
+// the separate main VaultTV desktop app both inherit "vaulttv" from package.json's
+// shared "name" field, collide on the same userData folder + singleton lock, and
+// whichever one is NOT already running silently quits with no window and no error.
+app.setName('VaultTV Media Server')
+
 // ── Single instance ───────────────────────────────────────────────────────────
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0) }
 

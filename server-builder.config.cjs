@@ -18,8 +18,10 @@ module.exports = {
     buildResources: 'public',
   },
 
-  // Entry point is the server tray app
+  // Entry point is the server tray app.
+  // "name" MUST differ from electron-builder.config.cjs's — see its comment for why.
   extraMetadata: {
+    name: 'vaulttv-media-server',
     main: 'server/tray.cjs',
   },
 

@@ -10,6 +10,13 @@ const path = require('path')
 const fs   = require('fs')
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
+// Must be set before any userData-path-dependent call (requestSingleInstanceLock,
+// getPath('userData'), etc). Without this, this app and the separate VaultTV Media
+// Server tray app both inherit "vaulttv" from package.json's shared "name" field,
+// collide on the same userData folder + singleton lock, and whichever one is NOT
+// already running silently quits on launch with no window and no error.
+app.setName('VaultTV')
+
 // Auto-updater — only active in the packaged app (not dev builds)
 let autoUpdater = null
 if (!isDev) {
