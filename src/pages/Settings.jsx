@@ -606,6 +606,15 @@ export default function Settings() {
           </a>.
         </p>
       </Card>
+
+      {/* Diagnostics — temporary, helps debug platform-detection issues (mobile vs FireTV) */}
+      <Card title="Diagnostics" icon={null}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.76rem', margin: 0, lineHeight: 1.7, wordBreak: 'break-all', fontFamily: 'monospace' }}>
+          UA: {navigator.userAgent}<br />
+          Detected as FireTV: {String(/VaultTV-FireTV/i.test(navigator.userAgent))}<br />
+          Detected as Android: {String(/android/i.test(navigator.userAgent))}
+        </p>
+      </Card>
     </div>
   )
 }
