@@ -129,7 +129,14 @@ export default function LibraryPanel({ onClose }) {
   )
 }
 
-/** Launch PXPlay via Android Intent if installed; otherwise open the Play Store listing */
+/**
+ * PXPlay is a native app on every platform — there's no web/embeddable version,
+ * so it can never run inside VaultTV's own window (unlike Xbox Cloud Gaming,
+ * which is a real website). Launch/download behavior is platform-specific:
+ *  - Android: intent:// triggers the installed app, falls back to Play Store
+ *  - Desktop (Electron) / any other browser: Play Store is wrong entirely —
+ *    send to PXPlay's actual Windows/Mac/Linux download page instead
+ */
 function launchPXPlay() {
   const IS_ANDROID = /android/i.test(navigator.userAgent)
   if (IS_ANDROID) {
@@ -139,7 +146,7 @@ function launchPXPlay() {
       encodeURIComponent('https://play.google.com/store/apps/details?id=psplay.grill.com') +
       ';end'
   } else {
-    window.open('https://play.google.com/store/apps/details?id=psplay.grill.com', '_blank')
+    window.open('https://streamingdv.com/shop-list-ns.html', '_blank')
   }
 }
 
