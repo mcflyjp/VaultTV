@@ -98,6 +98,17 @@ app.on('quit', () => {
   try { companionProc?.kill() } catch {}
 })
 
+// ── Icon resolution ───────────────────────────────────────────────────
+// In dev, "public/" is right there in the source tree. In the packaged app it's
+// NOT bundled inside resources/app (only dist/, electron/, companion/ are — see
+// electron-builder.config.cjs's files[]) — instead it's copied to resources/icon.png
+// via extraResources, so it must be read from process.resourcesPath, not __dirname.
+function iconPath(name) {
+  return isDev
+    ? path.join(__dirname, '..', 'public', name)
+    : path.join(process.resourcesPath, name)
+}
+
 // ── Window ────────────────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -118,7 +129,7 @@ function createWindow() {
       // mixed content, and lets Stremio add-on fetches bypass CORS.
       webSecurity: false,
     },
-    icon: path.join(__dirname, '../public/icon.png'),
+    icon: iconPath('icon.png'),
     show: false,
   })
 
@@ -157,8 +168,7 @@ function createWindow() {
 
 // ── Tray ────────────────────────────────────────────────────────────
 function createTray() {
-  const iconPath = path.join(__dirname, '../public/icon.png')
-  const icon = nativeImage.createFromPath(iconPath).resize({ width: 16 })
+  const icon = nativeImage.createFromPath(iconPath('icon.png')).resize({ width: 16 })
   tray = new Tray(icon)
   const menu = Menu.buildFromTemplate([
     { label: 'Open VaultTV', click: () => { mainWindow?.show(); mainWindow?.focus() } },

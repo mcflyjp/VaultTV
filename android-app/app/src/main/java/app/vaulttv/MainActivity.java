@@ -2,7 +2,10 @@ package app.vaulttv;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.UiModeManager;
+import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -385,7 +388,14 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " VaultTV-FireTV");
+        // Only tag the UA as FireTV on actual TV hardware — this suffix is what the
+        // web app's React code uses to decide between the D-pad/TV layout and the
+        // touch/mobile layout. Previously this was appended unconditionally, so a
+        // phone running this same APK was misidentified as a TV and never showed
+        // the mobile drawer/hamburger navigation.
+        if (isRunningOnTelevision()) {
+            settings.setUserAgentString(settings.getUserAgentString() + " VaultTV-FireTV");
+        }
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -439,6 +449,20 @@ public class MainActivity extends Activity {
         });
 
         webView.loadUrl(VAULTTV_URL);
+    }
+
+    // ── TV hardware detection ──────────────────────────────────────────────
+    // UiModeManager is the standard Android API for this — it's how the OS itself
+    // tells apps "you are running on a television," independent of screen size or
+    // any string-based heuristic. FEATURE_LEANBACK is the equivalent PackageManager
+    // signal Amazon/Google actually require TV apps to declare, so checking both
+    // covers FireTV (uses UI_MODE_TYPE_TELEVISION) and any Android TV variant.
+    private boolean isRunningOnTelevision() {
+        UiModeManager uiModeManager = (UiModeManager) getSystemService(Context.UI_MODE_SERVICE);
+        boolean isTvUiMode = uiModeManager != null
+            && uiModeManager.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION;
+        boolean hasLeanback = getPackageManager().hasSystemFeature("android.software.leanback");
+        return isTvUiMode || hasLeanback;
     }
 
     // ── Deep-link callback from Silk after Google OAuth ───────────────────

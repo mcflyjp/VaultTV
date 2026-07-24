@@ -28,6 +28,16 @@ module.exports = {
     'package.json',
   ],
 
+  // "icon:" below only sets the .exe's embedded Windows icon at build time — it does
+  // NOT copy the file for the app to read at runtime. main.cjs loads the window/tray
+  // icon from process.resourcesPath at runtime (see extraResources), not from
+  // "public/" inside the app folder (public/ was never in files[] above, so that
+  // path silently failed and both the window icon and tray icon were blank/default).
+  extraResources: [
+    { from: 'public/icon.png', to: 'icon.png' },
+    { from: 'public/logo.ico', to: 'icon.ico' },
+  ],
+
   // Point Electron at the built React app.
   // "name" MUST differ from server-builder.config.cjs's — Electron reads package.json's
   // "name" field at native bootstrap (before any JS runs) to resolve the userData path.
