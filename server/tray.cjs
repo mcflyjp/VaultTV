@@ -27,6 +27,18 @@ const { spawn } = require('child_process')
 // whichever one is NOT already running silently quits with no window and no error.
 app.setName('VaultTV Media Server')
 
+// Auto-updater — only active in the packaged app (not dev, where there's no
+// installer/update feed to check against)
+let autoUpdater = null
+if (app.isPackaged) {
+  try {
+    autoUpdater = require('electron-updater').autoUpdater
+    autoUpdater.channel = 'media-server' // see server-builder.config.cjs for why
+  } catch {}
+}
+let updateState = 'idle' // 'idle' | 'checking' | 'available' | 'downloaded' | 'not-available' | 'error'
+let updateVersion = null
+
 // ── Single instance ───────────────────────────────────────────────────────────
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0) }
 
@@ -169,6 +181,73 @@ function pollStatus() {
   req.end()
 }
 
+// ── Auto-updater ───────────────────────────────────────────────────────────────
+function initAutoUpdater() {
+  if (!autoUpdater) return
+
+  autoUpdater.autoDownload         = true  // download silently in background once found
+  autoUpdater.autoInstallOnAppQuit = true  // install on next quit even if user never clicks Restart
+
+  autoUpdater.on('checking-for-update', () => {
+    updateState = 'checking'
+    updateMenu()
+  })
+  autoUpdater.on('update-available', (info) => {
+    updateState   = 'available'
+    updateVersion = info.version
+    updateMenu()
+    tray?.displayBalloon({
+      title:    'VaultTV Server',
+      content:  `Update v${info.version} found — downloading in the background…`,
+      iconType: 'info',
+    })
+  })
+  autoUpdater.on('update-not-available', () => {
+    updateState = 'not-available'
+    updateMenu()
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    updateState   = 'downloaded'
+    updateVersion = info.version
+    updateMenu()
+    tray?.displayBalloon({
+      title:    'VaultTV Server',
+      content:  `Update v${info.version} ready — right-click the tray icon to restart and install.`,
+      iconType: 'info',
+    })
+  })
+  autoUpdater.on('error', (err) => {
+    updateState = 'error'
+    console.error('[updater] error:', err?.message)
+    updateMenu()
+  })
+
+  // Check on startup (10s delay so the server has time to bind first) and every 6 hours after
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 10_000)
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000)
+}
+
+function checkForUpdates() {
+  if (!autoUpdater) {
+    dialog.showMessageBox({
+      type:    'info',
+      title:   'Check for Updates',
+      message: `VaultTV Server v${app.getVersion()}`,
+      detail:  'Auto-update is unavailable in this build.',
+      buttons: ['OK'],
+    })
+    return
+  }
+  autoUpdater.checkForUpdates().catch(() => {
+    updateState = 'error'
+    updateMenu()
+  })
+}
+
+function installUpdate() {
+  autoUpdater?.quitAndInstall(false, true)
+}
+
 // ── Build context menu ────────────────────────────────────────────────────────
 function updateMenu() {
   if (!tray) return
@@ -217,22 +296,9 @@ function updateMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Check for Updates',
-      click: async () => {
-        let version = 'unknown'
-        try {
-          const res = await fetch(`${serverUrl}/internal/status`)
-          const d = await res.json()
-          version = d.version || app.getVersion()
-        } catch { version = app.getVersion() }
-        dialog.showMessageBox({
-          type:    'info',
-          title:   'Check for Updates',
-          message: `VaultTV Server v${version}`,
-          detail:  'To update, pull the latest code and restart the server.',
-          buttons: ['OK'],
-        })
-      },
+      label:   updateState === 'downloaded' ? `Restart to Install v${updateVersion}` : 'Check for Updates',
+      enabled: updateState !== 'checking',
+      click:   updateState === 'downloaded' ? installUpdate : checkForUpdates,
     },
     {
       label: 'Server Settings',
@@ -408,6 +474,7 @@ app.whenReady().then(() => {
   startServer()
   // Start tunnel after server has had a moment to bind
   setTimeout(startTunnel, 3000)
+  initAutoUpdater()
 
   if (isFirstRun) {
     setTimeout(openSetupWindow, 1000)

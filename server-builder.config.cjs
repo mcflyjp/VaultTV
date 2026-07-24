@@ -72,4 +72,18 @@ module.exports = {
     target:   'AppImage',
     category: 'AudioVideo',
   },
+
+  // Publish releases to GitHub. channel: 'media-server' is required — this repo
+  // also hosts the main VaultTV app's releases via electron-builder.config.cjs,
+  // and electron-updater's GitHub provider defaults to a file literally named
+  // "latest.yml" for every app. Without distinct channels, building one app
+  // overwrites the other's update-check file (this happened during development —
+  // rebuilding the server after the main app silently broke the main app's
+  // update-available data). This channel produces "media-server.yml" instead.
+  publish: {
+    provider: 'github',
+    owner:    'mcflyjp',
+    repo:     'VaultTV',
+    channel:  'media-server',
+  },
 }
