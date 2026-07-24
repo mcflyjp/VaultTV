@@ -3,7 +3,7 @@
  */
 
 const {
-  app, BrowserWindow, shell, Menu, Tray, nativeImage,
+  app, BrowserWindow, shell,
   ipcMain, dialog, utilityProcess, globalShortcut,
 } = require('electron')
 const path = require('path')
@@ -44,7 +44,6 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) app.quit()
 
 let mainWindow      = null
-let tray            = null
 let companionProc   = null   // UtilityProcess for the companion server
 
 // Windows deep-link: second instance carries vaulttv:// URL in argv
@@ -166,20 +165,6 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
-// ── Tray ────────────────────────────────────────────────────────────
-function createTray() {
-  const icon = nativeImage.createFromPath(iconPath('icon.png')).resize({ width: 16 })
-  tray = new Tray(icon)
-  const menu = Menu.buildFromTemplate([
-    { label: 'Open VaultTV', click: () => { mainWindow?.show(); mainWindow?.focus() } },
-    { type: 'separator' },
-    { label: 'Quit', click: () => app.quit() },
-  ])
-  tray.setToolTip('VaultTV')
-  tray.setContextMenu(menu)
-  tray.on('click', () => { mainWindow?.show(); mainWindow?.focus() })
-}
-
 // ── Auto-updater ─────────────────────────────────────────────────────
 function initAutoUpdater() {
   if (!autoUpdater) return
@@ -215,7 +200,6 @@ ipcMain.on('update-install', () => {
 app.whenReady().then(() => {
   startCompanion()
   createWindow()
-  createTray()
   initAutoUpdater()
 
   // F11 — toggle app fullscreen
@@ -239,10 +223,12 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('window-all-closed', () => {
-  // macOS: keep process alive; Windows/Linux: keep tray alive
-  // app.quit() would be here to exit on last window close
-})
+// Closing the window fully quits the app — there is no tray icon to keep it
+// alive in the background (unlike VaultTV Media Server, which is meant to run
+// headless). Previously this was empty (window hidden, process stayed resident
+// with a tray icon), which meant closing the window didn't actually exit —
+// users had to force-quit via Task Manager to fully stop VaultTV.
+app.on('window-all-closed', () => app.quit())
 
 // ── IPC: window controls ─────────────────────────────────────────────
 ipcMain.on('window-minimize', () => mainWindow?.minimize())
@@ -250,7 +236,7 @@ ipcMain.on('window-maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
-ipcMain.on('window-close', () => mainWindow?.hide())
+ipcMain.on('window-close', () => mainWindow?.close())
 
 // Open a URL in the system default browser (called by renderer for OAuth
 // and for Settings external links)
