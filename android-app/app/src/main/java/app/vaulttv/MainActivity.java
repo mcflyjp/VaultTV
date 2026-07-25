@@ -388,11 +388,17 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        // Only tag the UA as FireTV on actual TV hardware — this suffix is what the
-        // web app's React code uses to decide between the D-pad/TV layout and the
-        // touch/mobile layout. Previously this was appended unconditionally, so a
-        // phone running this same APK was misidentified as a TV and never showed
-        // the mobile drawer/hamburger navigation.
+        // "VaultTV-App" is always present — it marks this as OUR native Android WebView
+        // (phone or TV), which the React auth code uses to route Google sign-in through
+        // the vaulttv://auth/callback deep-link flow (this WebView's own interception of
+        // accounts.google.com below + onNewIntent isn't TV-gated, so it works identically
+        // on phones). "VaultTV-FireTV" is added ONLY on actual TV hardware — that one is
+        // solely for choosing the D-pad/TV layout vs. the touch/mobile layout.
+        // These must stay separate: they were the same flag until this fix, which broke
+        // Google sign-in on phones (fell through to the plain-browser redirect flow,
+        // stranding the user in the system browser with no way back into the app) the
+        // moment phones stopped being misidentified as TVs.
+        settings.setUserAgentString(settings.getUserAgentString() + " VaultTV-App");
         if (isRunningOnTelevision()) {
             settings.setUserAgentString(settings.getUserAgentString() + " VaultTV-FireTV");
         }

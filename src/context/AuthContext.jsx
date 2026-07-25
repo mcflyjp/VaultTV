@@ -4,7 +4,12 @@ import { supabase } from '../lib/supabase'
 const AuthContext = createContext(null)
 
 const IS_ELECTRON     = !!window.electronAPI?.isElectron
-const IS_FIRETV       = /VaultTV-FireTV/i.test(navigator.userAgent)
+// True for the native Android WebView app on ANY device (phone or TV) — MainActivity.java
+// tags this unconditionally. Used to pick the OAuth redirect strategy, since the WebView's
+// own accounts.google.com interception + vaulttv://auth/callback deep-link handling isn't
+// TV-gated and works identically on phones. The separate "VaultTV-FireTV" tag (only on
+// real TV hardware, checked elsewhere for D-pad vs. touch UI layout) is too narrow for this.
+const IS_ANDROID_APP  = /VaultTV-App/i.test(navigator.userAgent)
 // Already running inside the VaultTV Server — no redirect needed
 const IS_SERVER       = !!window.__VAULTTV_SERVER
 
@@ -28,8 +33,10 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       // On sign-in: check if the user has a registered VaultTV Server and redirect to it.
-      // Skip when already inside the server, in Electron, or on FireTV.
-      if (_event === 'SIGNED_IN' && session && !IS_SERVER && !IS_ELECTRON && !IS_FIRETV) {
+      // Skip when already inside the server, in Electron, or in the native Android app
+      // (phone or FireTV) — those go through the deep-link callback flow above, and an
+      // immediate second location.href redirect right after it would interrupt that.
+      if (_event === 'SIGNED_IN' && session && !IS_SERVER && !IS_ELECTRON && !IS_ANDROID_APP) {
         redirectToServer(session)
       }
     })
@@ -55,11 +62,11 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // ── FireTV OAuth deep-link handler ───────────────────────────────────
+  // ── Android OAuth deep-link handler (phone + FireTV) ──────────────────
   // MainActivity intercepts vaulttv://auth/callback, extracts the fragment,
   // and calls window.__vaulttvAuthCallback(fragment).
   useEffect(() => {
-    if (!IS_FIRETV) return
+    if (!IS_ANDROID_APP) return
     window.__vaulttvAuthCallback = async (fragment) => {
       try {
         const params = new URLSearchParams(fragment)
@@ -134,10 +141,10 @@ export function AuthProvider({ children }) {
       if (error) throw error
       if (data?.url) window.electronAPI.openExternal(data.url)
 
-    } else if (IS_FIRETV) {
-      // FireTV: Java intercepts accounts.google.com URLs and opens Silk.
-      // Supabase redirects back to vaulttv://auth/callback — Android catches
-      // that intent and calls window.__vaulttvAuthCallback() with the fragment.
+    } else if (IS_ANDROID_APP) {
+      // Native Android app (phone or FireTV): Java intercepts accounts.google.com
+      // URLs and opens Silk/Chrome. Supabase redirects back to vaulttv://auth/callback —
+      // Android catches that intent and calls window.__vaulttvAuthCallback() with the fragment.
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: 'vaulttv://auth/callback' },
