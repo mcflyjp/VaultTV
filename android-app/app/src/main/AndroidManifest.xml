@@ -9,6 +9,15 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <!-- Android 11+ (API 30+) package visibility: without this, MainActivity's
+         Intent.parseUri()+startActivity() for the LibraryPanel Gaming section's
+         intent:// links (e.g. launching PXPlay) can't see the target package even
+         when it's genuinely installed, throws ActivityNotFoundException, and
+         silently falls back to opening the Play Store listing instead. -->
+    <queries>
+        <package android:name="psplay.grill.com" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:label="VaultTV"
