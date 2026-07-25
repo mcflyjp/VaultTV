@@ -431,9 +431,30 @@ public class MainActivity extends Activity {
                 if (url.startsWith("intent://")) {
                     try {
                         Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                        boolean launched = false;
                         try {
                             startActivity(intent);
+                            launched = true;
                         } catch (ActivityNotFoundException e) {
+                            // The exact scheme/host encoded in the intent:// URL (fabricated
+                            // client-side — we don't actually know the target app's real
+                            // deep-link filters) may not match any activity the target app
+                            // registers, even though the app itself is genuinely installed.
+                            // Fall back to the package's own default launcher intent — this
+                            // just opens the app normally, the same as tapping its icon,
+                            // and only requires knowing the package name is correct.
+                            String pkg = intent.getPackage();
+                            if (pkg != null) {
+                                Intent launchIntent = getPackageManager().getLaunchIntentForPackage(pkg);
+                                if (launchIntent != null) {
+                                    try {
+                                        startActivity(launchIntent);
+                                        launched = true;
+                                    } catch (ActivityNotFoundException ignored) {}
+                                }
+                            }
+                        }
+                        if (!launched) {
                             String fallbackUrl = intent.getStringExtra("browser_fallback_url");
                             if (fallbackUrl != null) {
                                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)));
