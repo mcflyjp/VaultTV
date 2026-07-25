@@ -3,6 +3,7 @@ package app.vaulttv;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.UiModeManager;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -19,6 +20,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
+import java.net.URISyntaxException;
 
 public class MainActivity extends Activity {
 
@@ -417,6 +419,29 @@ public class MainActivity extends Activity {
                 if (url.contains("/auth/v1/authorize") || url.contains("accounts.google.com")) {
                     Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                     startActivity(intent);
+                    return true;
+                }
+                // intent:// links (e.g. LibraryPanel's "launch PXPlay if installed, else
+                // Play Store" logic) work automatically in a normal Chrome tab — Chrome has
+                // built-in intent:// resolution, including its S.browser_fallback_url
+                // handling — but a plain WebView understands neither: it throws
+                // net::ERR_UNKNOWN_URL_SCHEME, and Intent.parseUri() alone doesn't apply
+                // the fallback either (that's Chrome-specific, not an OS/framework
+                // behavior), so we have to replicate both parts here ourselves.
+                if (url.startsWith("intent://")) {
+                    try {
+                        Intent intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+                        try {
+                            startActivity(intent);
+                        } catch (ActivityNotFoundException e) {
+                            String fallbackUrl = intent.getStringExtra("browser_fallback_url");
+                            if (fallbackUrl != null) {
+                                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)));
+                            }
+                        }
+                    } catch (URISyntaxException e) {
+                        // Malformed intent:// URI — nothing we can do.
+                    }
                     return true;
                 }
                 return false;
