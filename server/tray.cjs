@@ -47,9 +47,32 @@ const IS_PACKAGED  = app.isPackaged
 // __dirname resolves correctly in both dev (server/) and packaged (resources/app/server/)
 const SERVER_DIR   = __dirname
 const SERVER_ENTRY = path.join(SERVER_DIR, 'index.js')
-// Config lives next to the exe in the install folder (packaged) or in server/ (dev)
-const CONFIG_DIR   = IS_PACKAGED ? path.dirname(process.execPath) : __dirname
-const CONFIG_FILE  = path.join(CONFIG_DIR, 'config.json')
+
+// Config lives in %APPDATA%\VaultTV — the SAME stable, install-independent
+// location every other piece of persistent state already uses (watched-folders,
+// library, progress, auth, rom-folders). It must NOT live next to the exe: the
+// installer doesn't reliably reuse the previous install directory on reinstall
+// (it can silently install fresh to a different default path), which wiped this
+// user's settings — port, TMDB key, folders, Supabase config, RetroArch path —
+// on every single reinstall this session. APPDATA survives all of that.
+const CONFIG_DIR  = path.join(process.env.APPDATA || path.join(os.homedir(), '.config'), 'VaultTV')
+fs.mkdirSync(CONFIG_DIR, { recursive: true })
+const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
+
+// One-time migration: older installs kept config.json next to the exe. If the
+// new APPDATA location is empty but an old install-folder copy exists, adopt it
+// automatically instead of showing the first-run setup wizard again.
+if (IS_PACKAGED && !fs.existsSync(CONFIG_FILE)) {
+  const legacyConfigFile = path.join(path.dirname(process.execPath), 'config.json')
+  if (fs.existsSync(legacyConfigFile)) {
+    try {
+      fs.copyFileSync(legacyConfigFile, CONFIG_FILE)
+      console.log('[config] Migrated config.json from install folder to', CONFIG_DIR)
+    } catch (e) {
+      console.warn('[config] Migration from legacy location failed:', e.message)
+    }
+  }
+}
 
 // ── Read port from config ─────────────────────────────────────────────────────
 function readPort() {
@@ -144,7 +167,7 @@ function startServer() {
     cwd: SERVER_DIR,
     env: {
       ...process.env,
-      VAULTTV_CONFIG_DIR: CONFIG_DIR,  // writable config location (install folder)
+      VAULTTV_CONFIG_DIR: CONFIG_DIR,  // %APPDATA%\VaultTV — stable across reinstalls
       NODE_ENV: 'production',
     },
   })

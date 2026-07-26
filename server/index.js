@@ -28,17 +28,17 @@ const os           = require('os')
 const SERVER_DIR = __dirname
 const DIST_DIR   = path.join(SERVER_DIR, '..', 'dist')
 
-// When packaged (Electron), config lives in %APPDATA%/VaultTV so it's user-writable.
-// The tray app passes VAULTTV_CONFIG_DIR to point here. Standalone .bat usage
-// falls back to the script directory as before.
-const CONFIG_DIR  = process.env.VAULTTV_CONFIG_DIR || SERVER_DIR
-const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
-
-// Persistent data lives in %APPDATA%\VaultTV (or ~/.config/VaultTV on Linux/Mac)
+// Persistent data lives in %APPDATA%\VaultTV (or ~/.config/VaultTV on Linux/Mac) —
+// stable across reinstalls, unlike anywhere inside the install directory itself
+// (the tray app passes VAULTTV_CONFIG_DIR pointing here; this same default also
+// covers standalone .bat usage, so config.json is NEVER install-directory-relative
+// regardless of how the server is launched)
 const DATA_DIR = path.join(
   process.env.APPDATA || path.join(os.homedir(), '.config'),
   'VaultTV'
 )
+const CONFIG_DIR  = process.env.VAULTTV_CONFIG_DIR || DATA_DIR
+const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 fs.mkdirSync(DATA_DIR, { recursive: true })
 
 const STATE_FILE     = path.join(DATA_DIR, 'watched-folders.json')
