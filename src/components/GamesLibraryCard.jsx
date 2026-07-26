@@ -1,22 +1,30 @@
 import { useEffect, useState } from 'react'
 import {
-  FiFolder, FiChevronRight, FiChevronDown, FiRefreshCw, FiPlus, FiTrash2, FiPlay, FiSearch,
+  FiFolder, FiChevronRight, FiChevronDown, FiRefreshCw, FiPlus, FiTrash2, FiPlay, FiSearch, FiSmartphone,
 } from 'react-icons/fi'
 import {
   listRomFolders, addRomFolder, removeRomFolder, scanRomFolder,
   getRetroarchPath, setRetroarchPath, detectRetroarch, launchGame,
 } from '../lib/companion'
 
+// window.vaulttvBridge only exists inside our own native Android WebView (it's a
+// JS interface injected by MainActivity.java) — a reliable way to feature-detect
+// "is this the native app" without UA sniffing.
+const HAS_ANDROID_BRIDGE = !!window.vaulttvBridge?.pickRomFolder
+
 /**
- * RetroArch-only ROM library (v1). Folder paths and the RetroArch executable
- * path can point at a mapped network drive (e.g. Z:\Roms, Z:\RetroArch\
- * retroarch.exe) — the Media Server treats those exactly like local paths.
- * Uses plain text-path inputs rather than a native file picker, matching the
- * Media Server admin UI's existing convention for Movies/TV folders.
+ * RetroArch ROM library (v1) — two independent sources:
+ *  1. Media Server-hosted (Windows/mapped-drive folders + retroarch.exe path,
+ *     plain text-path inputs matching the Media Server admin UI's existing
+ *     convention for Movies/TV folders)
+ *  2. On-device Android (Storage Access Framework folder picker, launches
+ *     RetroArch installed on the SAME phone via Intent) — only shown inside
+ *     the native Android app, never in a browser or on desktop
+ * Both feed into one combined, platform-grouped game list.
  */
 export default function GamesLibraryCard({ expanded, onToggle }) {
   const [folders, setFolders]           = useState([])
-  const [games, setGames]               = useState([]) // flat list across all folders, merged
+  const [games, setGames]               = useState([]) // Media Server games
   const [retroarchPath, setRAPath]      = useState('')
   const [raExists, setRaExists]         = useState(false)
   const [raInput, setRaInput]           = useState('')
@@ -25,10 +33,39 @@ export default function GamesLibraryCard({ expanded, onToggle }) {
   const [error, setError]               = useState('')
   const [detecting, setDetecting]       = useState(false)
 
+  // Android on-device state
+  const [androidFolderUri, setAndroidFolderUri] = useState('')
+  const [androidGames, setAndroidGames]         = useState([])
+  const [androidScanning, setAndroidScanning]   = useState(false)
+
   useEffect(() => {
     if (!expanded) return
     refresh()
+    if (HAS_ANDROID_BRIDGE) refreshAndroid()
   }, [expanded])
+
+  function refreshAndroid() {
+    const savedUri = window.vaulttvBridge.getSavedRomFolderUri()
+    if (!savedUri) return
+    setAndroidFolderUri(savedUri)
+    setAndroidScanning(true)
+    window.__vaultTvRomFilesListed = jsonStr => {
+      setAndroidScanning(false)
+      try { setAndroidGames(JSON.parse(jsonStr)) } catch { setAndroidGames([]) }
+    }
+    window.vaulttvBridge.listRomFiles(savedUri)
+  }
+
+  function handlePickAndroidFolder() {
+    window.__vaultTvRomFolderPicked = uriStr => {
+      if (uriStr) { setAndroidFolderUri(uriStr); refreshAndroid() }
+    }
+    window.vaulttvBridge.pickRomFolder()
+  }
+
+  function handlePlayAndroid(game) {
+    window.vaulttvBridge.launchRom(game.uri)
+  }
 
   async function refresh() {
     setError('')
@@ -88,10 +125,18 @@ export default function GamesLibraryCard({ expanded, onToggle }) {
     } catch (e) { setError(e.message) }
   }
 
-  const gamesByPlatform = games.reduce((acc, g) => {
+  const allGames = [
+    ...games.map(g => ({ ...g, _source: 'server' })),
+    ...androidGames.map(g => ({ ...g, _source: 'android' })),
+  ]
+  const gamesByPlatform = allGames.reduce((acc, g) => {
     (acc[g.platform] ||= []).push(g)
     return acc
   }, {})
+
+  function handlePlayAny(game) {
+    return game._source === 'android' ? handlePlayAndroid(game) : handlePlay(game)
+  }
 
   return (
     <div style={{
@@ -105,7 +150,7 @@ export default function GamesLibraryCard({ expanded, onToggle }) {
             <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Games (RetroArch)</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{games.length} game{games.length === 1 ? '' : 's'}</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{allGames.length} game{allGames.length === 1 ? '' : 's'}</span>
             {expanded ? <FiChevronDown size={15} style={{ color: 'var(--text-secondary)' }} /> : <FiChevronRight size={15} style={{ color: 'var(--text-secondary)', transform: 'rotate(90deg)' }} />}
           </div>
         </div>
@@ -173,6 +218,36 @@ export default function GamesLibraryCard({ expanded, onToggle }) {
             <button onClick={handleAddFolder} style={smallBtn}><FiPlus size={13} /></button>
           </div>
 
+          {/* On-device Android ROMs — only shown inside the native app */}
+          {HAS_ANDROID_BRIDGE && (
+            <>
+              <p style={{ margin: '0.5rem 0 0.4rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <FiSmartphone size={11} /> On This Device
+              </p>
+              {androidFolderUri
+                ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem 0.65rem', marginBottom: '0.6rem' }}>
+                    <FiFolder size={13} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>{androidGames.length} game{androidGames.length === 1 ? '' : 's'} found</p>
+                      <p style={{ margin: 0, fontSize: '0.66rem', color: 'var(--text-secondary)' }}>Launches RetroArch installed on this phone</p>
+                    </div>
+                    <button onClick={refreshAndroid} disabled={androidScanning} title="Rescan" style={iconBtn}>
+                      <FiRefreshCw size={13} style={{ animation: androidScanning ? 'spin 1s linear infinite' : 'none' }} />
+                    </button>
+                    <button onClick={handlePickAndroidFolder} title="Change folder" style={iconBtn}>
+                      <FiFolder size={13} />
+                    </button>
+                  </div>
+                )
+                : (
+                  <button onClick={handlePickAndroidFolder} style={{ ...smallBtn, width: '100%', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <FiFolder size={13} /> Pick ROM folder on this device
+                  </button>
+                )}
+            </>
+          )}
+
           {/* Game list, grouped by platform */}
           {Object.keys(gamesByPlatform).length > 0 && (
             <>
@@ -180,24 +255,28 @@ export default function GamesLibraryCard({ expanded, onToggle }) {
               {Object.entries(gamesByPlatform).map(([platform, list]) => (
                 <div key={platform} style={{ marginBottom: '0.6rem' }}>
                   <p style={{ margin: '0 0 0.3rem', fontSize: '0.74rem', fontWeight: 700, color: 'var(--accent)' }}>{platform} ({list.length})</p>
-                  {list.map(g => (
-                    <button
-                      key={g.path}
-                      onClick={() => handlePlay(g)}
-                      disabled={!raExists}
-                      title={raExists ? 'Play' : 'Set a valid RetroArch path first'}
-                      style={{
-                        width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
-                        background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                        borderRadius: 6, padding: '0.4rem 0.6rem', marginBottom: '0.3rem',
-                        cursor: raExists ? 'pointer' : 'not-allowed', opacity: raExists ? 1 : 0.5,
-                        textAlign: 'left',
-                      }}
-                    >
-                      <FiPlay size={11} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: '0.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</span>
-                    </button>
-                  ))}
+                  {list.map(g => {
+                    const disabled = g._source === 'server' && !raExists
+                    return (
+                      <button
+                        key={g._source === 'android' ? g.uri : g.path}
+                        onClick={() => handlePlayAny(g)}
+                        disabled={disabled}
+                        title={disabled ? 'Set a valid RetroArch path first' : 'Play'}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                          borderRadius: 6, padding: '0.4rem 0.6rem', marginBottom: '0.3rem',
+                          cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
+                          textAlign: 'left',
+                        }}
+                      >
+                        <FiPlay size={11} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: '0.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</span>
+                        {g._source === 'android' && <FiSmartphone size={10} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />}
+                      </button>
+                    )
+                  })}
                 </div>
               ))}
             </>

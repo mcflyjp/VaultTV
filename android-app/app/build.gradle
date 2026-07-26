@@ -10,8 +10,8 @@ android {
         applicationId   'app.vaulttv'
         minSdk          22          // Fire OS 5+ / Android 5.1+
         targetSdk       34
-        versionCode     27
-        versionName     '0.26.0'
+        versionCode     28
+        versionName     '0.27.0'
     }
 
     buildTypes {
@@ -37,4 +37,9 @@ dependencies {
 
     // libVLC — universal codec support for non-FireTV Android devices
     implementation 'org.videolan.android:libvlc-all:3.6.0'
+
+    // Local ROM library: DocumentFile wraps SAF tree URIs for recursive folder
+    // traversal (raw ContentResolver/DocumentsContract queries work too, but
+    // DocumentFile is the standard, much less error-prone API for this)
+    implementation 'androidx.documentfile:documentfile:1.0.1'
 }

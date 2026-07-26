@@ -16,6 +16,7 @@
          silently falls back to opening the Play Store listing instead. -->
     <queries>
         <package android:name="psplay.grill.com" />
+        <package android:name="com.retroarch" />
     </queries>
 
     <application

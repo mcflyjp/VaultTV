@@ -6,6 +6,7 @@ import android.app.UiModeManager;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Bundle;
@@ -20,7 +21,11 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
+import androidx.documentfile.provider.DocumentFile;
+import org.json.JSONObject;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends Activity {
 
@@ -311,7 +316,24 @@ public class MainActivity extends Activity {
     private volatile boolean backHandledByWeb = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private static final int REQUEST_PLAY_VIDEO = 42;
+    private static final int REQUEST_PLAY_VIDEO      = 42;
+    private static final int REQUEST_PICK_ROM_FOLDER = 43;
+
+    // ── Local ROM library (on-device, separate from the Media Server's
+    //    network-hosted ROM support in GamesLibraryCard.jsx) ─────────────────
+    // Same extension→platform mapping as server/index.js's ROM_PLATFORMS —
+    // kept in sync manually since Java and Node can't share a source file here.
+    // core names are omitted: RetroArch on Android auto-selects/prompts for a
+    // core per content type rather than needing an exact core path like the
+    // desktop -L flag does.
+    private static final java.util.Map<String, String> ROM_PLATFORMS = new java.util.HashMap<String, String>() {{
+        put("nes", "NES"); put("sfc", "SNES"); put("smc", "SNES");
+        put("n64", "N64"); put("z64", "N64"); put("v64", "N64");
+        put("gb", "Game Boy"); put("gbc", "Game Boy Color"); put("gba", "Game Boy Advance");
+        put("md", "Genesis"); put("gen", "Genesis"); put("smd", "Genesis"); put("bin", "Genesis");
+        put("cue", "PlayStation"); put("chd", "PlayStation"); put("pbp", "PlayStation");
+        put("a26", "Atari 2600");
+    }};
 
     // ── JavaScript bridge ────────────────────────────────────────────────────
     public class VaultTVBridge {
@@ -364,6 +386,116 @@ public class MainActivity extends Activity {
                 intent.putExtra("start_time_ms", (long)(startTimeSec * 1000));
                 //noinspection deprecation
                 startActivityForResult(intent, REQUEST_PLAY_VIDEO);
+            });
+        }
+
+        // ── Local ROM library (on-device) ──────────────────────────────────
+        // Separate from the Media Server's network-hosted ROM support — this
+        // reads ROMs stored directly on this device's own storage.
+
+        /** Opens Android's folder picker (Storage Access Framework). Result
+         *  (tree URI, persisted with read permission) comes back via
+         *  window.__vaultTvRomFolderPicked(uriString) — empty string if cancelled. */
+        @JavascriptInterface
+        public void pickRomFolder() {
+            mainHandler.post(() -> {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                //noinspection deprecation
+                startActivityForResult(intent, REQUEST_PICK_ROM_FOLDER);
+            });
+        }
+
+        /** Returns the previously-picked ROM folder's tree URI, or "" if none set. */
+        @JavascriptInterface
+        public String getSavedRomFolderUri() {
+            SharedPreferences prefs = getSharedPreferences("vaulttv_roms", MODE_PRIVATE);
+            return prefs.getString("tree_uri", "");
+        }
+
+        /**
+         * Recursively scans a previously-granted tree URI for ROM files, matching
+         * the same extension set server/index.js's ROM_PLATFORMS uses. Runs on a
+         * background thread (SAF traversal does I/O) and delivers the result via
+         * window.__vaultTvRomFilesListed(jsonArrayString) on the main thread.
+         */
+        @JavascriptInterface
+        public void listRomFiles(String treeUriString) {
+            new Thread(() -> {
+                List<String> games = new ArrayList<>();
+                try {
+                    Uri treeUri = Uri.parse(treeUriString);
+                    DocumentFile root = DocumentFile.fromTreeUri(MainActivity.this, treeUri);
+                    if (root != null) walkRomTree(root, games);
+                } catch (Exception e) {
+                    // Permission revoked, folder deleted, etc. — return whatever we found.
+                }
+                String json = "[" + String.join(",", games) + "]";
+                mainHandler.post(() ->
+                    webView.evaluateJavascript(
+                        "window.__vaultTvRomFilesListed && window.__vaultTvRomFilesListed("
+                            + JSONObject.quote(json) + ");",
+                        null));
+            }).start();
+        }
+
+        private void walkRomTree(DocumentFile dir, List<String> results) {
+            for (DocumentFile child : dir.listFiles()) {
+                if (child.isDirectory()) {
+                    walkRomTree(child, results);
+                } else if (child.getName() != null) {
+                    String name = child.getName();
+                    int dot = name.lastIndexOf('.');
+                    if (dot < 0) continue;
+                    String ext = name.substring(dot + 1).toLowerCase();
+                    String platform = ROM_PLATFORMS.get(ext);
+                    if (platform == null) continue;
+                    String jsonObj = "{"
+                        + "\"name\":" + JSONObject.quote(name.substring(0, dot))
+                        + ",\"filename\":" + JSONObject.quote(name)
+                        + ",\"uri\":" + JSONObject.quote(child.getUri().toString())
+                        + ",\"ext\":" + JSONObject.quote(ext)
+                        + ",\"platform\":" + JSONObject.quote(platform)
+                        + "}";
+                    results.add(jsonObj);
+                }
+            }
+        }
+
+        /**
+         * Launches a ROM (by content:// URI) in RetroArch. Tries a direct
+         * ACTION_VIEW at RetroArch first; if that fails to resolve (RetroArch's
+         * exact intent-filter varies by version) falls back to just opening
+         * RetroArch itself via its own launcher intent, same three-tier pattern
+         * used for PXPlay. If RetroArch isn't installed at all, opens its
+         * Play Store listing.
+         */
+        @JavascriptInterface
+        public void launchRom(String uriString) {
+            mainHandler.post(() -> {
+                Uri romUri = Uri.parse(uriString);
+                Intent viewIntent = new Intent(Intent.ACTION_VIEW);
+                viewIntent.setDataAndType(romUri, "application/octet-stream");
+                viewIntent.setPackage("com.retroarch");
+                viewIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                try {
+                    startActivity(viewIntent);
+                    return;
+                } catch (ActivityNotFoundException ignored) {}
+
+                Intent launchIntent = getPackageManager().getLaunchIntentForPackage("com.retroarch");
+                if (launchIntent != null) {
+                    try {
+                        startActivity(launchIntent);
+                        return;
+                    } catch (ActivityNotFoundException ignored) {}
+                }
+
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://play.google.com/store/apps/details?id=com.retroarch")));
+                } catch (ActivityNotFoundException ignored) {}
             });
         }
     }
@@ -559,6 +691,26 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_PICK_ROM_FOLDER) {
+            String pickedUri = "";
+            if (data != null && resultCode == RESULT_OK && data.getData() != null) {
+                Uri treeUri = data.getData();
+                // Persist read access across app restarts/reboots — without this the
+                // permission is only valid for the current process lifetime.
+                getContentResolver().takePersistableUriPermission(treeUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                getSharedPreferences("vaulttv_roms", MODE_PRIVATE)
+                    .edit().putString("tree_uri", treeUri.toString()).apply();
+                pickedUri = treeUri.toString();
+            }
+            String safe = pickedUri.replace("\\", "\\\\").replace("'", "\\'");
+            webView.evaluateJavascript(
+                "window.__vaultTvRomFolderPicked && window.__vaultTvRomFolderPicked('" + safe + "');",
+                null);
+            return;
+        }
+
         if (requestCode != REQUEST_PLAY_VIDEO) return;
 
         if (data != null && resultCode == PlayerActivity.RESULT_RETRY_VLC) {
