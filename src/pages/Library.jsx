@@ -8,6 +8,7 @@ import { usePlayer } from '../context/PlayerContext'
 import { IMG } from '../lib/tmdb'
 import { FiTrash2, FiFilm, FiTv, FiBookmark, FiHardDrive, FiAlertCircle, FiArrowUp, FiArrowDown, FiChevronDown, FiFilter, FiX } from 'react-icons/fi'
 import MediaCard from '../components/MediaCard'
+import AlphabetScroller from '../components/AlphabetScroller'
 
 // TMDB genre ID → display name (combined movie + TV)
 const GENRE_MAP = {
@@ -337,6 +338,10 @@ export default function Library() {
           />
         ))}
       </div>
+
+      {section !== 'saved' && !IS_FIRETV && (sortId === 'title_asc' || sortId === 'title_desc') && (
+        <AlphabetScroller items={filtered} />
+      )}
     </div>
   )
 }
@@ -366,8 +371,11 @@ function LibraryCard({ item, onNavigate, onRemove }) {
   const handleClick = canNavigate ? onNavigate : (isUnmatched ? playUnmatched : undefined)
   const handleContextMenu = e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) }
 
+  const firstLetterChar = (item.title || '').trim()[0]?.toUpperCase()
+  const firstLetter = firstLetterChar && /[A-Z]/.test(firstLetterChar) ? firstLetterChar : '#'
+
   return (
-    <div style={{ width: 150, position: 'relative' }}>
+    <div style={{ width: 150, position: 'relative' }} data-first-letter={firstLetter}>
       <div
         data-card
         tabIndex={0}
