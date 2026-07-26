@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut, FiBookOpen, FiFolder, FiUser, FiMenu, FiX } from 'react-icons/fi'
+import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut, FiBookOpen, FiFolder, FiUser, FiMenu, FiX, FiPlay } from 'react-icons/fi'
 import { useTheme, THEMES } from '../context/ThemeContext'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
@@ -16,11 +16,12 @@ const IS_ANDROID = /android/i.test(navigator.userAgent)
 const IS_MOBILE = IS_ANDROID && !IS_FIRETV
 
 // ── Library item definitions (canonical order) ──
-const ALL_LIB_IDS = ['movies', 'shows', 'queue', 'playlists']
+const ALL_LIB_IDS = ['movies', 'shows', 'games', 'queue', 'playlists']
 
 const LIB_META = {
   movies:    { label: 'My Movies',   icon: FiFilm,  to: '/library/movies' },
   shows:     { label: 'My TV Shows', icon: FiTv,    to: '/library/shows' },
+  games:     { label: 'Games',       icon: FiPlay,  to: '/library/games' },
   queue:     { label: 'Queue',       icon: FiList,  to: '/queue' },
   playlists: { label: 'Playlists',   icon: FiMusic, to: '/playlists' },
 }

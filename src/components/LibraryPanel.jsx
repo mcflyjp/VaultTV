@@ -105,9 +105,15 @@ export default function LibraryPanel({ onClose }) {
           <AddFolderButton onClick={() => addSource('tv')} label="Add TV show folder" />
         </LibraryCard>
 
-        {/* Gaming */}
+        <GamesLibraryCard
+          expanded={expanded === 'games'}
+          onToggle={() => toggle('games')}
+          onOpen={() => go('/library/games')}
+        />
+
+        {/* Cloud / remote play — quick launchers, not browsable libraries */}
         <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-          <p style={{ margin: '0 0 0.75rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Gaming</p>
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Cloud / Remote Play</p>
           <GamingRow
             icon={<FiCloud size={18} style={{ color: '#16a34a' }} />}
             title="Xbox Cloud Gaming"
@@ -120,7 +126,6 @@ export default function LibraryPanel({ onClose }) {
             sub="Remote play your PS4 / PS5"
             onClick={() => launchPXPlay()}
           />
-          <GamesLibraryCard expanded={expanded === 'games'} onToggle={() => toggle('games')} />
         </div>
       </div>
     </PanelOverlay>
@@ -148,7 +153,7 @@ function launchPXPlay() {
   }
 }
 
-function LibraryCard({ icon, color, title, stats, onOpen, expanded, onToggle, children }) {
+export function LibraryCard({ icon, color, title, stats, onOpen, expanded, onToggle, children }) {
   return (
     <div style={{
       background: 'var(--bg-card)', border: '1px solid var(--border)',

@@ -11,6 +11,7 @@ import Detail from './pages/Detail'
 import Settings from './pages/Settings'
 import Addons from './pages/Addons'
 import Library from './pages/Library'
+import GamesLibrary from './pages/GamesLibrary'
 import Queue from './pages/Queue'
 import Playlists from './pages/Playlists'
 import Guide from './pages/Guide'
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/addons" element={<Addons />} />
           <Route path="/library/saved" element={<Navigate to="/library/movies" replace />} />
+          <Route path="/library/games" element={<GamesLibrary />} />
           <Route path="/library/:section" element={<Library />} />
           <Route path="/queue" element={<Queue />} />
           <Route path="/playlists" element={<Playlists />} />
