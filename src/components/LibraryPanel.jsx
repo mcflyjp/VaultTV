@@ -7,6 +7,7 @@ import {
   FiRefreshCw, FiPlus, FiTrash2, FiCloud, FiExternalLink,
 } from 'react-icons/fi'
 import { MdOutlineGamepad } from 'react-icons/md'
+import GamesLibraryCard from './GamesLibraryCard'
 
 export default function LibraryPanel({ onClose }) {
   const { library } = useLibrary()
@@ -119,10 +120,7 @@ export default function LibraryPanel({ onClose }) {
             sub="Remote play your PS4 / PS5"
             onClick={() => launchPXPlay()}
           />
-          <div style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border)', borderRadius: 10, padding: '0.7rem 0.85rem', marginTop: '0.4rem', opacity: 0.55 }}>
-            <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 600 }}>Local ROM library</p>
-            <p style={{ margin: '2px 0 0', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Coming soon — emulation + remote play</p>
-          </div>
+          <GamesLibraryCard expanded={expanded === 'games'} onToggle={() => toggle('games')} />
         </div>
       </div>
     </PanelOverlay>

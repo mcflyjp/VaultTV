@@ -116,6 +116,83 @@ export async function saveLibrary(data) {
   } finally { clearTimeout(timer) }
 }
 
+// ── ROM library (RetroArch) — server/index.js (Media Server) only for now ────
+
+/** List configured ROM folders */
+export async function listRomFolders() {
+  const r = await fetch(`${BASE}/roms/folders`)
+  if (!r.ok) throw new Error('Failed to list ROM folders')
+  return r.json()
+}
+
+/** Add a ROM folder to scan. @param {{id, folderPath, name}} opts */
+export async function addRomFolder({ id, folderPath, name }) {
+  const r = await fetch(`${BASE}/roms/folders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, folderPath, name }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || 'Failed to add ROM folder')
+  }
+  return r.json()
+}
+
+/** Remove a ROM folder */
+export async function removeRomFolder(id) {
+  await fetch(`${BASE}/roms/folders/${id}`, { method: 'DELETE' })
+}
+
+/** Scan a ROM folder — returns { id, games, count }. Each game: { name, filename, path, ext, platform } */
+export async function scanRomFolder(id) {
+  const r = await fetch(`${BASE}/roms/folders/${id}/scan`)
+  if (!r.ok) throw new Error(`ROM scan failed: ${r.status}`)
+  return r.json()
+}
+
+/** Get the configured RetroArch executable path. Returns { path, exists } */
+export async function getRetroarchPath() {
+  const r = await fetch(`${BASE}/roms/retroarch`)
+  if (!r.ok) throw new Error('Failed to get RetroArch path')
+  return r.json()
+}
+
+/** Set the RetroArch executable path (any local or mapped-network-drive path) */
+export async function setRetroarchPath(exePath) {
+  const r = await fetch(`${BASE}/roms/retroarch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: exePath }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || 'Failed to set RetroArch path')
+  }
+  return r.json()
+}
+
+/** Check common local install paths for RetroArch. Returns { found: string|null } */
+export async function detectRetroarch() {
+  const r = await fetch(`${BASE}/roms/retroarch/detect`)
+  if (!r.ok) throw new Error('Detect failed')
+  return r.json()
+}
+
+/** Launch a game via RetroArch. @param {{romPath: string, ext: string}} opts */
+export async function launchGame({ romPath, ext }) {
+  const r = await fetch(`${BASE}/roms/launch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ romPath, ext }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || 'Failed to launch game')
+  }
+  return r.json()
+}
+
 /**
  * Return the URL to stream a local file via the companion server.
  * The companion serves the file with HTTP range support for seeking.

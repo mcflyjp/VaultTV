@@ -41,20 +41,22 @@ const DATA_DIR = path.join(
 )
 fs.mkdirSync(DATA_DIR, { recursive: true })
 
-const STATE_FILE    = path.join(DATA_DIR, 'watched-folders.json')
-const LIBRARY_FILE  = path.join(DATA_DIR, 'library.json')
-const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json')
-const AUTH_FILE     = path.join(DATA_DIR, 'auth.json')
+const STATE_FILE     = path.join(DATA_DIR, 'watched-folders.json')
+const LIBRARY_FILE   = path.join(DATA_DIR, 'library.json')
+const PROGRESS_FILE  = path.join(DATA_DIR, 'progress.json')
+const AUTH_FILE      = path.join(DATA_DIR, 'auth.json')
+const ROM_STATE_FILE = path.join(DATA_DIR, 'rom-folders.json')
 
 // ── Config ────────────────────────────────────────────────────────────────────
 let config = {
-  port:        8080,
-  tmdbKey:     '',
-  jwtSecret:   generateSecret(),
-  sessionDays: 30,
-  tunnelUrl:   '',
-  serverToken: generateSecret(), // stable ID used to register with the relay
-  folders:     [],
+  port:          8080,
+  tmdbKey:       '',
+  jwtSecret:     generateSecret(),
+  sessionDays:   30,
+  tunnelUrl:     '',
+  serverToken:   generateSecret(), // stable ID used to register with the relay
+  folders:       [],
+  retroarchPath: '', // path to retroarch.exe — set via /roms/retroarch, supports UNC/mapped-drive paths
 }
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -95,6 +97,47 @@ const MIME_TYPES = {
   '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.wmv': 'video/x-ms-wmv',
   '.flv': 'video/x-flv', '.webm': 'video/webm', '.ts': 'video/mp2t',
 }
+
+// ── ROM platform mapping (RetroArch libretro cores, Windows .dll names) ───────
+// v1 scope: unambiguous cartridge/disc extensions only. Deliberately excludes
+// .zip/.7z (arcade/MAME romsets — one extension covers dozens of systems with
+// no reliable way to tell them apart from the filename alone) and disambiguates
+// .bin in favor of Genesis/Mega Drive over PS1 (PS1 dumps are matched via
+// .cue/.chd/.pbp instead, which are unambiguous).
+const ROM_PLATFORMS = {
+  '.nes':          { platform: 'NES',            core: 'nestopia_libretro.dll' },
+  '.sfc':          { platform: 'SNES',           core: 'snes9x_libretro.dll' },
+  '.smc':          { platform: 'SNES',           core: 'snes9x_libretro.dll' },
+  '.n64':          { platform: 'N64',            core: 'mupen64plus_next_libretro.dll' },
+  '.z64':          { platform: 'N64',            core: 'mupen64plus_next_libretro.dll' },
+  '.v64':          { platform: 'N64',            core: 'mupen64plus_next_libretro.dll' },
+  '.gb':           { platform: 'Game Boy',       core: 'gambatte_libretro.dll' },
+  '.gbc':          { platform: 'Game Boy Color', core: 'gambatte_libretro.dll' },
+  '.gba':          { platform: 'Game Boy Advance', core: 'mgba_libretro.dll' },
+  '.md':           { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
+  '.gen':          { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
+  '.smd':          { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
+  '.bin':          { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
+  '.cue':          { platform: 'PlayStation',    core: 'pcsx_rearmed_libretro.dll' },
+  '.chd':          { platform: 'PlayStation',    core: 'pcsx_rearmed_libretro.dll' },
+  '.pbp':          { platform: 'PlayStation',    core: 'pcsx_rearmed_libretro.dll' },
+  '.a26':          { platform: 'Atari 2600',     core: 'stella_libretro.dll' },
+}
+const ROM_EXTS = new Set(Object.keys(ROM_PLATFORMS))
+
+// Common RetroArch install locations to check for auto-detect. Mapped network
+// drives aren't included here (they're not predictable/enumerable) — those are
+// found via the manual file picker instead, which supports any drive letter.
+const RETROARCH_COMMON_PATHS = [
+  'C:\\RetroArch-Win64\\retroarch.exe',
+  'C:\\RetroArch\\retroarch.exe',
+  'C:\\Program Files\\RetroArch-Win64\\retroarch.exe',
+  'C:\\Program Files (x86)\\Steam\\steamapps\\common\\RetroArch\\retroarch.exe',
+  'D:\\Program Files (x86)\\Steam\\steamapps\\common\\RetroArch\\retroarch.exe',
+  'D:\\SteamLibrary\\steamapps\\common\\RetroArch\\retroarch.exe',
+]
+
+let romFolders = loadJson(ROM_STATE_FILE, [])
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 function loadAuth()  { return loadJson(AUTH_FILE, { passwordHash: null }) }
@@ -312,6 +355,114 @@ app.get('/folders/:id/scan', (req, res) => {
     res.json({ id: folder.id, files, count: files.length })
   } catch (e) {
     console.error(`[scan] ${folder.id} error:`, e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── ROM library (RetroArch) ────────────────────────────────────────────────────
+// v1: RetroArch only. Folder paths and the retroarch.exe path may point at a
+// mapped network drive (e.g. Z:\Roms) — fs/child_process treat those exactly
+// like local paths once Windows has the drive mapped, no special handling needed.
+
+app.get('/roms/folders', (req, res) => {
+  res.json(romFolders.map(f => ({ ...f, exists: fs.existsSync(f.folderPath) })))
+})
+
+app.post('/roms/folders', (req, res) => {
+  const { id, folderPath, name } = req.body || {}
+  if (!id || !folderPath) return res.status(400).json({ error: 'id and folderPath are required' })
+  if (!fs.existsSync(folderPath)) return res.status(404).json({ error: `Folder not found: ${folderPath}` })
+  romFolders = romFolders.filter(f => f.id !== id)
+  const entry = { id, folderPath, name: name || path.basename(folderPath) }
+  romFolders.push(entry)
+  saveJson(ROM_STATE_FILE, romFolders)
+  res.status(201).json(entry)
+})
+
+app.delete('/roms/folders/:id', (req, res) => {
+  romFolders = romFolders.filter(f => f.id !== req.params.id)
+  saveJson(ROM_STATE_FILE, romFolders)
+  res.json({ ok: true })
+})
+
+app.get('/roms/folders/:id/scan', (req, res) => {
+  const folder = romFolders.find(f => f.id === req.params.id)
+  if (!folder) return res.status(404).json({ error: 'Not found' })
+  try {
+    const games = scanRomDir(folder.folderPath)
+    console.log(`[roms] ${folder.id} → ${folder.folderPath} → ${games.length} games`)
+    res.json({ id: folder.id, games, count: games.length })
+  } catch (e) {
+    console.error(`[roms] ${folder.id} error:`, e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+function scanRomDir(dir, depth = 0, results = []) {
+  if (depth > 6) return results
+  let entries
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) { console.warn(`[roms] cannot read dir: ${dir} — ${e.message}`); return results }
+  for (const e of entries) {
+    const full = path.join(dir, e.name)
+    if (e.isDirectory()) {
+      scanRomDir(full, depth + 1, results)
+    } else if (e.isFile()) {
+      const ext = path.extname(e.name).toLowerCase()
+      const meta = ROM_PLATFORMS[ext]
+      if (meta) {
+        results.push({
+          name: path.basename(e.name, ext),
+          filename: e.name,
+          path: full,
+          ext,
+          platform: meta.platform,
+        })
+      }
+    }
+  }
+  return results
+}
+
+app.get('/roms/retroarch', (req, res) => {
+  res.json({ path: config.retroarchPath || '', exists: config.retroarchPath ? fs.existsSync(config.retroarchPath) : false })
+})
+
+app.post('/roms/retroarch', (req, res) => {
+  const { path: exePath } = req.body || {}
+  if (!exePath) return res.status(400).json({ error: 'path is required' })
+  if (!fs.existsSync(exePath)) return res.status(404).json({ error: `File not found: ${exePath}` })
+  config.retroarchPath = exePath
+  saveConfig()
+  res.json({ ok: true, path: exePath })
+})
+
+app.get('/roms/retroarch/detect', (req, res) => {
+  const found = RETROARCH_COMMON_PATHS.find(p => fs.existsSync(p))
+  res.json({ found: found || null })
+})
+
+app.post('/roms/launch', (req, res) => {
+  const { romPath, ext } = req.body || {}
+  if (!romPath || !ext) return res.status(400).json({ error: 'romPath and ext are required' })
+  if (!config.retroarchPath) return res.status(400).json({ error: 'RetroArch path not configured' })
+  if (!fs.existsSync(config.retroarchPath)) return res.status(404).json({ error: 'Configured RetroArch executable not found' })
+  if (!fs.existsSync(romPath)) return res.status(404).json({ error: 'ROM file not found' })
+  const meta = ROM_PLATFORMS[ext.toLowerCase()]
+  if (!meta) return res.status(400).json({ error: `Unsupported ROM extension: ${ext}` })
+
+  const coreDir = path.join(path.dirname(config.retroarchPath), 'cores')
+  const corePath = path.join(coreDir, meta.core)
+  if (!fs.existsSync(corePath)) {
+    return res.status(404).json({ error: `Core not found: ${meta.core} (expected in ${coreDir}). Install it via RetroArch's Core Downloader.` })
+  }
+
+  try {
+    const child = spawn(config.retroarchPath, ['-L', corePath, romPath], { detached: true, stdio: 'ignore' })
+    child.unref()
+    console.log(`[roms] Launched ${path.basename(romPath)} (${meta.platform}) via RetroArch`)
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('[roms] Launch failed:', e.message)
     res.status(500).json({ error: e.message })
   }
 })
