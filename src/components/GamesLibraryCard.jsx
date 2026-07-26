@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FiFolder, FiRefreshCw, FiPlus, FiTrash2, FiPlay, FiSearch, FiSmartphone } from 'react-icons/fi'
+import { FiFolder, FiRefreshCw, FiPlus, FiTrash2, FiPlay, FiSearch, FiSmartphone, FiImage } from 'react-icons/fi'
 import { LibraryCard } from './LibraryPanel'
 import { useGamesLibrary, HAS_ANDROID_BRIDGE } from '../hooks/useGamesLibrary'
 
@@ -12,6 +12,7 @@ import { useGamesLibrary, HAS_ANDROID_BRIDGE } from '../hooks/useGamesLibrary'
 export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
   const {
     folders, allGames, platformCount, retroarchPath, raExists, scanningId, error, detecting,
+    hasGamesDbKey, saveGamesDbKey,
     androidFolderUri, androidGames, androidScanning,
     saveRetroarch, detect, addFolder, removeFolder, rescanFolder,
     pickAndroidFolder, refreshAndroid,
@@ -19,6 +20,8 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
 
   const [raInput, setRaInput]         = useState('')
   const [folderInput, setFolderInput] = useState('')
+  const [gdbInput, setGdbInput]       = useState('')
+  const [gdbSaved, setGdbSaved]       = useState(false)
 
   return (
     <LibraryCard
@@ -136,6 +139,39 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
         />
         <button onClick={() => folderInput.trim() && (addFolder(folderInput.trim()), setFolderInput(''))} style={smallBtn}><FiPlus size={13} /></button>
       </div>
+
+      {/* Box art scraper (TheGamesDB) — runs server-side on the Media Server PC,
+          same "not this device" caveat as RetroArch above. Scraping happens
+          automatically in the background after each scan once a key is set. */}
+      <p style={{ margin: '1rem 0 0.15rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
+        <FiImage size={11} /> Box Art (TheGamesDB)
+      </p>
+      {hasGamesDbKey
+        ? (
+          <p style={{ margin: '0 0 0.4rem', fontSize: '0.7rem', color: '#34d399' }}>✓ Key configured — art scrapes automatically as folders are scanned</p>
+        )
+        : (
+          <>
+            <p style={{ margin: '0 0 0.4rem', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+              Free API key from <a href="https://thegamesdb.net/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>thegamesdb.net</a> — once set, box art scrapes automatically in the background whenever a folder is scanned.
+            </p>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <input
+                value={gdbInput}
+                onChange={e => setGdbInput(e.target.value)}
+                placeholder="TheGamesDB API key"
+                style={inputStyle}
+              />
+              <button
+                onClick={async () => { if (gdbInput.trim()) { await saveGamesDbKey(gdbInput.trim()); setGdbSaved(true) } }}
+                style={smallBtn}
+              >
+                Save
+              </button>
+            </div>
+            {gdbSaved && <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: '#34d399' }}>✓ Saved — rescan a folder to start scraping</p>}
+          </>
+        )}
     </LibraryCard>
   )
 }

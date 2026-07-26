@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import {
   listRomFolders, addRomFolder, removeRomFolder, scanRomFolder,
   getRetroarchPath, setRetroarchPath, detectRetroarch, launchGame,
+  getGamesDbKeyStatus, setGamesDbKey,
 } from '../lib/companion'
 
 // window.vaulttvBridge only exists inside our own native Android WebView (it's a
@@ -24,6 +25,7 @@ export function useGamesLibrary() {
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState('')
   const [detecting, setDetecting]   = useState(false)
+  const [hasGamesDbKey, setHasGamesDbKey] = useState(false)
 
   // Android on-device state
   const [androidFolderUri, setAndroidFolderUri] = useState('')
@@ -34,10 +36,11 @@ export function useGamesLibrary() {
     setError('')
     setLoading(true)
     try {
-      const [f, ra] = await Promise.all([listRomFolders(), getRetroarchPath()])
+      const [f, ra, gdb] = await Promise.all([listRomFolders(), getRetroarchPath(), getGamesDbKeyStatus().catch(() => ({ hasKey: false }))])
       setFolders(f)
       setRAPath(ra.path || '')
       setRaExists(ra.exists)
+      setHasGamesDbKey(gdb.hasKey)
       const all = await Promise.all(f.map(folder => scanRomFolder(folder.id).catch(() => ({ games: [] }))))
       setGames(all.flatMap(r => r.games || []))
     } catch (e) {
@@ -46,6 +49,17 @@ export function useGamesLibrary() {
       setLoading(false)
     }
   }, [])
+
+  // Box art is scraped server-side in the background after a scan (fire-and-
+  // forget, doesn't block the scan response) — re-fetch once, a bit later, so
+  // freshly-scraped art actually shows up without the user needing to manually
+  // rescan. Only worth doing when there's actually a key configured to scrape with.
+  useEffect(() => {
+    if (!hasGamesDbKey || games.length === 0) return
+    const t = setTimeout(() => { refresh() }, 8000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasGamesDbKey, folders.length])
 
   const refreshAndroid = useCallback(() => {
     if (!HAS_ANDROID_BRIDGE) return
@@ -75,6 +89,11 @@ export function useGamesLibrary() {
   async function saveRetroarch(path) {
     await setRetroarchPath(path)
     await refresh()
+  }
+
+  async function saveGamesDbKey(key) {
+    await setGamesDbKey(key)
+    setHasGamesDbKey(true)
   }
 
   async function detect() {
@@ -122,6 +141,7 @@ export function useGamesLibrary() {
   return {
     folders, games, allGames, gamesByPlatform, platformCount,
     retroarchPath, raExists, scanningId, loading, error, detecting,
+    hasGamesDbKey, saveGamesDbKey,
     androidFolderUri, androidGames, androidScanning,
     refresh, saveRetroarch, detect, addFolder, removeFolder, rescanFolder, play,
     pickAndroidFolder, refreshAndroid,

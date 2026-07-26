@@ -193,6 +193,27 @@ export async function launchGame({ romPath, ext }) {
   return r.json()
 }
 
+/** Check whether a TheGamesDB API key is configured (never returns the key itself). */
+export async function getGamesDbKeyStatus() {
+  const r = await fetch(`${BASE}/roms/gamesdb-key`)
+  if (!r.ok) throw new Error('Failed to check GamesDB key status')
+  return r.json() // { hasKey }
+}
+
+/** Set the TheGamesDB API key — used server-side only to scrape box art. */
+export async function setGamesDbKey(key) {
+  const r = await fetch(`${BASE}/roms/gamesdb-key`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || 'Failed to save GamesDB key')
+  }
+  return r.json()
+}
+
 /**
  * Return the URL to stream a local file via the companion server.
  * The companion serves the file with HTTP range support for seeking.

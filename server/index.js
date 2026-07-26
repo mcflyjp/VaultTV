@@ -45,7 +45,8 @@ const STATE_FILE     = path.join(DATA_DIR, 'watched-folders.json')
 const LIBRARY_FILE   = path.join(DATA_DIR, 'library.json')
 const PROGRESS_FILE  = path.join(DATA_DIR, 'progress.json')
 const AUTH_FILE      = path.join(DATA_DIR, 'auth.json')
-const ROM_STATE_FILE = path.join(DATA_DIR, 'rom-folders.json')
+const ROM_STATE_FILE     = path.join(DATA_DIR, 'rom-folders.json')
+const ROM_ARTWORK_FILE   = path.join(DATA_DIR, 'rom-artwork-cache.json') // { "<platform>::<normalized title>": boxArtUrl }
 
 // ── Config ────────────────────────────────────────────────────────────────────
 let config = {
@@ -57,6 +58,8 @@ let config = {
   serverToken:   generateSecret(), // stable ID used to register with the relay
   folders:       [],
   retroarchPath: '', // path to retroarch.exe — set via /roms/retroarch, supports UNC/mapped-drive paths
+  gamesDbApiKey: '', // TheGamesDB API key — thegamesdb.net, free signup. Used server-side only
+                      // (never exposed to the client) to scrape box art for the games library.
 }
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -125,6 +128,20 @@ const ROM_PLATFORMS = {
 }
 const ROM_EXTS = new Set(Object.keys(ROM_PLATFORMS))
 
+// TheGamesDB platform IDs (thegamesdb.net) for our supported platform names.
+// Used to scope box-art search results to the right console when scraping.
+const GAMESDB_PLATFORM_IDS = {
+  'NES':              7,
+  'SNES':             6,
+  'N64':              3,
+  'Game Boy':         4,
+  'Game Boy Color':   41,
+  'Game Boy Advance': 5,
+  'Genesis':          18,
+  'PlayStation':      10,
+  'Atari 2600':       22,
+}
+
 // Common RetroArch install locations to check for auto-detect. Mapped network
 // drives aren't included here (they're not predictable/enumerable) — those are
 // found via the manual file picker instead, which supports any drive letter.
@@ -137,7 +154,15 @@ const RETROARCH_COMMON_PATHS = [
   'D:\\SteamLibrary\\steamapps\\common\\RetroArch\\retroarch.exe',
 ]
 
-let romFolders = loadJson(ROM_STATE_FILE, [])
+let romFolders    = loadJson(ROM_STATE_FILE, [])
+let romArtwork    = loadJson(ROM_ARTWORK_FILE, {}) // cache: "<platform>::<normalized title>" -> boxArtUrl | null (null = searched, no match)
+
+function normalizeGameTitle(name) {
+  // Strip common ROM-filename cruft: region/revision tags in (parens) or
+  // [brackets], extra whitespace — so "Super Mario World (USA) [!]" matches
+  // the same cache entry as "Super Mario World".
+  return name.replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+}
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 function loadAuth()  { return loadJson(AUTH_FILE, { passwordHash: null }) }
@@ -390,12 +415,81 @@ app.get('/roms/folders/:id/scan', (req, res) => {
   if (!folder) return res.status(404).json({ error: 'Not found' })
   try {
     const games = scanRomDir(folder.folderPath)
+    for (const g of games) {
+      const cacheKey = `${g.platform}::${normalizeGameTitle(g.name)}`
+      if (Object.prototype.hasOwnProperty.call(romArtwork, cacheKey)) g.boxArt = romArtwork[cacheKey]
+    }
     console.log(`[roms] ${folder.id} → ${folder.folderPath} → ${games.length} games`)
     res.json({ id: folder.id, games, count: games.length })
+    // Automatic background scrape — doesn't block the response. Capped per scan
+    // so a big folder doesn't hammer TheGamesDB's rate limit all at once; the
+    // next scan/rescan picks up wherever this pass left off (cache persists).
+    scrapeMissingArtwork(games).catch(e => console.warn('[roms] background scrape error:', e.message))
   } catch (e) {
     console.error(`[roms] ${folder.id} error:`, e.message)
     res.status(500).json({ error: e.message })
   }
+})
+
+// ── Automatic box-art scraping (TheGamesDB) ────────────────────────────────────
+const GAMESDB_SCRAPE_BATCH_LIMIT = 15 // per scan — stay well under free-tier rate limits
+
+async function scrapeMissingArtwork(games) {
+  if (!config.gamesDbApiKey) return
+  const unscraped = games.filter(g => {
+    const key = `${g.platform}::${normalizeGameTitle(g.name)}`
+    return !Object.prototype.hasOwnProperty.call(romArtwork, key)
+  }).slice(0, GAMESDB_SCRAPE_BATCH_LIMIT)
+  if (!unscraped.length) return
+
+  console.log(`[roms] Scraping box art for ${unscraped.length} game(s)…`)
+  let changed = false
+  for (const g of unscraped) {
+    const cacheKey = `${g.platform}::${normalizeGameTitle(g.name)}`
+    try {
+      const url = await fetchBoxArt(g.name, g.platform)
+      romArtwork[cacheKey] = url // null on no-match is cached too, so we don't keep re-querying misses
+      changed = true
+    } catch (e) {
+      console.warn(`[roms] Scrape failed for "${g.name}":`, e.message)
+    }
+  }
+  if (changed) saveJson(ROM_ARTWORK_FILE, romArtwork)
+}
+
+async function fetchBoxArt(gameName, platformName) {
+  const platformId = GAMESDB_PLATFORM_IDS[platformName]
+  const params = new URLSearchParams({
+    apikey: config.gamesDbApiKey,
+    name:   gameName,
+    fields: 'platform',
+    include: 'boxart',
+  })
+  if (platformId) params.set('filter[platform]', String(platformId))
+
+  const res = await fetch(`https://api.thegamesdb.net/v1/Games/ByGameName?${params}`)
+  if (!res.ok) throw new Error(`TheGamesDB HTTP ${res.status}`)
+  const data = await res.json()
+
+  const game = data?.data?.games?.[0]
+  if (!game) return null
+  const boxartBase = data?.include?.boxart?.base_url?.medium
+  const entries = data?.include?.boxart?.data?.[String(game.id)]
+  const front = Array.isArray(entries) ? entries.find(b => b.side === 'front') || entries[0] : null
+  if (!boxartBase || !front) return null
+  return `${boxartBase}${front.filename}`
+}
+
+app.get('/roms/gamesdb-key', (req, res) => {
+  res.json({ hasKey: !!config.gamesDbApiKey })
+})
+
+app.post('/roms/gamesdb-key', (req, res) => {
+  const { key } = req.body || {}
+  if (!key) return res.status(400).json({ error: 'key is required' })
+  config.gamesDbApiKey = key
+  saveConfig()
+  res.json({ ok: true })
 })
 
 function scanRomDir(dir, depth = 0, results = []) {
