@@ -40,8 +40,47 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
         </div>
       )}
 
-      {/* RetroArch path */}
-      <p style={{ margin: '0 0 0.4rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>RetroArch Location</p>
+      {/* On-device Android ROMs — only shown inside the native app. Shown FIRST
+          on Android: it's the section actually relevant to whatever device the
+          user is holding, ahead of the PC/Media Server config below. */}
+      {HAS_ANDROID_BRIDGE && (
+        <>
+          <p style={{ margin: '0 0 0.4rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <FiSmartphone size={11} /> On This Device
+          </p>
+          {androidFolderUri
+            ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem 0.65rem', marginBottom: '1rem' }}>
+                <FiFolder size={13} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>{androidGames.length} game{androidGames.length === 1 ? '' : 's'} found</p>
+                  <p style={{ margin: 0, fontSize: '0.66rem', color: 'var(--text-secondary)' }}>Launches RetroArch installed on this phone</p>
+                </div>
+                <button onClick={refreshAndroid} disabled={androidScanning} title="Rescan" style={iconBtn}>
+                  <FiRefreshCw size={13} style={{ animation: androidScanning ? 'spin 1s linear infinite' : 'none' }} />
+                </button>
+                <button onClick={pickAndroidFolder} title="Change folder" style={iconBtn}>
+                  <FiFolder size={13} />
+                </button>
+              </div>
+            )
+            : (
+              <button onClick={pickAndroidFolder} style={{ ...smallBtn, width: '100%', marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <FiFolder size={13} /> Pick ROM folder on this device
+              </button>
+            )}
+        </>
+      )}
+
+      {/* RetroArch path — this configures whichever PC runs your Media Server,
+          NOT the device you're viewing this on. Made explicit since it's easy
+          to assume "Auto-detect" searches the current device (it doesn't —
+          detection and launching both happen server-side, on the Media
+          Server's machine, which is why it only ever checks Windows paths). */}
+      <p style={{ margin: '0 0 0.15rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>RetroArch on Media Server PC</p>
+      <p style={{ margin: '0 0 0.4rem', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+        Runs on whichever computer hosts your VaultTV Media Server{HAS_ANDROID_BRIDGE ? ' — not this phone' : ''}. Auto-detect checks that computer's common Windows install paths.
+      </p>
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
         <input
           value={raInput || retroarchPath}
@@ -56,7 +95,7 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
         disabled={detecting}
         style={{ ...smallBtn, width: '100%', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
       >
-        <FiSearch size={12} /> {detecting ? 'Detecting…' : 'Auto-detect RetroArch'}
+        <FiSearch size={12} /> {detecting ? 'Detecting on Media Server PC…' : 'Auto-detect on Media Server PC'}
       </button>
       {retroarchPath && (
         <p style={{ margin: '0 0 0.75rem', fontSize: '0.7rem', color: raExists ? '#34d399' : '#f87171' }}>
@@ -65,7 +104,7 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
       )}
 
       {/* ROM folders (Media Server) */}
-      <p style={{ margin: '0.5rem 0 0.4rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>ROM Folders</p>
+      <p style={{ margin: '0.5rem 0 0.4rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>ROM Folders on Media Server PC</p>
       {folders.length === 0
         ? <p style={{ margin: '0 0 0.5rem', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>No folders added yet.</p>
         : (
@@ -88,7 +127,7 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
             <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
           </div>
         )}
-      <div style={{ display: 'flex', gap: '0.4rem', marginBottom: HAS_ANDROID_BRIDGE ? '0.75rem' : 0 }}>
+      <div style={{ display: 'flex', gap: '0.4rem' }}>
         <input
           value={folderInput}
           onChange={e => setFolderInput(e.target.value)}
@@ -97,36 +136,6 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
         />
         <button onClick={() => folderInput.trim() && (addFolder(folderInput.trim()), setFolderInput(''))} style={smallBtn}><FiPlus size={13} /></button>
       </div>
-
-      {/* On-device Android ROMs — only shown inside the native app */}
-      {HAS_ANDROID_BRIDGE && (
-        <>
-          <p style={{ margin: '0.5rem 0 0.4rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <FiSmartphone size={11} /> On This Device
-          </p>
-          {androidFolderUri
-            ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.5rem 0.65rem' }}>
-                <FiFolder size={13} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>{androidGames.length} game{androidGames.length === 1 ? '' : 's'} found</p>
-                  <p style={{ margin: 0, fontSize: '0.66rem', color: 'var(--text-secondary)' }}>Launches RetroArch installed on this phone</p>
-                </div>
-                <button onClick={refreshAndroid} disabled={androidScanning} title="Rescan" style={iconBtn}>
-                  <FiRefreshCw size={13} style={{ animation: androidScanning ? 'spin 1s linear infinite' : 'none' }} />
-                </button>
-                <button onClick={pickAndroidFolder} title="Change folder" style={iconBtn}>
-                  <FiFolder size={13} />
-                </button>
-              </div>
-            )
-            : (
-              <button onClick={pickAndroidFolder} style={{ ...smallBtn, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                <FiFolder size={13} /> Pick ROM folder on this device
-              </button>
-            )}
-        </>
-      )}
     </LibraryCard>
   )
 }
