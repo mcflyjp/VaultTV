@@ -52,7 +52,10 @@ export default function AlphabetScroller({ items }) {
         position: 'fixed', right: 6, top: '50%', transform: 'translateY(-50%)',
         zIndex: 150, // below LibraryPanel/ProfilePanel overlay (800) and Sidebar drawer (700)
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: 1, padding: '0.5rem 0.25rem', borderRadius: 12,
+        justifyContent: 'space-between',
+        maxHeight: '85vh', gap: 'clamp(1px, 0.3vh, 4px)',
+        padding: 'clamp(0.4rem, 1vh, 0.75rem) clamp(0.3rem, 1vw, 0.6rem)',
+        borderRadius: 14,
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         opacity: active ? 1 : 0.35,
         transition: 'opacity 0.2s',
@@ -64,8 +67,8 @@ export default function AlphabetScroller({ items }) {
           key={letter}
           onClick={() => jumpTo(letter)}
           style={{
-            fontSize: '0.62rem', fontWeight: 700, lineHeight: 1.5,
-            padding: '0 4px', borderRadius: 3,
+            fontSize: 'clamp(0.8rem, 1.7vh, 1.15rem)', fontWeight: 700, lineHeight: 1.2,
+            padding: 'clamp(1px, 0.3vh, 3px) clamp(6px, 1.5vw, 12px)', borderRadius: 4,
             color: available.has(letter) ? 'var(--text-primary)' : 'var(--text-secondary)',
             opacity: available.has(letter) ? 1 : 0.4,
           }}
