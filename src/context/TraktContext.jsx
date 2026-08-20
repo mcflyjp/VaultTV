@@ -39,33 +39,43 @@ export function TraktProvider({ children }) {
   const username     = auth?.username      || null
   const connected    = !!accessToken
 
+  // Pulls trakt_creds/trakt_auth straight from Supabase and adopts them into
+  // local state + localStorage. Returns the fetched trakt_auth (or null).
+  // Shared by the mount/auth-change sync below AND by getValidToken's
+  // refresh-failure fallback — Trakt rotates refresh tokens on every use, so
+  // a device that's been sitting open since before another device (or the
+  // Media Server, which runs its own separate process/cache) last refreshed
+  // is holding a dead refresh token. Re-pulling the cloud's copy before
+  // giving up picks up whatever the freshest device already obtained.
+  const pullLatestAuth = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return null
+    const { data } = await supabase
+      .from('user_settings')
+      .select('trakt_creds, trakt_auth')
+      .eq('user_id', session.user.id)
+      .single()
+    if (!data) return null
+    if (data.trakt_creds) {
+      setCreds(data.trakt_creds)
+      localStorage.setItem(LS_CREDS, JSON.stringify(data.trakt_creds))
+    }
+    if (data.trakt_auth) {
+      setAuth(data.trakt_auth)
+      localStorage.setItem(LS_AUTH, JSON.stringify(data.trakt_auth))
+    }
+    return data.trakt_auth || null
+  }, [])
+
   // ── Load from Supabase on sign-in ──────────────────────────────────
   useEffect(() => {
-    async function loadFromCloud() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const { data } = await supabase
-        .from('user_settings')
-        .select('trakt_creds, trakt_auth')
-        .eq('user_id', session.user.id)
-        .single()
-      if (!data) return
-      // Cloud always wins on sign-in — overwrite whatever is in localStorage
-      if (data.trakt_creds) {
-        setCreds(data.trakt_creds)
-        localStorage.setItem(LS_CREDS, JSON.stringify(data.trakt_creds))
-      }
-      if (data.trakt_auth) {
-        setAuth(data.trakt_auth)
-        localStorage.setItem(LS_AUTH, JSON.stringify(data.trakt_auth))
-      }
-    }
-    loadFromCloud()
+    pullLatestAuth()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') loadFromCloud()
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') pullLatestAuth()
     })
     return () => subscription.unsubscribe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Auto-refresh token ──────────────────────────────────────────────
@@ -182,13 +192,56 @@ export function TraktProvider({ children }) {
     setFlowError('')
   }
 
+  const [refreshError, setRefreshError] = useState('')
+
+  // Proactively refresh if the token is expired/near-expiry (Trakt access
+  // tokens last ~90 days) instead of waiting for a 401 — used by anything
+  // that calls the Trakt API directly (e.g. the dashboard's Trakt shelves),
+  // not just the sync helpers below.
+  const getValidToken = useCallback(async () => {
+    if (!auth || !creds) return null
+    if (auth.expiresAt - Date.now() > 5 * 60 * 1000) return auth.accessToken
+    try {
+      const data = await refreshAccessToken(creds.clientId, creds.clientSecret, auth.refreshToken)
+      setRefreshError('')
+      return persistAuth(data, auth.username).accessToken
+    } catch (e) {
+      // Trakt rotates refresh tokens on every use — this device's refresh
+      // token is dead if some other device/surface (another machine, the
+      // Media Server's own process) already refreshed since this one last
+      // synced. Before surfacing an error, check whether the cloud has a
+      // newer token than what we tried with and retry once against that.
+      try {
+        const cloudAuth = await pullLatestAuth()
+        if (cloudAuth?.refreshToken && cloudAuth.refreshToken !== auth.refreshToken) {
+          const retryData = await refreshAccessToken(creds.clientId, creds.clientSecret, cloudAuth.refreshToken)
+          setRefreshError('')
+          return persistAuth(retryData, cloudAuth.username || auth.username).accessToken
+        }
+      } catch (retryErr) {
+        console.warn('[trakt] retry against cloud auth also failed:', retryErr.message)
+      }
+      // Previously swallowed entirely — if the refresh itself was failing
+      // (expired/revoked refresh token, bad client secret, etc.) every
+      // caller just saw a generic "Trakt 401" with no way to tell that
+      // apart from "not connected at all".
+      console.warn('[trakt] token refresh failed:', e.message)
+      setRefreshError(e.message)
+      return auth.accessToken // let the caller's own request fail with the real error
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth, creds])
+
   // ── Sync helpers — silently fail if not connected ───────────────────
   async function withToken(fn) {
     if (!connected || !clientId) return
-    try { await fn(clientId, accessToken) }
-    catch (e) {
-      // Try token refresh once on 401
-      if (e.message?.includes('401') && creds?.refreshToken) {
+    try {
+      const token = await getValidToken()
+      await fn(clientId, token)
+    } catch (e) {
+      // Fallback retry on 401 in case the proactive refresh above didn't
+      // catch it (e.g. Trakt invalidated the token early server-side).
+      if (e.message?.includes('401') && auth?.refreshToken) {
         try {
           const data = await refreshAccessToken(clientId, clientSecret, auth.refreshToken)
           const next = persistAuth(data, username)
@@ -205,10 +258,10 @@ export function TraktProvider({ children }) {
 
   return (
     <TraktContext.Provider value={{
-      clientId, clientSecret, connected, accessToken, username, lists,
+      clientId, clientSecret, connected, accessToken, username, lists, refreshError,
       deviceFlow, flowError,
       saveCredentials, startDeviceAuth, cancelDeviceAuth, disconnect, fetchLists,
-      syncWatched, syncRating, addToWatchlist, removeFromWatchlist,
+      syncWatched, syncRating, addToWatchlist, removeFromWatchlist, getValidToken,
     }}>
       {children}
     </TraktContext.Provider>

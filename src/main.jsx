@@ -20,6 +20,7 @@ import { PlayerProvider } from './context/PlayerContext'
 import { LocalLibraryProvider } from './context/LocalLibraryContext'
 import { AuthProvider } from './context/AuthContext'
 import { LanguageProvider } from './context/LanguageContext'
+import { CastProvider } from './context/CastContext'
 import { useTrakt } from './context/TraktContext'
 import { setTraktWatchlistSync } from './context/LibraryContext'
 import { setTraktRatingSync } from './context/RatingsContext'
@@ -63,6 +64,7 @@ createRoot(document.getElementById('root')).render(
             <ContextMenuProvider>
             <ParentalProvider>
               <LocalLibraryProvider>
+              <CastProvider>
               <PlayerProvider>
               <TraktProvider>
               <AddonsProvider>
@@ -73,6 +75,7 @@ createRoot(document.getElementById('root')).render(
               </AddonsProvider>
               </TraktProvider>
               </PlayerProvider>
+              </CastProvider>
               </LocalLibraryProvider>
             </ParentalProvider>
             </ContextMenuProvider>

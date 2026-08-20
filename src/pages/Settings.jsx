@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchRemoteAccess } from '../lib/companion'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
 const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
@@ -17,7 +18,8 @@ import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { useAuth } from '../context/AuthContext'
 import { useAddons } from '../context/AddonsContext'
 import { useLanguage } from '../context/LanguageContext'
-import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff, FiUser, FiLogOut, FiLogIn, FiCloud, FiGlobe, FiServer, FiAlertTriangle } from 'react-icons/fi'
+import { usePlayer } from '../context/PlayerContext'
+import { FiLock, FiShield, FiSun, FiGrid, FiRadio, FiCheck, FiExternalLink, FiFolder, FiRefreshCw, FiTrash2, FiHardDrive, FiFilm, FiTv, FiPlus, FiWifi, FiWifiOff, FiUser, FiLogOut, FiLogIn, FiCloud, FiGlobe, FiServer, FiAlertTriangle, FiPlayCircle } from 'react-icons/fi'
 
 export default function Settings() {
   const { enabled, maxRating, pin, save, RATING_ORDER } = useParental()
@@ -28,6 +30,15 @@ export default function Settings() {
   const auth  = useAuth()
   const lang  = useLanguage()
   const { syncing, syncError } = useAddons()
+  const { defaultPlayer, setDefaultPlayer } = usePlayer()
+  // Checked once on mount — isMxPlayerInstalled() only exists in the native
+  // Android bridge, so this is always false on web/Electron.
+  const [hasMxPlayer, setHasMxPlayer] = useState(false)
+  useEffect(() => {
+    if (typeof window.vaulttvBridge?.isMxPlayerInstalled === 'function') {
+      setHasMxPlayer(window.vaulttvBridge.isMxPlayerInstalled())
+    }
+  }, [])
 
   const [form, setForm] = useState({ enabled, maxRating, pin, confirmPin: pin })
   const [pinError, setPinError] = useState('')
@@ -607,6 +618,52 @@ export default function Settings() {
         </p>
       </Card>
 
+      {/* Playback — FireTV only: which player handles video by default.
+          ExoPlayer (hardware MediaCodec) is right for almost everyone; VLC is
+          embedded in VaultTV itself for titles ExoPlayer struggles with
+          (audio sync, manual audio delay, certain HEVC/Atmos sources); MX
+          Player is the actual separate app, launched through its documented
+          third-party integration API (position/return_result/end_by) rather
+          than a loose handoff — VaultTV tells it exactly where to resume and
+          gets position/duration back when it exits, so Back reliably returns
+          here in one press instead of depending on MX Player's own history.
+          Only shown if MX Player is actually installed. A codec failure on
+          ExoPlayer specifically still auto-falls-back to VLC regardless of
+          this setting — this only picks which one is tried first. */}
+      {IS_FIRETV && (
+        <Card title="Playback" icon={<FiPlayCircle />}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1.25rem', lineHeight: 1.6 }}>
+            Which player opens by default when you hit Play. If the default player can't handle a
+            file (unsupported audio codec, etc.) it automatically retries with another one —
+            this just picks which one goes first.
+          </p>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            {[
+              ['exoplayer', 'ExoPlayer', 'Recommended — hardware decoding, best for most files'],
+              ['vlc', 'VLC', 'Better for audio sync issues or manual audio delay control'],
+              ...(hasMxPlayer ? [['mxplayer', 'MX Player', 'Uses your existing MX Player app, with resume position handled by VaultTV']] : []),
+            ].map(([value, label, sub]) => (
+              <button
+                key={value}
+                onClick={() => setDefaultPlayer(value)}
+                style={{
+                  flex: 1, textAlign: 'left', padding: '0.75rem 0.9rem', borderRadius: 'var(--radius)',
+                  border: defaultPlayer === value ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
+                  background: defaultPlayer === value ? 'rgba(124,58,237,0.12)' : 'var(--bg-card)',
+                  color: 'var(--text-primary)', cursor: 'pointer',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '0.88rem' }}>
+                  {defaultPlayer === value && <FiCheck size={14} style={{ color: 'var(--accent)' }} />}
+                  {label}
+                </div>
+                <p style={{ margin: '0.3rem 0 0', fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{sub}</p>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Diagnostics — temporary, helps debug platform-detection issues (mobile vs FireTV) */}
       <Card title="Diagnostics" icon={null}>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.76rem', margin: 0, lineHeight: 1.7, wordBreak: 'break-all', fontFamily: 'monospace' }}>
@@ -720,7 +777,7 @@ function CompanionHostInput() {
       {/* Auth token row — optional, only needed when AUTH_TOKEN is set on the server */}
       <input
         data-card tabIndex={0} type="password"
-        placeholder="Auth token (optional — only needed if you set authToken in config.json)"
+        placeholder="API token — paste from Server Admin → API Token"
         value={token}
         onChange={e => setToken(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') saveAndTest() }}
@@ -1037,7 +1094,7 @@ function RemoteAccessCard() {
   const [copied,    setCopied]    = useState(false)
 
   useEffect(() => {
-    fetch('/internal/status').then(r => r.json()).then(d => setTunnelUrl(d.tunnelUrl || '')).catch(() => {})
+    fetchRemoteAccess().then(setTunnelUrl)
   }, [])
 
   function copy() {

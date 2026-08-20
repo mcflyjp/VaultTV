@@ -12,6 +12,7 @@ import Settings from './pages/Settings'
 import Addons from './pages/Addons'
 import Library from './pages/Library'
 import GamesLibrary from './pages/GamesLibrary'
+import ReadingLibrary from './pages/ReadingLibrary'
 import Queue from './pages/Queue'
 import Playlists from './pages/Playlists'
 import Guide from './pages/Guide'
@@ -58,10 +59,16 @@ export default function App() {
   useEffect(() => {
     if (!IS_ELECTRON) return
     window.electronAPI.onUpdateAvailable?.(info =>
-      setUpdateInfo({ version: info.version, ready: false })
+      setUpdateInfo(prev => ({ ...prev, version: info.version, ready: false, error: null }))
+    )
+    window.electronAPI.onUpdateProgress?.(info =>
+      setUpdateInfo(prev => ({ ...prev, percent: info.percent, ready: false, error: null }))
     )
     window.electronAPI.onUpdateDownloaded?.(info =>
-      setUpdateInfo({ version: info.version, ready: true })
+      setUpdateInfo(prev => ({ ...prev, version: info.version, ready: true, error: null }))
+    )
+    window.electronAPI.onUpdateError?.(info =>
+      setUpdateInfo(prev => ({ ...prev, error: info.message }))
     )
   }, [])
 
@@ -98,6 +105,7 @@ export default function App() {
           <Route path="/addons" element={<Addons />} />
           <Route path="/library/saved" element={<Navigate to="/library/movies" replace />} />
           <Route path="/library/games" element={<GamesLibrary />} />
+          <Route path="/library/reading" element={<ReadingLibrary />} />
           <Route path="/library/:section" element={<Library />} />
           <Route path="/queue" element={<Queue />} />
           <Route path="/playlists" element={<Playlists />} />
@@ -109,24 +117,40 @@ export default function App() {
       <ContextMenu />
       <VideoPlayer />
 
-      {/* Update banner — Electron only, slides in from bottom when an update is ready */}
+      {/* Update banner — Electron only, slides in from bottom when an update is available.
+          Shows live download percent and surfaces errors instead of failing silently,
+          since "downloading forever" and "actually stuck on an error" used to look identical. */}
       {updateInfo && (
         <div style={{
           position: 'fixed', bottom: 20, right: 20, zIndex: 9000,
-          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          background: 'var(--bg-secondary)', border: `1px solid ${updateInfo.error ? 'rgba(239,68,68,0.4)' : 'var(--border)'}`,
           borderRadius: 10, padding: '0.75rem 1rem',
           display: 'flex', alignItems: 'center', gap: '0.75rem',
           boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-          maxWidth: 340,
+          maxWidth: 360,
         }}>
-          <FiDownload size={18} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+          <FiDownload size={18} style={{ color: updateInfo.error ? '#f87171' : 'var(--accent)', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontWeight: 700, fontSize: '0.88rem' }}>
-              {updateInfo.ready ? 'Update ready' : 'Update downloading…'} — v{updateInfo.version}
+              {updateInfo.error
+                ? 'Update failed'
+                : updateInfo.ready
+                  ? 'Update ready'
+                  : `Update downloading…${updateInfo.percent != null ? ` ${Math.round(updateInfo.percent)}%` : ''}`}
+              {updateInfo.version ? ` — v${updateInfo.version}` : ''}
             </p>
-            <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-              {updateInfo.ready ? 'Restart to install the latest version.' : 'Will install automatically on next quit.'}
+            <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: updateInfo.error ? '#f87171' : 'var(--text-secondary)' }}>
+              {updateInfo.error
+                ? updateInfo.error
+                : updateInfo.ready
+                  ? 'Restart to install the latest version.'
+                  : 'Will install automatically on next quit.'}
             </p>
+            {!updateInfo.ready && updateInfo.percent != null && !updateInfo.error && (
+              <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: 'var(--bg-primary)', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.round(updateInfo.percent)}%`, height: '100%', background: 'var(--accent)', transition: 'width 0.3s ease' }} />
+              </div>
+            )}
           </div>
           {updateInfo.ready && (
             <button
@@ -138,6 +162,19 @@ export default function App() {
               }}
             >
               Restart
+            </button>
+          )}
+          {updateInfo.error && (
+            <button
+              onClick={() => window.electronAPI.openUpdateLog()}
+              title="Open the update log file"
+              style={{
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                color: 'var(--text-primary)', cursor: 'pointer', padding: '0.4rem 0.6rem',
+                fontSize: '0.76rem', fontWeight: 600, flexShrink: 0,
+              }}
+            >
+              View log
             </button>
           )}
           <button

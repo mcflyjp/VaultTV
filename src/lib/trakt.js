@@ -49,7 +49,10 @@ export async function refreshAccessToken(clientId, clientSecret, refreshToken) {
       grant_type: 'refresh_token',
     }),
   })
-  if (!res.ok) throw new Error('Token refresh failed — reconnect Trakt')
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Token refresh failed (${res.status}): ${body || 'reconnect Trakt'}`)
+  }
   return res.json()
 }
 
