@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
+import { sortableTitle } from '../lib/sortTitle'
 
 const LETTERS = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')]
 
 function firstLetterOf(title) {
-  const c = (title || '').trim()[0]?.toUpperCase()
+  const c = sortableTitle(title)[0]?.toUpperCase()
   return c && /[A-Z]/.test(c) ? c : '#'
 }
 
@@ -63,7 +64,13 @@ export default function AlphabetScroller({ items }) {
       }}
     >
       {LETTERS.map(letter => (
-        <span
+        // A real <button> (not <span onClick>) — FireTV's D-pad spatial-nav
+        // system (MainActivity.java's injected JS) only recognizes a fixed
+        // set of focusable elements (button, a[href], [tabindex="0"], etc.);
+        // a plain span with only mouse/touch handlers is completely
+        // unreachable by remote, which is why this looked "not present" on
+        // FireTV even though it was rendering fine.
+        <button
           key={letter}
           onClick={() => jumpTo(letter)}
           style={{
@@ -71,10 +78,11 @@ export default function AlphabetScroller({ items }) {
             padding: 'clamp(1px, 0.3vh, 3px) clamp(6px, 1.5vw, 12px)', borderRadius: 4,
             color: available.has(letter) ? 'var(--text-primary)' : 'var(--text-secondary)',
             opacity: available.has(letter) ? 1 : 0.4,
+            background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
           }}
         >
           {letter}
-        </span>
+        </button>
       ))}
     </div>
   )

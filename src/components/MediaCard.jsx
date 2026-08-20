@@ -73,8 +73,13 @@ export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = 
         position: 'relative',
         transform: hovered ? 'scale(1.06)' : 'scale(1)',
         transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-        boxShadow: hovered ? '0 12px 40px rgba(0,0,0,0.7)' : 'none',
         zIndex: hovered ? 10 : 1,
+        // Local status used to be a badge sitting on top of the artwork
+        // (same complaint as the Library grid) — now a persistent accent on
+        // the card itself instead, matching the tile-level treatment there.
+        boxShadow: isLocal
+          ? `inset 0 -3px 0 #16a34a${hovered ? ', 0 12px 40px rgba(0,0,0,0.7)' : ''}`
+          : (hovered ? '0 12px 40px rgba(0,0,0,0.7)' : 'none'),
       }}
     >
       {/* Poster / Backdrop */}
@@ -120,11 +125,18 @@ export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = 
                 <FiStar size={9} style={{ color: '#fbbf24' }} />{rating}
               </span>
             )}
+            {isLocal && (
+              <span style={{ fontSize: '0.66rem', color: '#4ade80', display: 'flex', alignItems: 'center', gap: 2 }}>
+                <FiHardDrive size={9} />Local
+              </span>
+            )}
           </div>
         </>}
       </div>
 
-      {/* Badges — top-left stack */}
+      {/* Badges — top-left stack. Local used to live here too (same
+          over-the-artwork clutter as the Library grid); it's now the card's
+          bottom accent border above + the "Local" mention in hover text. */}
       <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', flexDirection: 'column', gap: 3, pointerEvents: 'none' }}>
         {episodeBadge && (
           <div style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', borderRadius: 4, padding: '2px 5px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', fontWeight: 700, color: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.12)' }}>
@@ -134,11 +146,6 @@ export default function MediaCard({ item, width = 150, onKeyDown, useBackdrop = 
         {saved && (
           <div style={{ background: 'var(--accent)', borderRadius: 4, padding: '2px 5px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', fontWeight: 700, color: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }}>
             <FiCheck size={9} strokeWidth={3} /> Library
-          </div>
-        )}
-        {isLocal && (
-          <div style={{ background: '#16a34a', borderRadius: 4, padding: '2px 5px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', fontWeight: 700, color: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }}>
-            <FiHardDrive size={9} /> Local
           </div>
         )}
       </div>

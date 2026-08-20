@@ -48,13 +48,19 @@ export function WatchHistoryProvider({ children }) {
     fetchProgress().then(applyRemote)
   }, [])
 
-  // On mount + on auth change: pull cloud progress and merge
+  // On mount + on auth change: pull cloud progress and merge.
+  // Supabase restores a persisted session asynchronously on startup — the bare
+  // mount-time fetch below can race ahead of that and see no session yet.
+  // INITIAL_SESSION (fired once after every client init, logged in or not) is
+  // the reliable signal that the session is actually hydrated; SIGNED_IN alone
+  // only covers an interactive login, not "already logged in, just reopened
+  // the app" — which is the common case and was silently missing the sync.
   useEffect(() => {
     cloudFetchProgress().then(applyRemote)
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN') {
-        // Pull cloud history on login and merge — this is the Plex-style sync moment
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')) {
+        // Pull cloud history once the session is confirmed hydrated — this is the Plex-style sync moment
         cloudFetchProgress().then(applyRemote)
       }
     })

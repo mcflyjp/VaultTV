@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useArtwork } from '../context/ArtworkContext'
 import { IMG } from '../lib/tmdb'
 import { FiX, FiCheck, FiImage, FiLayout, FiUpload } from 'react-icons/fi'
+import { useModalBackTrap } from '../hooks/useModalBackTrap'
 
 const TMDB_KEY = import.meta.env.VITE_TMDB_KEY || ''
 
@@ -30,6 +31,8 @@ async function fetchImages(type, id) {
 
 export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster', onClose }) {
   const { setArtwork, getArtwork, clearArtwork } = useArtwork()
+  // FireTV: trap D-pad focus + make Back close this instead of leaving the page.
+  useModalBackTrap(onClose)
 
   // 'poster' or 'backdrop' — can be toggled inside the modal
   const [slot,      setSlot]      = useState(initialSlot)
@@ -118,6 +121,8 @@ export default function ArtworkPicker({ item, type, slot: initialSlot = 'poster'
 
   return (
     <div
+      role="dialog"
+      aria-label="Change Artwork"
       style={{
         position: 'fixed', inset: 0, zIndex: 9100,
         background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)',

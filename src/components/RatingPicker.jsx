@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useRatings } from '../context/RatingsContext'
 import { FiStar, FiX } from 'react-icons/fi'
+import { useModalBackTrap } from '../hooks/useModalBackTrap'
 
 export default function RatingPicker({ item, type, onClose }) {
   const { getRating, setRating, clearRating } = useRatings()
@@ -50,8 +51,10 @@ export default function RatingPicker({ item, type, onClose }) {
 const LABELS = { 1:'Terrible',2:'Bad',3:'Poor',4:'Below Average',5:'Average',6:'Fine',7:'Good',8:'Great',9:'Excellent',10:'Masterpiece' }
 
 function Modal({ children, onClose }) {
+  // FireTV: trap D-pad focus + make Back close this instead of leaving the page.
+  useModalBackTrap(onClose)
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9100, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div role="dialog" aria-label="Rate This" style={{ position: 'fixed', inset: 0, zIndex: 9100, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, padding: '1.75rem', width: '100%', maxWidth: 380, position: 'relative', boxShadow: '0 24px 80px rgba(0,0,0,0.7)' }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex' }}><FiX size={18} /></button>
         {children}

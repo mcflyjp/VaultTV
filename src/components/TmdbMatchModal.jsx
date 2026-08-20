@@ -2,8 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { search } from '../lib/tmdb'
 import { IMG } from '../lib/tmdb'
 import { FiSearch, FiX, FiFilm, FiTv, FiCheck } from 'react-icons/fi'
+import { useModalBackTrap } from '../hooks/useModalBackTrap'
 
 export default function TmdbMatchModal({ file, onMatch, onClose }) {
+  // FireTV: trap D-pad focus + make Back close this instead of leaving the page.
+  useModalBackTrap(onClose)
   const [query, setQuery]     = useState(file?.title || '')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -43,6 +46,8 @@ export default function TmdbMatchModal({ file, onMatch, onClose }) {
   return (
     <div
       ref={backdropRef}
+      role="dialog"
+      aria-label="Match to Title"
       style={{ position: 'fixed', inset: 0, zIndex: 9100, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
       onMouseDown={e => { if (e.target === backdropRef.current) onClose() }}
     >

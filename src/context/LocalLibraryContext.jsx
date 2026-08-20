@@ -5,6 +5,7 @@ import {
   scanFolder, streamUrl, streamByFilenameUrl, fetchLibrary, saveLibrary, listWatchedFolders,
 } from '../lib/companion'
 import { supabase } from '../lib/supabase'
+import { useLibrary } from './LibraryContext'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
 
@@ -58,6 +59,11 @@ function loadJson(key, fallback) {
 }
 
 export function LocalLibraryProvider({ children }) {
+  // LibraryProvider sits above LocalLibraryProvider in main.jsx, so this hook
+  // call is valid — used to auto-add newly-matched local titles to My
+  // Movies/My TV Shows below, instead of requiring a manual save.
+  const { isSaved, toggle } = useLibrary()
+
   const [sources,  setSources]  = useState(() => loadJson(LS_SOURCES, []))
   const [files,    setFiles]    = useState(() => loadJson(LS_FILES,   []))
   const [scanning, setScanning] = useState(false)
@@ -84,7 +90,33 @@ export function LocalLibraryProvider({ children }) {
   function saveFiles(next) {
     setFiles(next)
     filesRef.current = next
-    localStorage.setItem(LS_FILES, JSON.stringify(next))
+    // On large libraries this can exceed localStorage's ~5-10MB quota. That
+    // used to throw straight out of a scan and abort it entirely (reported
+    // as "Scan failed") even though the scan itself succeeded — React state
+    // and the companion server's own DB (the actually-scalable persistence
+    // layer here) aren't affected by this, so degrade to "no local cache"
+    // instead of losing the whole scan.
+    try {
+      localStorage.setItem(LS_FILES, JSON.stringify(next))
+    } catch (e) {
+      console.warn('[local library] localStorage quota exceeded — local cache not persisted, companion/cloud sync unaffected:', e.message)
+      setError('Local library is too large to cache in the browser — it still works, but relies on the companion server (Settings → Local Library) instead of the local cache. Consider running the companion server if you haven\'t already.')
+    }
+  }
+
+  // Any matched local file should show up in My Movies/My TV Shows without
+  // the user having to save it manually — that's the whole point of it being
+  // on disk already. isSaved() guards it so this stays idempotent (safe to
+  // call on every scan) and never fights a deliberate manual removal.
+  function autoAddMatchedToLibrary(fileList) {
+    const seen = new Set()
+    for (const f of fileList) {
+      if (!f.matched || !f.tmdbId || !f.media_type) continue
+      const key = `${f.media_type}:${f.tmdbId}`
+      if (seen.has(key) || isSaved(f.tmdbId, f.media_type)) continue
+      seen.add(key)
+      toggle({ id: f.tmdbId, type: f.media_type, title: f.title, poster_path: f.poster_path })
+    }
   }
 
   // After both sources and files are saved, push to cloud if logged in.
@@ -181,15 +213,22 @@ export function LocalLibraryProvider({ children }) {
       setCompanionOnline(online)
       if (!online) return
 
-      // Load shared library from companion (LAN devices get same file list)
+      // Load shared library from companion (LAN devices get same file list).
+      // The companion is the authoritative source once reachable — always
+      // adopt its data rather than comparing file counts against whatever's
+      // cached locally. That count-based guard used to be here specifically
+      // to avoid overwriting a real cache with an empty/fresh companion, but
+      // "companion has zero files" is already what the outer `lib?.files?.length`
+      // check guards against; comparing counts beyond that just means any
+      // legitimate shrink server-side (a corrected re-scan, deduping, etc.)
+      // gets silently ignored forever in favor of a stale, larger local
+      // cache — which is exactly what caused newly-fixed/matched titles to
+      // never show as "Local" here even after the server-side data was correct.
       try {
         const lib = await fetchLibrary()
         if (lib?.files?.length) {
-          const local = JSON.parse(localStorage.getItem(LS_FILES) || '[]')
-          if (lib.files.length >= local.length) {
-            saveSources(lib.sources || [])
-            saveFiles(lib.files)
-          }
+          saveSources(lib.sources || [])
+          saveFiles(lib.files)
         }
       } catch (e) {
         console.warn('[companion] Could not load shared library:', e.message)
@@ -329,7 +368,11 @@ export function LocalLibraryProvider({ children }) {
           media_type:   match?.media_type || forcedType,
           poster_path:  match?.poster_path || null,
           year:         match?.year    || parsed.year || '',
-          overview:     match?.overview || '',
+          // overview intentionally NOT stored — it's never read back off a
+          // local file object anywhere (Detail.jsx always fetches fresh TMDB
+          // detail data instead), and storing 200-500 chars of plot synopsis
+          // per file was the single biggest contributor to blowing past
+          // localStorage's ~5-10MB quota on large libraries.
           vote_average: match?.vote_average || 0,
           parsedSeason:  parsed.season  || null,
           parsedEpisode: parsed.episode || null,
@@ -356,6 +399,7 @@ export function LocalLibraryProvider({ children }) {
         return merged
       })
       saveFiles(allFiles)
+      autoAddMatchedToLibrary(allFiles)
     } catch (e) {
       setError('Scan failed: ' + e.message)
     } finally {
@@ -502,7 +546,11 @@ export function LocalLibraryProvider({ children }) {
           media_type:   match?.media_type || forcedType,
           poster_path:  match?.poster_path || null,
           year:         match?.year    || parsed.year || '',
-          overview:     match?.overview || '',
+          // overview intentionally NOT stored — it's never read back off a
+          // local file object anywhere (Detail.jsx always fetches fresh TMDB
+          // detail data instead), and storing 200-500 chars of plot synopsis
+          // per file was the single biggest contributor to blowing past
+          // localStorage's ~5-10MB quota on large libraries.
           vote_average: match?.vote_average || 0,
           parsedSeason:  parsed.season  || null,
           parsedEpisode: parsed.episode || null,
@@ -549,6 +597,7 @@ export function LocalLibraryProvider({ children }) {
         return merged
       })
       saveFiles(allFiles)
+      autoAddMatchedToLibrary(allFiles)
     } catch (e) {
       setError('Scan failed: ' + e.message)
     } finally {
@@ -693,11 +742,15 @@ export function LocalLibraryProvider({ children }) {
   }
 
   function hasLocal(tmdbId, mediaType) {
-    return files.some(f => f.tmdbId === tmdbId && f.media_type === mediaType)
+    // getLocalVersions() above already normalizes with Number(tmdbId) for the
+    // same reason — file.tmdbId is always a number (straight from matchTmdb's
+    // raw TMDB response), but the caller's tmdbId can arrive as a string
+    // (e.g. a route param), and strict === silently never matches then.
+    return files.some(f => f.tmdbId === Number(tmdbId) && f.media_type === mediaType)
   }
 
   function getLocalEpisodeCount(tmdbId) {
-    return files.filter(f => f.tmdbId === tmdbId && f.media_type === 'tv').length
+    return files.filter(f => f.tmdbId === Number(tmdbId) && f.media_type === 'tv').length
   }
 
   /** Manually link an unmatched file to a TMDB result */
@@ -709,11 +762,11 @@ export function LocalLibraryProvider({ children }) {
       media_type:   tmdbResult.media_type || f.media_type,
       poster_path:  tmdbResult.poster_path || null,
       year:         (tmdbResult.release_date || tmdbResult.first_air_date || '').slice(0, 4),
-      overview:     tmdbResult.overview || '',
       vote_average: tmdbResult.vote_average || 0,
       matched:      true,
     })
     saveFiles(next)
+    autoAddMatchedToLibrary(next)
   }
 
   function clearAll() {

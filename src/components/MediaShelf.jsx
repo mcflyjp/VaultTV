@@ -78,6 +78,34 @@ export default function MediaShelf({ title, items = [] }) {
           )
         })}
       </div>
+
+      {/* Shelf ledge — poster-style rows only (backdrop rows are already a
+          Netflix-style flat list, a ledge under 16:9 cards doesn't read as
+          a shelf the same way vertical posters do). Purely decorative:
+          a glossy glass plank the row appears to rest on, plus a soft
+          blurred shadow puddle beneath it to sell the sense of depth. */}
+      {!isCinematic && (
+        <div style={{ padding: '0 1.75rem', marginTop: '-0.55rem' }} aria-hidden="true">
+          <div style={{
+            height: 15,
+            borderRadius: 3,
+            position: 'relative',
+            background: `linear-gradient(180deg,
+              rgba(255,255,255,0.16) 0%,
+              color-mix(in srgb, var(--accent) 14%, rgba(255,255,255,0.05)) 14%,
+              color-mix(in srgb, var(--accent) 10%, rgba(20,20,28,0.6)) 48%,
+              rgba(0,0,0,0.8) 100%)`,
+            boxShadow: '0 16px 20px -10px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -1px 0 rgba(0,0,0,0.5)',
+            transform: 'perspective(260px) rotateX(42deg)',
+            transformOrigin: 'top',
+          }} />
+          <div style={{
+            height: 20, marginTop: -8,
+            background: 'radial-gradient(ellipse 70% 100% at center, rgba(0,0,0,0.5), transparent 75%)',
+            filter: 'blur(3px)',
+          }} />
+        </div>
+      )}
     </section>
   )
 }

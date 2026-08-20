@@ -220,7 +220,7 @@ function SectionShelf({ section, tmdbData }) {
 const TMDB_KEY = import.meta.env.VITE_TMDB_KEY || ''
 
 function TraktShelf({ section }) {
-  const { clientId, accessToken } = useTrakt()
+  const { clientId, accessToken, getValidToken, refreshError } = useTrakt()
 
   const { data: items = [], isLoading, error } = useQuery({
     queryKey: ['trakt-shelf', section.id, accessToken],
@@ -228,7 +228,12 @@ function TraktShelf({ section }) {
     staleTime: 15 * 60 * 1000,
     retry: 1,
     queryFn: async () => {
-      const raw = await getListItems(clientId, accessToken, section.traktListId)
+      // Refresh proactively if the token's expired/near-expiry instead of
+      // just letting this 401 and showing a dead-end error — the access
+      // token stored in state can be stale for up to staleTime/until the
+      // 7-day background refresh check runs.
+      const token = (await getValidToken()) || accessToken
+      const raw = await getListItems(clientId, token, section.traktListId)
       const partial = traktItemsToPartial(raw).slice(0, 24)
       const detailed = await Promise.all(
         partial.map(item =>
@@ -262,6 +267,7 @@ function TraktShelf({ section }) {
       </div>
       <p style={{ margin: 0, fontSize: '0.76rem', color: '#f87171', paddingLeft: '0.9rem' }}>
         Could not load — {error.message}. Check Settings → Trakt.
+        {refreshError && <><br />Token refresh also failed: {refreshError}. Try disconnecting and reconnecting Trakt.</>}
       </p>
     </div>
   )

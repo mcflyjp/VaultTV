@@ -13,10 +13,12 @@ import ArtworkPicker from '../components/ArtworkPicker'
 import { useLanguage } from '../context/LanguageContext'
 import { useTrakt } from '../context/TraktContext'
 import MediaShelf from '../components/MediaShelf'
-import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage, FiCheck } from 'react-icons/fi'
+import { FiPlay, FiStar, FiClock, FiCalendar, FiChevronDown, FiVolume2, FiVolumeX, FiMusic, FiX, FiBookmark, FiHardDrive, FiLayers, FiImage, FiCheck, FiUser, FiMessageCircle } from 'react-icons/fi'
 import { sortAndFilterStreams, streamCompat, compatBadge, parseStreamLanguages, parseStreamMeta, parseStreamCodecs, LANG_LABELS } from '../lib/streamCompat'
 import { platformLabel, IS_ANDROID } from '../lib/platform'
 import { transcodeUrl } from '../lib/companion'
+import { useModalBackTrap } from '../hooks/useModalBackTrap'
+import { findImdbIdByTitle } from '../lib/cinemeta'
 
 export default function Detail() {
   const { type, id } = useParams()
@@ -71,6 +73,25 @@ export default function Detail() {
   const [musicPlaying, setMusicPlaying] = useState(true)
   const [musicDismissed, setMusicDismissed] = useState(false)
   const [loadingNextEp, setLoadingNextEp] = useState(false)
+  const [cinemetaImdbId, setCinemetaImdbId] = useState(null) // fallback when TMDB's own imdb_id is empty
+
+  // Scroll-driven "cover" effect on the fixed backdrop — as the content
+  // scrolls up over it, the backdrop dims/blurs/zooms in proportion to
+  // scroll distance instead of staying static, so the transition reads as
+  // an intentional animation rather than the content just happening to be
+  // layered on top (Plex's collapsing-hero effect on its detail pages).
+  const [scrollY, setScrollY] = useState(0)
+  useEffect(() => {
+    let raf = null
+    function onScroll() {
+      if (raf) return
+      raf = requestAnimationFrame(() => { setScrollY(window.scrollY); raf = null })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => { window.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf) }
+  }, [])
+  // Normalized 0→1 over the first 500px of scroll
+  const scrollProgress = Math.min(1, scrollY / 500)
 
   const { data: detail, isLoading } = useQuery({
     queryKey: ['detail', type, id],
@@ -97,7 +118,20 @@ export default function Detail() {
   // imdbId must be declared before any useEffect that references it
   // Metadata override lets users correct the IMDB ID when addons mismatch
   const _metaOverride = getMetadata(id, type)
-  const imdbId = _metaOverride?.imdb_id || detail?.external_ids?.imdb_id || `tmdb:${id}`
+  const tmdbImdbId = detail?.external_ids?.imdb_id
+  const imdbId = _metaOverride?.imdb_id || tmdbImdbId || cinemetaImdbId || `tmdb:${id}`
+
+  // TMDB's external_ids.imdb_id is sometimes just "" (a real data gap, not
+  // specific to any one title — e.g. Danger Force). Stremio itself falls
+  // back to resolving these by title via Cinemeta, so mirror that instead of
+  // silently handing addons a `tmdb:` id they don't recognize (= zero streams).
+  useEffect(() => {
+    setCinemetaImdbId(null)
+    if (_metaOverride?.imdb_id || !detail || tmdbImdbId) return
+    const detailTitle = detail.title || detail.name
+    const year = (detail.release_date || detail.first_air_date)?.slice(0, 4)
+    findImdbIdByTitle(detailTitle, year, type).then(setCinemetaImdbId)
+  }, [detail, type]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset music state on navigation; pre-fetch subtitles for local playback
   useEffect(() => {
@@ -275,6 +309,24 @@ export default function Detail() {
       clearTimeout(initTimer)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FireTV: once streams actually render, move focus into the stream row.
+  // Without this, focus stays wherever it was before selecting an episode
+  // (often a season button), so pressing Right on the remote kept cycling
+  // seasons instead of moving between stream/plugin cards — the newly
+  // rendered row was never reachable without first navigating down to it.
+  useEffect(() => {
+    if (!IS_FIRETV || !streams || !streams.length) return
+    const t = setTimeout(() => {
+      const first = document.querySelector('[data-stream-row] [data-card]')
+      if (!first) return
+      document.querySelectorAll('.snav-focused').forEach(e => e.classList.remove('snav-focused'))
+      first.focus({ preventScroll: false })
+      first.classList.add('snav-focused')
+      first.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, 50) // let the new row paint before focusing into it
+    return () => clearTimeout(t)
+  }, [streams])
 
   if (isLoading) return <LoadingState />
 
@@ -482,7 +534,10 @@ export default function Detail() {
               position: 'absolute', inset: 0,
               backgroundImage: `url(${backdrop})`,
               backgroundSize: 'cover', backgroundPosition: 'center top',
-              opacity: 0.35, filter: 'blur(1px) brightness(0.5)',
+              opacity: 0.35 - scrollProgress * 0.2,
+              filter: `blur(${1 + scrollProgress * 5}px) brightness(${0.5 - scrollProgress * 0.15})`,
+              transform: `scale(${1 + scrollProgress * 0.08})`,
+              transition: 'opacity 0.1s linear, filter 0.1s linear, transform 0.1s linear',
             }}
           />
         ) : null}
@@ -682,7 +737,9 @@ export default function Detail() {
           </div>
         </div>
 
-        {/* ── TV Episodes ── */}
+        {/* ── TV Episodes — placed right after the hero so picking a season/
+            episode doesn't require scrolling past Cast & Crew/Reviews first;
+            streams load inline right below the clicked episode. ── */}
         {type === 'tv' && detail?.number_of_seasons && (
           <div ref={episodesRef} style={{ padding: '0 2rem 2rem' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
@@ -809,6 +866,77 @@ export default function Detail() {
           </div>
         )}
 
+        {/* ── Cast & Crew ── */}
+        {detail?.credits?.cast?.length > 0 && (
+          <div style={{ padding: '0 2rem 2rem' }}>
+            <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 700 }}>Cast &amp; Crew</h2>
+            <div style={{ display: 'flex', gap: '1.1rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
+              {detail.credits.cast.slice(0, 20).map(person => (
+                <div key={person.id} style={{ flexShrink: 0, width: 96, textAlign: 'center' }}>
+                  <div style={{ width: 96, height: 96, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg-card)', marginBottom: '0.5rem' }}>
+                    {person.profile_path
+                      ? <img src={IMG(person.profile_path, 'w185')} alt={person.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
+                      : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}><FiUser size={30} /></div>}
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{person.name}</p>
+                  <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{person.character}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Ratings & Reviews — real TMDB user reviews (no fabricated data) ── */}
+        <div style={{ padding: '0 2rem 2rem' }}>
+          <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 700 }}>Ratings &amp; Reviews</h2>
+          {detail?.reviews?.results?.length > 0 ? (
+            <div style={{ display: 'flex', gap: '1rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
+              {detail.reviews.results.slice(0, 10).map(review => {
+                // TMDB sometimes stores a full external (Gravatar) URL here as
+                // "/https://…" instead of a normal poster-path fragment —
+                // IMG() would mangle that, so pass it through untouched.
+                const avatarPath = review.author_details?.avatar_path
+                const avatarUrl = avatarPath
+                  ? (avatarPath.startsWith('/http') ? avatarPath.slice(1) : IMG(avatarPath, 'w45'))
+                  : null
+                return (
+                  <div key={review.id} style={{ flexShrink: 0, width: 280, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.6rem' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)' }}>
+                        {avatarUrl
+                          ? <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
+                          : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}><FiUser size={16} /></div>}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{review.author}</p>
+                        {review.author_details?.rating != null && (
+                          <p style={{ margin: 0, fontSize: '0.72rem', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <FiStar size={10} /> {review.author_details.rating}/10
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, maxHeight: 112, overflow: 'hidden' }}>
+                      {review.content?.slice(0, 260)}{review.content?.length > 260 ? '…' : ''}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>No reviews yet for this title.</p>
+          )}
+        </div>
+
+        {/* ── Discussions — placeholder, no data source wired up yet ── */}
+        <div style={{ padding: '0 2rem 2rem' }}>
+          <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 700 }}>Discussions</h2>
+          <div style={{ background: 'var(--bg-card)', border: '1px dashed var(--border)', borderRadius: 'var(--radius)', padding: '1.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+            <FiMessageCircle size={22} style={{ color: 'var(--text-secondary)' }} />
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Discussions coming soon.</p>
+          </div>
+        </div>
+
         {/* ── Movie streams panel (unchanged — shows below poster/info) ── */}
         {type === 'movie' && (loadingStreams || streams !== null) && (
           <div style={{ padding: '0 2rem 2rem' }}>
@@ -835,6 +963,8 @@ export default function Detail() {
                   rawStreamUrl: stream?.url || null,
                   transcodeVideo: !!needsVideoTranscode,
                   startTime: getSavedProgress(id, type),
+                  onEpisodeEnded: undefined,
+                  onPlaybackEnded: () => { closePlayer() },
                 })
                 startWatching({ id: Number(id), type, title, poster: IMG(detail?.poster_path, 'w780') })
                 saveLastStream(Number(id), type, { url, streamLangs: langs, rawStreamUrl: stream?.url || null, transcodeVideo: !!needsVideoTranscode, subtitleTracks: stream?._subtitles || [], imdbId, mediaType: type })
@@ -843,7 +973,6 @@ export default function Detail() {
             </StreamErrorBoundary>
           </div>
         )}
-
 
         {/* ── Similar ── */}
         {similar?.results?.length > 0 && (
@@ -1324,6 +1453,11 @@ function LocalPlayButton({ versions, getFileUrl, play, title, detail, tmdbId, im
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const ref = useState(null)
+  // FireTV: trap D-pad focus inside the dropdown (role="dialog" below) and
+  // make Back close it instead of leaving the whole page — see the hook for
+  // why this was the actual cause of "the remote doesn't highlight correctly"
+  // in this specific picker.
+  useModalBackTrap(() => setOpen(false), open)
 
   const best = versions[0]
 
@@ -1392,7 +1526,7 @@ function LocalPlayButton({ versions, getFileUrl, play, title, detail, tmdbId, im
           </button>
 
           {open && (
-            <div style={{
+            <div role="dialog" aria-label="Choose version" style={{
               position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 500,
               background: 'rgba(15,15,20,0.97)', backdropFilter: 'blur(20px)',
               border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
@@ -1456,6 +1590,8 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal,
   const best = localVersions[0]
   const lastFired = useRef(0)
   const dropdownRef = useRef(null)
+  // Same D-pad focus/back trap as LocalPlayButton's version picker above.
+  useModalBackTrap(() => setOpen(false), open)
 
   useEffect(() => {
     if (!open) return
@@ -1563,7 +1699,7 @@ function EpisodeRow({ ep, season, localVersions, hasLocal, onWatch, onPlayLocal,
 
       {/* Version picker dropdown */}
       {open && localVersions.length > 1 && (
-        <div ref={dropdownRef} style={{
+        <div ref={dropdownRef} role="dialog" aria-label="Choose version" style={{
           position: 'absolute', right: 0, top: '100%', zIndex: 400,
           background: 'rgba(15,15,20,0.97)', backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,

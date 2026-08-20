@@ -3,8 +3,11 @@ import { useDashboard } from '../context/DashboardContext'
 import { useAddons } from '../context/AddonsContext'
 import { useTrakt } from '../context/TraktContext'
 import { FiEye, FiEyeOff, FiX, FiRotateCcw, FiPlus, FiMenu, FiRadio } from 'react-icons/fi'
+import { useModalBackTrap } from '../hooks/useModalBackTrap'
 
 export default function DashboardEditor({ onClose }) {
+  // FireTV: trap D-pad focus + make Back close this instead of leaving the page.
+  useModalBackTrap(onClose)
   const { sections, toggleVisible, reorder, addAddonSection, removeSection, reset } = useDashboard()
   const { addons } = useAddons()
   const { connected: traktConnected, lists: traktLists } = useTrakt()
@@ -88,7 +91,7 @@ export default function DashboardEditor({ onClose }) {
   }
 
   return (
-    <div style={{
+    <div role="dialog" aria-label="Customize Dashboard" style={{
       position: 'fixed', inset: 0, zIndex: 500,
       background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',

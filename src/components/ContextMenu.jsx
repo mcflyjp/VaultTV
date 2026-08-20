@@ -20,6 +20,7 @@ import ArtworkPicker from './ArtworkPicker'
 import RatingPicker from './RatingPicker'
 import PlaylistModal from './PlaylistModal'
 import TmdbMatchModal from './TmdbMatchModal'
+import { useModalBackTrap } from '../hooks/useModalBackTrap'
 
 export default function ContextMenu() {
   const { menu, hide } = useContextMenu()
@@ -43,6 +44,9 @@ export default function ContextMenu() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [menu.visible])
+
+  // FireTV: trap D-pad focus + make Back close this instead of leaving the page.
+  useModalBackTrap(hide, menu.visible)
 
   if (!menu.visible || !menu.item) return null
 
@@ -119,6 +123,8 @@ export default function ContextMenu() {
   return (
     <div
       ref={ref}
+      role="dialog"
+      aria-label="Actions"
       style={{
         position: 'fixed', zIndex: 9000, top: y, left: x,
         width: menuW,

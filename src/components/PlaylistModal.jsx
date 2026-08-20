@@ -1,12 +1,15 @@
 import { useState } from 'react'
 import { usePlaylist } from '../context/PlaylistContext'
 import { FiX, FiPlus, FiCheck } from 'react-icons/fi'
+import { useModalBackTrap } from '../hooks/useModalBackTrap'
 
 export default function PlaylistModal({ item, onClose }) {
   const { playlists, createPlaylist, addToPlaylist } = usePlaylist()
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
   const [added, setAdded] = useState({})
+  // FireTV: trap D-pad focus + make Back close this instead of leaving the page.
+  useModalBackTrap(onClose)
 
   function handleAdd(playlistId) {
     addToPlaylist(playlistId, item)
@@ -24,7 +27,7 @@ export default function PlaylistModal({ item, onClose }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9100, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div role="dialog" aria-label="Add to Playlist" style={{ position: 'fixed', inset: 0, zIndex: 9100, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 12, width: '100%', maxWidth: 380, position: 'relative', boxShadow: '0 24px 80px rgba(0,0,0,0.7)', overflow: 'hidden' }}>
         <button onClick={onClose} style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', zIndex: 1 }}><FiX size={18} /></button>
 

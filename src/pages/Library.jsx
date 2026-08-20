@@ -2,13 +2,10 @@ import { useMemo, useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
-import { useContextMenu } from '../context/ContextMenuContext'
-import { useArtwork } from '../context/ArtworkContext'
-import { usePlayer } from '../context/PlayerContext'
-import { IMG } from '../lib/tmdb'
-import { FiTrash2, FiFilm, FiTv, FiBookmark, FiHardDrive, FiAlertCircle, FiArrowUp, FiArrowDown, FiChevronDown, FiFilter, FiX } from 'react-icons/fi'
-import MediaCard from '../components/MediaCard'
+import { FiFilm, FiTv, FiBookmark, FiArrowUp, FiArrowDown, FiChevronDown, FiFilter, FiX } from 'react-icons/fi'
+import LibraryCard from '../components/LibraryCard'
 import AlphabetScroller from '../components/AlphabetScroller'
+import { sortableTitle } from '../lib/sortTitle'
 
 // TMDB genre ID → display name (combined movie + TV)
 const GENRE_MAP = {
@@ -35,8 +32,8 @@ const SORT_OPTIONS = [
 function applySort(items, sortId) {
   const arr = [...items]
   switch (sortId) {
-    case 'title_asc':    return arr.sort((a, b) => (a.title || '').localeCompare(b.title || ''))
-    case 'title_desc':   return arr.sort((a, b) => (b.title || '').localeCompare(a.title || ''))
+    case 'title_asc':    return arr.sort((a, b) => sortableTitle(a.title).localeCompare(sortableTitle(b.title)))
+    case 'title_desc':   return arr.sort((a, b) => sortableTitle(b.title).localeCompare(sortableTitle(a.title)))
     case 'added_desc':   return arr.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
     case 'added_asc':    return arr.sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0))
     case 'release_desc': return arr.sort((a, b) => (b.year || b.release_date || '').localeCompare(a.year || a.release_date || ''))
@@ -87,7 +84,15 @@ export default function Library() {
     }
 
     const savedItems = mediaType === 'movie' ? library.movies : library.shows
-    const savedIds   = new Set(savedItems.map(i => i.id))
+    // Normalize to Number on both sides of every tmdbId comparison below —
+    // saved-library ids and locally-scanned tmdbIds come from different
+    // sources (Supabase rows vs matchTmdb()'s raw TMDB API response) and can
+    // end up as a string on one side and a number on the other. Map/Set key
+    // lookups use strict equality, so a single stray string id silently
+    // breaks the "Local" merge for that one title only — exactly the kind of
+    // bug that looks like "it's not syncing" but is actually just a type
+    // mismatch that never throws or logs anything.
+    const savedIds = new Set(savedItems.map(i => Number(i.id)))
 
     // Unique local titles for this media type (best quality per tmdbId)
     const byTmdbId  = new Map()
@@ -96,9 +101,10 @@ export default function Library() {
     for (const f of files) {
       if (f.media_type !== mediaType) continue
       if (f.tmdbId) {
-        const existing = byTmdbId.get(f.tmdbId)
+        const key = Number(f.tmdbId)
+        const existing = byTmdbId.get(key)
         if (!existing || (f.qualityScore || 0) > (existing.qualityScore || 0)) {
-          byTmdbId.set(f.tmdbId, f)
+          byTmdbId.set(key, f)
         }
       } else {
         // Only keep one unmatched entry per filename title
@@ -108,7 +114,7 @@ export default function Library() {
 
     // Saved items — add isLocal flag + quality score from best local version
     const savedMerged = savedItems.map(i => {
-      const localFile = byTmdbId.get(i.id)
+      const localFile = byTmdbId.get(Number(i.id))
       return {
         ...i,
         _source:       localFile ? 'both' : 'saved',
@@ -119,7 +125,7 @@ export default function Library() {
 
     // Local-only items (not in saved library)
     const localOnly = [...byTmdbId.values()]
-      .filter(f => !savedIds.has(f.tmdbId))
+      .filter(f => !savedIds.has(Number(f.tmdbId)))
       .map(f => ({
         id:            f.tmdbId,
         type:          mediaType,
@@ -347,95 +353,3 @@ export default function Library() {
 }
 
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
-
-function LibraryCard({ item, onNavigate, onRemove }) {
-  const { show: showMenu } = useContextMenu()
-  const { getPoster } = useArtwork()
-  const { getFileUrl } = useLocalLibrary()
-  const { play } = usePlayer()
-  const isLocal = item._source === 'local' || item._source === 'both'
-  const isUnmatched = item._matched === false && item._source === 'local'
-  const canNavigate = item.id && !String(item.id).startsWith('local_')
-  // Custom artwork overrides apply to unmatched items too (keyed by local_ id)
-  const poster = getPoster(item.id, item.type) || item.poster || IMG(item.poster_path, 'w780')
-
-  // Left-click on unmatched: play the file directly
-  async function playUnmatched() {
-    if (!item._filename) return
-    try {
-      const url = await getFileUrl(item._filename)
-      play({ url, title: item.title, poster, subtitleTracks: [] })
-    } catch (e) { alert('Could not open file: ' + e.message) }
-  }
-
-  const handleClick = canNavigate ? onNavigate : (isUnmatched ? playUnmatched : undefined)
-  const handleContextMenu = e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) }
-
-  const firstLetterChar = (item.title || '').trim()[0]?.toUpperCase()
-  const firstLetter = firstLetterChar && /[A-Z]/.test(firstLetterChar) ? firstLetterChar : '#'
-
-  return (
-    <div style={{ width: 150, position: 'relative' }} data-first-letter={firstLetter}>
-      <div
-        data-card
-        tabIndex={0}
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick?.() } }}
-        style={{
-          borderRadius: 'var(--radius)', overflow: 'hidden', background: 'var(--bg-card)',
-          cursor: (canNavigate || isUnmatched) ? 'pointer' : 'default',
-          transition: 'transform 0.2s', position: 'relative',
-          opacity: isUnmatched ? 0.85 : 1,
-        }}
-        className={(canNavigate || isUnmatched) ? 'card-hover focusable-card' : undefined}
-      >
-        {poster
-          ? <img src={poster} alt={item.title} style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }} />
-          : <div style={{ width: '100%', aspectRatio: '2/3', background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', color: 'var(--text-secondary)', fontSize: '0.75rem', padding: '0.5rem', textAlign: 'center' }}>
-              <FiHardDrive size={24} style={{ opacity: 0.4 }} />
-              <span style={{ opacity: 0.7, lineHeight: 1.3 }}>{item.title}</span>
-            </div>
-        }
-
-        {/* Badges */}
-        <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {isLocal && (
-            <div style={{ background: '#16a34a', borderRadius: 4, padding: '2px 5px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.6rem', fontWeight: 700, color: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }}>
-              <FiHardDrive size={8} /> LOCAL
-            </div>
-          )}
-          {isUnmatched && (
-            <div style={{ background: 'rgba(251,191,36,0.9)', borderRadius: 4, padding: '2px 5px', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.6rem', fontWeight: 700, color: '#000', boxShadow: '0 2px 6px rgba(0,0,0,0.5)' }}>
-              <FiAlertCircle size={8} /> NO MATCH
-            </div>
-          )}
-          {item._qualityLabel && (
-            <div style={{ background: 'rgba(0,0,0,0.75)', borderRadius: 4, padding: '2px 5px', fontSize: '0.6rem', fontWeight: 600, color: '#fff' }}>
-              {item._qualityLabel}
-            </div>
-          )}
-        </div>
-
-        <div style={{ padding: '0.45rem 0.6rem 0.55rem' }}>
-          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</p>
-          <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-            {item.type === 'movie' ? 'Movie' : 'Series'}
-            {item._source === 'both' ? ' · Saved + Local' : isLocal ? ' · Local' : ''}
-          </p>
-        </div>
-      </div>
-
-      {/* Remove button — hidden on FireTV (use context menu / long-press instead) */}
-      {onRemove && !IS_FIRETV && (
-        <button
-          onClick={e => { e.stopPropagation(); onRemove() }}
-          title="Remove from library"
-          style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.75)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '4px', display: 'flex', zIndex: 5 }}
-        >
-          <FiTrash2 size={12} />
-        </button>
-      )}
-    </div>
-  )
-}

@@ -20,7 +20,7 @@ export const getTrending   = (type = 'all', window = 'week') => tmdb(`/trending/
 export const getPopular    = (type = 'movie') => tmdb(`/${type}/popular`)
 export const getTopRated   = (type = 'movie') => tmdb(`/${type}/top_rated`)
 export const search        = (query, page = 1) => tmdb('/search/multi', { query, page, include_adult: false })
-export const getDetail     = (type, id) => tmdb(`/${type}/${id}`, { append_to_response: 'credits,videos,content_ratings,release_dates,external_ids' })
+export const getDetail     = (type, id) => tmdb(`/${type}/${id}`, { append_to_response: 'credits,videos,content_ratings,release_dates,external_ids,reviews' })
 export const getSeason     = (id, season) => tmdb(`/tv/${id}/season/${season}`)
 export const getSimilar    = (type, id) => tmdb(`/${type}/${id}/similar`)
 export const getVideos     = (type, id) => tmdb(`/${type}/${id}/videos`)

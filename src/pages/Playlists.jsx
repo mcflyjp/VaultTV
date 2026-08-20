@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlaylist } from '../context/PlaylistContext'
-import { useContextMenu } from '../context/ContextMenuContext'
-import { FiPlus, FiTrash2, FiEdit2, FiChevronLeft, FiPlay } from 'react-icons/fi'
+import { FiPlus, FiTrash2, FiEdit2, FiChevronLeft } from 'react-icons/fi'
+import LibraryCard from '../components/LibraryCard'
 
 export default function Playlists() {
   const { id } = useParams()
@@ -31,9 +31,11 @@ export default function Playlists() {
     setEditingId(null)
   }
 
-  // Playlist detail view
+  // Playlist detail view — same poster-grid card as My Movies/My TV Shows
+  // (LibraryCard), not a plain row list, so a playlist reads the same way
+  // the rest of the library does — artwork, local-status accent, all of it.
   if (active) return (
-    <div style={{ padding: '2rem', maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: '2rem 1.75rem', minHeight: '100vh' }}>
       <button onClick={() => navigate('/playlists')} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.85rem', marginBottom: '1.25rem', padding: 0 }}>
         <FiChevronLeft size={14} /> All Playlists
       </button>
@@ -42,13 +44,14 @@ export default function Playlists() {
       {active.items.length === 0 ? (
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>No items yet — right-click any title and choose "Add to Playlist…"</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {active.items.map((item, idx) => (
-            <PlaylistItem
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+          {active.items.map(item => (
+            <LibraryCard
               key={`${item.id}-${item.type}`}
               item={item}
-              idx={idx}
-              onPlay={() => navigate(`/detail/${item.type}/${item.id}`)}
+              onNavigate={() => {
+                if (item.id && !String(item.id).startsWith('local_')) navigate(`/detail/${item.type}/${item.id}`)
+              }}
               onRemove={() => removeFromPlaylist(active.id, item.id, item.type)}
             />
           ))}
@@ -105,27 +108,6 @@ export default function Playlists() {
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-function PlaylistItem({ item, idx, onPlay, onRemove }) {
-  const { show: showMenu } = useContextMenu()
-  return (
-    <div
-      onContextMenu={e => { e.preventDefault(); showMenu(item, e.clientX, e.clientY) }}
-      style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.65rem 0.75rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}
-    >
-      <span style={{ width: 20, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>{idx + 1}</span>
-      {item.poster && <img src={item.poster} alt="" style={{ width: 36, height: 54, objectFit: 'cover', borderRadius: 4 }} />}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</p>
-        <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>{item.type}</p>
-      </div>
-      <div style={{ display: 'flex', gap: '0.35rem' }}>
-        <SmBtn onClick={onPlay} accent title="Play"><FiPlay size={13} /></SmBtn>
-        <SmBtn onClick={onRemove} title="Remove"><FiTrash2 size={13} /></SmBtn>
-      </div>
     </div>
   )
 }

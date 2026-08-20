@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLibrary } from '../context/LibraryContext'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
@@ -8,6 +8,7 @@ import {
 } from 'react-icons/fi'
 import { MdOutlineGamepad } from 'react-icons/md'
 import GamesLibraryCard from './GamesLibraryCard'
+import ReadingLibraryCard from './ReadingLibraryCard'
 
 export default function LibraryPanel({ onClose }) {
   const { library } = useLibrary()
@@ -109,6 +110,12 @@ export default function LibraryPanel({ onClose }) {
           expanded={expanded === 'games'}
           onToggle={() => toggle('games')}
           onOpen={() => go('/library/games')}
+        />
+
+        <ReadingLibraryCard
+          expanded={expanded === 'reading'}
+          onToggle={() => toggle('reading')}
+          onOpen={() => go('/library/reading')}
         />
 
         {/* Cloud / remote play — quick launchers, not browsable libraries */}
@@ -282,7 +289,62 @@ function GamingRow({ icon, title, sub, onClick }) {
   )
 }
 
+const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
+const PANEL_SEL = 'button:not([disabled]), [tabindex="0"], a[href], input, select'
+const PANEL_DPAD = new Set([37, 38, 39, 40, 225, 226, 227, 228, 13, 23])
+
 export function PanelOverlay({ onClose, children }) {
+  const panelRef = useRef(null)
+
+  // FireTV: without this, the panel had no focus trap at all — the remote's
+  // D-pad kept driving whatever spatial-nav is active on the page BEHIND the
+  // panel, and the hardware Back button (window.__vaulttvBack, invoked
+  // directly by native code, not a JS keydown) just navigated the page
+  // instead of closing this modal, since nothing here ever overrode it.
+  useEffect(() => {
+    if (!IS_FIRETV) return
+    const prevBack = window.__vaulttvBack
+    window.__vaulttvBack = onClose
+
+    function focusables() {
+      return Array.from(panelRef.current?.querySelectorAll(PANEL_SEL) || [])
+        .filter(el => el.getBoundingClientRect().height > 0)
+    }
+
+    const t = setTimeout(() => {
+      const first = focusables()[0]
+      first?.focus({ preventScroll: false })
+    }, 100)
+
+    function onKey(e) {
+      if (!PANEL_DPAD.has(e.keyCode)) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+
+      const isSelect = e.keyCode === 13 || e.keyCode === 23
+      const isDown   = e.keyCode === 40 || e.keyCode === 227
+      const isUp     = e.keyCode === 38 || e.keyCode === 226
+
+      const els = focusables()
+      if (!els.length) return
+      const cur = panelRef.current?.contains(document.activeElement) ? document.activeElement : els[0]
+
+      if (isSelect) { cur?.click(); return }
+      if (!isDown && !isUp) return // absorb Left/Right — nothing to navigate to sideways within a single-column panel
+
+      const idx  = els.indexOf(cur)
+      const next = els[idx + (isDown ? 1 : -1)]
+      ;(next || els[0]).focus({ preventScroll: false })
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+
+    return () => {
+      window.__vaulttvBack = prevBack
+      window.removeEventListener('keydown', onKey, { capture: true })
+      clearTimeout(t)
+    }
+  }, [onClose])
+
   return (
     <div
       style={{ position: 'fixed', inset: 0, zIndex: 800, display: 'flex' }}
@@ -292,7 +354,7 @@ export function PanelOverlay({ onClose, children }) {
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }} onClick={onClose} />
 
       {/* Panel slides in from right */}
-      <div style={{
+      <div ref={panelRef} style={{
         position: 'absolute', top: 0, right: 0, bottom: 0,
         width: 380, maxWidth: '92vw',
         background: 'var(--bg-primary)', borderLeft: '1px solid var(--border)',
