@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { FiFolder, FiRefreshCw, FiPlus, FiTrash2, FiPlay, FiSearch, FiSmartphone, FiImage } from 'react-icons/fi'
+import { FiFolder, FiRefreshCw, FiPlus, FiTrash2, FiPlay, FiSearch, FiSmartphone, FiImage, FiMonitor } from 'react-icons/fi'
 import { LibraryCard } from './LibraryPanel'
-import { useGamesLibrary, HAS_ANDROID_BRIDGE } from '../hooks/useGamesLibrary'
+import { useGamesLibrary, HAS_ANDROID_BRIDGE, HAS_ELECTRON_LOCAL_RETROARCH } from '../hooks/useGamesLibrary'
 
 /**
  * Games library card — same shape as the Movies/TV Shows cards in LibraryPanel:
@@ -12,16 +12,19 @@ import { useGamesLibrary, HAS_ANDROID_BRIDGE } from '../hooks/useGamesLibrary'
 export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
   const {
     folders, allGames, platformCount, retroarchPath, raExists, scanningId, error, detecting,
-    hasGamesDbKey, saveGamesDbKey,
+    hasIgdbKeys, saveIgdbKeys,
     androidFolderUri, androidGames, androidScanning,
+    localRetroarchPath, localRaExists, localDetecting,
     saveRetroarch, detect, addFolder, removeFolder, rescanFolder,
-    pickAndroidFolder, refreshAndroid,
+    pickAndroidFolder, refreshAndroid, saveLocalRetroarch, detectLocal,
   } = useGamesLibrary()
 
   const [raInput, setRaInput]         = useState('')
+  const [localRaInput, setLocalRaInput] = useState('')
   const [folderInput, setFolderInput] = useState('')
-  const [gdbInput, setGdbInput]       = useState('')
-  const [gdbSaved, setGdbSaved]       = useState(false)
+  const [clientIdInput, setClientIdInput]     = useState('')
+  const [clientSecretInput, setClientSecretInput] = useState('')
+  const [igdbSaved, setIgdbSaved]     = useState(false)
 
   return (
     <LibraryCard
@@ -75,6 +78,42 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
         </>
       )}
 
+      {/* Local RetroArch (this Electron desktop install) — takes priority over
+          the Media Server's RetroArch when both are configured, since it's
+          almost always what you actually want on a second computer that has
+          its own RetroArch install rather than launching on the server PC. */}
+      {HAS_ELECTRON_LOCAL_RETROARCH && (
+        <>
+          <p style={{ margin: '0 0 0.15rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <FiMonitor size={11} /> RetroArch on This Device
+          </p>
+          <p style={{ margin: '0 0 0.4rem', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+            If set, games launch using RetroArch installed on this computer instead of the Media Server's copy — the right choice unless this PC and the Media Server are the same machine.
+          </p>
+          <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
+            <input
+              value={localRaInput || localRetroarchPath}
+              onChange={e => setLocalRaInput(e.target.value)}
+              placeholder="C:\RetroArch\retroarch.exe"
+              style={inputStyle}
+            />
+            <button onClick={() => (localRaInput.trim()) && saveLocalRetroarch(localRaInput.trim())} style={smallBtn}>Save</button>
+          </div>
+          <button
+            onClick={async () => { const found = await detectLocal(); if (found) setLocalRaInput(found) }}
+            disabled={localDetecting}
+            style={{ ...smallBtn, width: '100%', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+          >
+            <FiSearch size={12} /> {localDetecting ? 'Detecting on this device…' : 'Auto-detect on this device'}
+          </button>
+          {localRetroarchPath && (
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.7rem', color: localRaExists ? '#34d399' : '#f87171' }}>
+              {localRaExists ? '✓ Found' : '✗ Not found at this path'} — {localRetroarchPath}
+            </p>
+          )}
+        </>
+      )}
+
       {/* RetroArch path — this configures whichever PC runs your Media Server,
           NOT the device you're viewing this on. Made explicit since it's easy
           to assume "Auto-detect" searches the current device (it doesn't —
@@ -83,6 +122,7 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
       <p style={{ margin: '0 0 0.15rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>RetroArch on Media Server PC</p>
       <p style={{ margin: '0 0 0.4rem', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
         Runs on whichever computer hosts your VaultTV Media Server{HAS_ANDROID_BRIDGE ? ' — not this phone' : ''}. Auto-detect checks that computer's common Windows install paths.
+        {HAS_ELECTRON_LOCAL_RETROARCH && localRaExists ? ' Ignored on this device while "RetroArch on This Device" above is set.' : ''}
       </p>
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem' }}>
         <input
@@ -140,36 +180,47 @@ export default function GamesLibraryCard({ expanded, onToggle, onOpen }) {
         <button onClick={() => folderInput.trim() && (addFolder(folderInput.trim()), setFolderInput(''))} style={smallBtn}><FiPlus size={13} /></button>
       </div>
 
-      {/* Box art scraper (TheGamesDB) — runs server-side on the Media Server PC,
-          same "not this device" caveat as RetroArch above. Scraping happens
-          automatically in the background after each scan once a key is set. */}
+      {/* Box art scraper (IGDB via Twitch dev account) — runs server-side on the
+          Media Server PC, same "not this device" caveat as RetroArch above.
+          Scraping happens automatically in the background once credentials are set. */}
       <p style={{ margin: '1rem 0 0.15rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
-        <FiImage size={11} /> Box Art (TheGamesDB)
+        <FiImage size={11} /> Box Art (IGDB)
       </p>
-      {hasGamesDbKey
+      {hasIgdbKeys
         ? (
-          <p style={{ margin: '0 0 0.4rem', fontSize: '0.7rem', color: '#34d399' }}>✓ Key configured — art scrapes automatically as folders are scanned</p>
+          <p style={{ margin: '0 0 0.4rem', fontSize: '0.7rem', color: '#34d399' }}>✓ Credentials configured — art scrapes automatically as folders are scanned</p>
         )
         : (
           <>
             <p style={{ margin: '0 0 0.4rem', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
-              Free API key from <a href="https://thegamesdb.net/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>thegamesdb.net</a> — once set, box art scrapes automatically in the background whenever a folder is scanned.
+              Free via a <a href="https://dev.twitch.tv/console/apps/create" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Twitch developer app</a> (IGDB runs on Twitch's API) — create one, use <code>http://localhost</code> as the OAuth Redirect URL (unused for this), then paste the Client ID and Client Secret below.
             </p>
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
               <input
-                value={gdbInput}
-                onChange={e => setGdbInput(e.target.value)}
-                placeholder="TheGamesDB API key"
+                value={clientIdInput}
+                onChange={e => setClientIdInput(e.target.value)}
+                placeholder="IGDB Client ID"
+                style={inputStyle}
+              />
+              <input
+                value={clientSecretInput}
+                onChange={e => setClientSecretInput(e.target.value)}
+                placeholder="IGDB Client Secret"
                 style={inputStyle}
               />
               <button
-                onClick={async () => { if (gdbInput.trim()) { await saveGamesDbKey(gdbInput.trim()); setGdbSaved(true) } }}
+                onClick={async () => {
+                  if (clientIdInput.trim() && clientSecretInput.trim()) {
+                    await saveIgdbKeys(clientIdInput.trim(), clientSecretInput.trim())
+                    setIgdbSaved(true)
+                  }
+                }}
                 style={smallBtn}
               >
                 Save
               </button>
             </div>
-            {gdbSaved && <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: '#34d399' }}>✓ Saved — rescan a folder to start scraping</p>}
+            {igdbSaved && <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: '#34d399' }}>✓ Saved — rescan a folder to start scraping</p>}
           </>
         )}
     </LibraryCard>

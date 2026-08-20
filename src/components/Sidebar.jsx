@@ -16,14 +16,15 @@ const IS_ANDROID = /android/i.test(navigator.userAgent)
 const IS_MOBILE = IS_ANDROID && !IS_FIRETV
 
 // ── Library item definitions (canonical order) ──
-const ALL_LIB_IDS = ['movies', 'shows', 'games', 'queue', 'playlists']
+const ALL_LIB_IDS = ['movies', 'shows', 'games', 'reading', 'queue', 'playlists']
 
 const LIB_META = {
-  movies:    { label: 'My Movies',   icon: FiFilm,  to: '/library/movies' },
-  shows:     { label: 'My TV Shows', icon: FiTv,    to: '/library/shows' },
-  games:     { label: 'Games',       icon: FiPlay,  to: '/library/games' },
-  queue:     { label: 'Queue',       icon: FiList,  to: '/queue' },
-  playlists: { label: 'Playlists',   icon: FiMusic, to: '/playlists' },
+  movies:    { label: 'My Movies',   icon: FiFilm,     to: '/library/movies' },
+  shows:     { label: 'My TV Shows', icon: FiTv,       to: '/library/shows' },
+  games:     { label: 'Games',       icon: FiPlay,     to: '/library/games', beta: true },
+  reading:   { label: 'Reading',     icon: FiBookOpen, to: '/library/reading' },
+  queue:     { label: 'Queue',       icon: FiList,     to: '/queue' },
+  playlists: { label: 'Playlists',   icon: FiMusic,    to: '/playlists' },
 }
 
 function loadLibOrder() {
@@ -241,8 +242,20 @@ function SidebarBody({
 
       <Divider />
 
-      {/* Nav — FireTV: no overflow so all items are always in viewport and D-pad findable */}
-      <nav style={{ flex: 1, minHeight: 0, padding: compact ? '0.25rem 0.5rem 0' : '0.5rem 0.5rem 0', overflowY: compact ? 'visible' : 'auto', overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
+      {/* Nav — always scrollable. This used to force overflow:'visible' on
+          FireTV so every item stayed "in viewport", but with Home, Search,
+          the whole My Library list, Add-ons, How To, and Settings all in
+          here, that's more items than fit in a TV-safe height — the
+          overflow content doesn't get clipped, it spills out on top of
+          "Exit VaultTV" and the theme picker below (that's what overflow:
+          visible does inside a flex:1/min-height:0 box: content renders past
+          its own boundary without pushing siblings down), which is exactly
+          the reported overlap. It also handed the D-pad nearest-neighbor
+          logic overlapping bounding boxes to reason about, which is why Down
+          was skipping entries. MainActivity's spatial-nav already calls
+          scrollIntoView() on whatever it focuses, so real scrolling here
+          works correctly with the remote — this was never actually needed. */}
+      <nav style={{ flex: 1, minHeight: 0, padding: compact ? '0.25rem 0.5rem 0' : '0.5rem 0.5rem 0', overflowY: 'auto', overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
 
         {/* Browse */}
         <SectionLabel>Browse</SectionLabel>
@@ -268,6 +281,7 @@ function SidebarBody({
               label={meta.label}
               active={isActive}
               badge={badge > 0 ? badge : null}
+              beta={meta.beta}
               compact={compact}
             />
           )
@@ -336,7 +350,7 @@ const iconBtn = {
   transition: 'color 0.15s', flexShrink: 0,
 }
 
-function NavItem({ to, icon, label, active, badge, compact, onClick }) {
+function NavItem({ to, icon, label, active, badge, beta, compact, onClick }) {
   return (
     <Link to={to} onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: '0.6rem',
@@ -351,6 +365,16 @@ function NavItem({ to, icon, label, active, badge, compact, onClick }) {
     }}>
       <span style={{ color: active ? 'var(--accent)' : 'inherit', flexShrink: 0 }}>{icon}</span>
       <span style={{ flex: 1 }}>{label}</span>
+      {/* Hidden in compact mode — the rail is icon-only, so a text tag there
+          would either clip or blow out the width. */}
+      {beta && !compact && (
+        <span style={{
+          color: '#fbbf24', background: 'rgba(251,191,36,0.12)',
+          border: '1px solid rgba(251,191,36,0.35)', borderRadius: 4,
+          padding: '0 4px', fontSize: '0.58rem', fontWeight: 800,
+          letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0,
+        }}>Beta</span>
+      )}
       {badge > 0 && (
         <span style={{ background: 'var(--accent)', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: '0.68rem', fontWeight: 700, flexShrink: 0 }}>{badge}</span>
       )}
