@@ -11,6 +11,7 @@
  */
 
 const express      = require('express')
+const compression  = require('compression')
 const cors         = require('cors')
 const cookieParser = require('cookie-parser')
 const jwt          = require('jsonwebtoken')
@@ -47,6 +48,14 @@ const PROGRESS_FILE  = path.join(DATA_DIR, 'progress.json')
 const AUTH_FILE      = path.join(DATA_DIR, 'auth.json')
 const ROM_STATE_FILE     = path.join(DATA_DIR, 'rom-folders.json')
 const ROM_ARTWORK_FILE   = path.join(DATA_DIR, 'rom-artwork-cache.json') // { "<platform>::<normalized title>": boxArtUrl }
+const READING_STATE_FILE   = path.join(DATA_DIR, 'reading-folders.json')
+const READING_ARTWORK_FILE = path.join(DATA_DIR, 'reading-artwork-cache.json') // "<kind>::<normalized title>" -> coverUrl | null
+// Manual per-issue corrections — filename parsing ("034 (2013)") is a best
+// guess and is sometimes wrong or ambiguous (scanlation group tags, foreign
+// reprint years, missing issue numbers). Set via the right-click cover art
+// modal; once saved here, every future scrape (automatic or manual) uses
+// these instead of re-deriving from the filename.
+const READING_OVERRIDES_FILE = path.join(DATA_DIR, 'reading-overrides.json') // "<kind>::<normalized title>" -> { seriesTitle?, year?, issueNumber? }
 
 // ── Config ────────────────────────────────────────────────────────────────────
 let config = {
@@ -58,8 +67,10 @@ let config = {
   serverToken:   generateSecret(), // stable ID used to register with the relay
   folders:       [],
   retroarchPath: '', // path to retroarch.exe — set via /roms/retroarch, supports UNC/mapped-drive paths
-  gamesDbApiKey: '', // TheGamesDB API key — thegamesdb.net, free signup. Used server-side only
-                      // (never exposed to the client) to scrape box art for the games library.
+  igdbClientId:     '', // IGDB (via Twitch dev account) — free, ~4 req/sec, no monthly cap.
+  igdbClientSecret: '', // Both used server-side only (never exposed to the client) to scrape box art.
+  comicVineApiKey: '', // Optional — comics/ebook covers work with zero keys via Open Library by
+                        // default; this just improves comic-specific cover accuracy if set.
 }
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -82,13 +93,40 @@ function saveConfig() {
 
 // Merge config folders into watched list (config always wins on path/type/name)
 let watchedFolders = loadJson(STATE_FILE, [])
-for (const cf of (config.folders || [])) {
-  if (!cf.id || !cf.path) continue
-  const ex = watchedFolders.find(w => w.id === cf.id)
-  if (ex) { ex.folderPath = cf.path; ex.type = cf.type || ex.type; ex.name = cf.name || ex.name }
-  else watchedFolders.push({ id: cf.id, folderPath: cf.path, type: cf.type || 'movie', name: cf.name || path.basename(cf.path) })
+
+/**
+ * Reconcile the runtime watched-folder list against config.folders, which is
+ * the durable source of truth.
+ *
+ * This used to run only once at startup. watchedFolders is mutable runtime
+ * state, so it could drift — end up empty while config.json still listed both
+ * folders — and because streamFile()'s guard is built on it, EVERY stream then
+ * failed with 403 "Path is not inside a watched folder" until someone
+ * restarted the server. Worse, that message points at the file rather than the
+ * real cause, and the knock-on failure was silent: ffprobe would fetch the 403
+ * page instead of video, find no streams, report null codecs, and the player
+ * would conclude no transcode was needed — surfacing as an unexplained
+ * "Transcode failed". Callable on demand now so that state self-heals.
+ */
+function syncFoldersFromConfig() {
+  for (const cf of (config.folders || [])) {
+    if (!cf.id || !cf.path) continue
+    const ex = watchedFolders.find(w => w.id === cf.id)
+    if (ex) { ex.folderPath = cf.path; ex.type = cf.type || ex.type; ex.name = cf.name || ex.name }
+    else watchedFolders.push({ id: cf.id, folderPath: cf.path, type: cf.type || 'movie', name: cf.name || path.basename(cf.path) })
+  }
+  saveJson(STATE_FILE, watchedFolders)
 }
-saveJson(STATE_FILE, watchedFolders)
+
+/** Windows paths are case-insensitive — comparing raw strings made a folder
+ *  stored as "D:\TV Shows" reject files scanned under "D:\TV SHOWS". */
+function isInsideWatchedFolder(filePath) {
+  if (!filePath) return false
+  const p = filePath.toLowerCase()
+  return watchedFolders.some(f => f.folderPath && p.startsWith(f.folderPath.toLowerCase()))
+}
+
+syncFoldersFromConfig()
 
 const PORT       = config.port       || 8080
 const JWT_SECRET = config.jwtSecret  || generateSecret()
@@ -128,18 +166,19 @@ const ROM_PLATFORMS = {
 }
 const ROM_EXTS = new Set(Object.keys(ROM_PLATFORMS))
 
-// TheGamesDB platform IDs (thegamesdb.net) for our supported platform names.
-// Used to scope box-art search results to the right console when scraping.
-const GAMESDB_PLATFORM_IDS = {
-  'NES':              7,
-  'SNES':             6,
-  'N64':              3,
-  'Game Boy':         4,
-  'Game Boy Color':   41,
-  'Game Boy Advance': 5,
-  'Genesis':          18,
-  'PlayStation':      10,
-  'Atari 2600':       22,
+// IGDB platform IDs for our supported platform names — used to scope box-art
+// search results to the right console when scraping. (IGDB's own IDs, not
+// TheGamesDB's — the two services number platforms completely differently.)
+const IGDB_PLATFORM_IDS = {
+  'NES':              18,
+  'SNES':             19,
+  'N64':              4,
+  'Game Boy':         33,
+  'Game Boy Color':   22,
+  'Game Boy Advance': 24,
+  'Genesis':          29,
+  'PlayStation':      7,
+  'Atari 2600':       59,
 }
 
 // Common RetroArch install locations to check for auto-detect. Mapped network
@@ -156,12 +195,35 @@ const RETROARCH_COMMON_PATHS = [
 
 let romFolders    = loadJson(ROM_STATE_FILE, [])
 let romArtwork    = loadJson(ROM_ARTWORK_FILE, {}) // cache: "<platform>::<normalized title>" -> boxArtUrl | null (null = searched, no match)
+let readingFolders   = loadJson(READING_STATE_FILE, [])
+let readingArtwork   = loadJson(READING_ARTWORK_FILE, {})
+let readingOverrides = loadJson(READING_OVERRIDES_FILE, {})
+
+// Reading library (comics + ebooks) — file extensions we recognize, mapped to
+// which client-side reader handles them. CBZ/EPUB/PDF are parsed client-side
+// (jszip/epub.js/pdf.js) from the raw bytes streamed by /reading/file below;
+// this server side only scans folders and serves files, same division of
+// labor as the ROM library (server finds files, client does the rendering).
+const READING_EXTS = {
+  '.cbz':  'comic',
+  '.cbr':  'comic',
+  '.epub': 'book',
+  '.pdf':  'book',
+}
 
 function normalizeGameTitle(name) {
   // Strip common ROM-filename cruft: region/revision tags in (parens) or
-  // [brackets], extra whitespace — so "Super Mario World (USA) [!]" matches
-  // the same cache entry as "Super Mario World".
-  return name.replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  // [brackets], a leading catalog-number prefix from numbered ROM sets
+  // ("310 Rave Master..." → "Rave Master...", since searching IGDB for the
+  // raw "310 ..." string returns nothing), and extra whitespace — so
+  // "Super Mario World (USA) [!]" matches the same cache entry as
+  // "Super Mario World".
+  return name
+    .replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ')
+    .replace(/^\s*\d+[\s._-]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
 }
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -179,6 +241,24 @@ function verifyToken(token) {
 }
 
 function requireAuth(req, res, next) {
+  // Cross-origin clients (the Electron desktop app loads from file://, not
+  // the Media Server's own origin) can never rely on the vt_session cookie —
+  // it's SameSite=Lax, which browsers simply never attach to a cross-site
+  // fetch/XHR regardless of credentials mode. Those clients instead send the
+  // server's stable API token as a header, set once in their own Settings.
+  const bearer = req.headers['x-vaulttv-token'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+  if (bearer && config.serverToken && bearer === config.serverToken) return next()
+
+  // A media element (<video src="…">) cannot set request headers, and the
+  // vt_session cookie is SameSite=Lax so browsers never attach it to a
+  // cross-site media load either. That left /transcode unreachable from any
+  // remote client: the request came back as the /__login HTML redirect, the
+  // <video> got markup instead of a stream, and the UI reported it as
+  // "Transcode failed — the stream may be DRM-protected". Such URLs carry the
+  // same server token in the query string instead.
+  const queryToken = typeof req.query?.token === 'string' ? req.query.token : ''
+  if (queryToken && config.serverToken && queryToken === config.serverToken) return next()
+
   const token = req.cookies?.vt_session
   if (!token || !verifyToken(token)) {
     // API routes return 401 JSON; page routes redirect to login
@@ -193,6 +273,13 @@ function requireAuth(req, res, next) {
 // ── App ───────────────────────────────────────────────────────────────────────
 const app = express()
 app.use(cors({ origin: true, credentials: true }))
+// gzips text responses (JSON, HTML, JS) — /library alone can be several MB
+// once a couple thousand files are scanned, which is what was silently
+// timing out on phones over anything slower than LAN. Video/audio streams
+// aren't affected: their MIME types are already marked non-compressible in
+// the same mime-db this middleware checks, so Range-request streaming is
+// untouched.
+app.use(compression())
 app.use(express.json({ limit: '50mb' }))
 app.use(cookieParser())
 
@@ -292,7 +379,52 @@ app.get('/__login', (req, res) => {
 })
 
 // Unauthenticated ping — used by remote devices to check if server is reachable
+// Lightweight access log for media endpoints. Deliberately placed BEFORE the
+// auth middleware so rejected requests (302 to /__login) show up too.
+// Previously the server logged nothing for successful requests and only
+// ffmpeg stderr lines containing "Error"/"Invalid" — so the basic question
+// "did this client even reach the server?" was unanswerable from the log,
+// which made remote debugging of the Android app guesswork.
+app.use((req, res, next) => {
+  if (!/^\/(stream|transcode|probe|library)/.test(req.path)) return next()
+  const t0 = Date.now()
+  let logged = false
+  // 'finish' alone misses aborted requests — a media element that gives up
+  // mid-stream never lets the response finish, so those vanished from the log
+  // entirely and made it look like the client never called at all.
+  const done = (ev) => {
+    if (logged) return
+    logged = true
+    const tok = req.query.token ? 'query' : (req.headers['x-vaulttv-token'] ? 'header' : 'NONE')
+    const ua  = (req.headers['user-agent'] || '').slice(0, 48)
+    console.log(`[req] ${req.method} ${req.path} -> ${res.statusCode} ${Date.now() - t0}ms ${ev} token=${tok} range=${req.headers.range || '-'} ua="${ua}"`)
+  }
+  res.on('finish', () => done('finish'))
+  res.on('close',  () => done('ABORTED'))
+  next()
+})
+
 app.get('/ping', (req, res) => res.json({ ok: true }))
+
+// Client-side diagnostics funnel. The Android app runs inside a WebView with
+// no reachable devtools, so player errors were invisible from here and had to
+// be inferred from request patterns. Unauthenticated on purpose: it only
+// writes to the log, and gating it would defeat the point when auth is itself
+// the suspected failure.
+// Rate-limited because this stays unauthenticated: gating it on auth would
+// defeat its purpose precisely when auth is the thing being debugged, but the
+// server is reachable over a public tunnel, so an ungated endpoint that writes
+// to the log is a spam vector. 20/minute is plenty for real diagnostics.
+let clientLogHits = []
+app.post('/clientlog', express.json({ limit: '16kb' }), (req, res) => {
+  const now = Date.now()
+  clientLogHits = clientLogHits.filter(t => now - t < 60_000)
+  if (clientLogHits.length >= 20) return res.status(429).json({ error: 'rate limited' })
+  clientLogHits.push(now)
+  // Strip newlines so a crafted payload can't forge extra log lines.
+  console.log(`[client] ${JSON.stringify(req.body || {}).replace(/[\r\n]+/g, ' ').slice(0, 700)}`)
+  res.json({ ok: true })
+})
 
 // ── Everything below requires auth ────────────────────────────────────────────
 app.use((req, res, next) => {
@@ -320,6 +452,36 @@ app.get('/api/health', (req, res) => {
 app.get('/api/tmdb-key', (req, res) => {
   res.json({ key: config.tmdbKey || '' })
 })
+
+// Remote-access status for the web app's Settings → Remote Access card.
+// That card used to call /internal/status directly — a relative fetch that
+// only ever hit the server if you were already browsing its own origin, and
+// /internal/* is hard-restricted to localhost requests server-side regardless
+// (see the /internal middleware above), so it silently 403'd for every
+// cross-origin caller (the desktop app, vaulttv.pages.dev, anywhere that
+// isn't the server's own address). This route sits behind the same blanket
+// requireAuth as the rest of /api/* instead — reachable cross-origin with the
+// server's own API token, same as every other companion.js call.
+app.get('/api/remote-access', (req, res) => {
+  res.json({ tunnelUrl: config.tunnelUrl || '', lanUrl: lanBaseUrl() })
+})
+
+/**
+ * This server's LAN address, e.g. http://192.168.1.232:8080.
+ *
+ * Used for casting: a Cast receiver is a native device, not a browser page, so
+ * it isn't bound by the mixed-content rule that forces the phone's WebView onto
+ * the HTTPS tunnel. Handing the TV the LAN URL keeps a ~6 Mbps stream on the
+ * local network instead of routing it out to Cloudflare and back — which is
+ * what caused casting to buffer even though the TV sits on the same switch as
+ * the server.
+ */
+function lanBaseUrl() {
+  for (const nic of Object.values(os.networkInterfaces()).flat()) {
+    if (nic && nic.family === 'IPv4' && !nic.internal) return `http://${nic.address}:${PORT}`
+  }
+  return ''
+}
 
 // ── SSE: live folder-change events ───────────────────────────────────────────
 const sseClients   = new Set()
@@ -422,72 +584,220 @@ app.get('/roms/folders/:id/scan', (req, res) => {
     console.log(`[roms] ${folder.id} → ${folder.folderPath} → ${games.length} games`)
     res.json({ id: folder.id, games, count: games.length })
     // Automatic background scrape — doesn't block the response. Capped per scan
-    // so a big folder doesn't hammer TheGamesDB's rate limit all at once; the
-    // next scan/rescan picks up wherever this pass left off (cache persists).
-    scrapeMissingArtwork(games).catch(e => console.warn('[roms] background scrape error:', e.message))
+    // so a big folder doesn't burst IGDB's rate limit all at once; the next
+    // scan/rescan picks up wherever this pass left off (cache persists).
+    scrapeMissingArtwork(games)
+      .then(r => { if (r.quotaExceeded) igdbQuotaExceededAt = Date.now() })
+      .catch(e => console.warn('[roms] background scrape error:', e.message))
   } catch (e) {
     console.error(`[roms] ${folder.id} error:`, e.message)
     res.status(500).json({ error: e.message })
   }
 })
 
-// ── Automatic box-art scraping (TheGamesDB) ────────────────────────────────────
-const GAMESDB_SCRAPE_BATCH_LIMIT = 15 // per scan — stay well under free-tier rate limits
+// Manually triggered "Scrape All" — walks every configured ROM folder and
+// scrapes anything not yet cached, with no per-call batch cap (unlike the
+// automatic post-scan scrape). Runs in the background; the client re-polls
+// after a delay to pick up results, same pattern as the auto-scrape refresh.
+let igdbQuotaExceededAt = null // set when IGDB starts returning 429s, read by /roms/igdb-key
 
-async function scrapeMissingArtwork(games) {
-  if (!config.gamesDbApiKey) return
+app.post('/roms/artwork/scrape-all', (req, res) => {
+  if (!config.igdbClientId || !config.igdbClientSecret) return res.status(400).json({ error: 'IGDB credentials not configured' })
+  const allGames = romFolders.flatMap(f => {
+    try { return scanRomDir(f.folderPath) } catch { return [] }
+  })
+  res.json({ ok: true, count: allGames.length })
+  scrapeMissingArtwork(allGames, Infinity)
+    .then(r => { if (r.quotaExceeded) igdbQuotaExceededAt = Date.now() })
+    .catch(e => console.warn('[roms] scrape-all error:', e.message))
+})
+
+// ── Automatic box-art scraping (IGDB via Twitch OAuth) ─────────────────────────
+const IGDB_SCRAPE_BATCH_LIMIT = 15  // per scan
+const IGDB_SCRAPE_DELAY_MS    = 260 // IGDB allows ~4 req/sec — stay comfortably under that
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+class ArtworkApiError extends Error {}
+
+async function scrapeMissingArtwork(games, limit = IGDB_SCRAPE_BATCH_LIMIT) {
+  if (!config.igdbClientId || !config.igdbClientSecret) return { scraped: 0, total: 0 }
   const unscraped = games.filter(g => {
     const key = `${g.platform}::${normalizeGameTitle(g.name)}`
     return !Object.prototype.hasOwnProperty.call(romArtwork, key)
-  }).slice(0, GAMESDB_SCRAPE_BATCH_LIMIT)
-  if (!unscraped.length) return
+  }).slice(0, limit)
+  if (!unscraped.length) return { scraped: 0, total: 0 }
 
   console.log(`[roms] Scraping box art for ${unscraped.length} game(s)…`)
   let changed = false
+  let quotaExceeded = false
   for (const g of unscraped) {
     const cacheKey = `${g.platform}::${normalizeGameTitle(g.name)}`
     try {
-      const url = await fetchBoxArt(g.name, g.platform)
+      const url = await fetchBoxArt(normalizeGameTitle(g.name), g.platform)
       romArtwork[cacheKey] = url // null on no-match is cached too, so we don't keep re-querying misses
       changed = true
     } catch (e) {
+      if (e instanceof ArtworkApiError) {
+        console.warn(`[roms] IGDB rate limit hit — stopping scrape early (${e.message})`)
+        quotaExceeded = true
+        break
+      }
       console.warn(`[roms] Scrape failed for "${g.name}":`, e.message)
     }
+    if (unscraped.length > 1) await sleep(IGDB_SCRAPE_DELAY_MS)
   }
   if (changed) saveJson(ROM_ARTWORK_FILE, romArtwork)
+  return { scraped: unscraped.length, total: games.length, quotaExceeded }
+}
+
+function simplifyTitle(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+// Drops leading/trailing "the" entirely so "Zelda, The" (common ROM-naming
+// convention) and "The Legend of Zelda" (official title) compare equal
+// instead of failing an exact match over word order alone.
+function coreTitle(s) {
+  return simplifyTitle(s).replace(/^the\s+|\s+the$/g, '').trim()
+}
+
+// IGDB auth is Twitch's OAuth client-credentials grant — the resulting app
+// access token is valid for ~60 days, so it's cached in memory and only
+// refreshed once it's actually expired (or missing), not on every lookup.
+let igdbToken = null // { accessToken, expiresAt }
+
+async function getIgdbToken() {
+  if (igdbToken && igdbToken.expiresAt > Date.now() + 60_000) return igdbToken.accessToken
+  const params = new URLSearchParams({
+    client_id:     config.igdbClientId,
+    client_secret: config.igdbClientSecret,
+    grant_type:    'client_credentials',
+  })
+  const res = await fetch(`https://id.twitch.tv/oauth2/token?${params}`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Twitch OAuth HTTP ${res.status} — check your IGDB Client ID/Secret`)
+  const data = await res.json()
+  igdbToken = { accessToken: data.access_token, expiresAt: Date.now() + (data.expires_in * 1000) }
+  return igdbToken.accessToken
+}
+
+const ARTWORK_LOG_FILE = path.join(DATA_DIR, 'artwork-scrape-log.txt')
+function logArtwork(line) {
+  try { fs.appendFileSync(ARTWORK_LOG_FILE, `[${new Date().toISOString()}] ${line}\n`) } catch {}
+}
+
+async function igdbSearch(gameName, platformId, token) {
+  const escaped = gameName.replace(/"/g, '\\"')
+  const query = [
+    `search "${escaped}";`,
+    'fields name,cover.image_id;',
+    platformId ? `where platforms = (${platformId});` : '',
+    'limit 10;',
+  ].filter(Boolean).join(' ')
+
+  const res = await fetch('https://api.igdb.com/v4/games', {
+    method: 'POST',
+    headers: {
+      'Client-ID':     config.igdbClientId,
+      'Authorization': `Bearer ${token}`,
+      'Content-Type':  'text/plain',
+    },
+    body: query,
+  })
+  if (res.status === 429) throw new ArtworkApiError('IGDB rate limit hit')
+  if (!res.ok) throw new Error(`IGDB HTTP ${res.status}: ${await res.text().catch(() => '')}`)
+  return res.json()
 }
 
 async function fetchBoxArt(gameName, platformName) {
-  const platformId = GAMESDB_PLATFORM_IDS[platformName]
-  const params = new URLSearchParams({
-    apikey: config.gamesDbApiKey,
-    name:   gameName,
-    fields: 'platform',
-    include: 'boxart',
+  const platformId = IGDB_PLATFORM_IDS[platformName]
+  const token = await getIgdbToken()
+
+  let games = await igdbSearch(gameName, platformId, token)
+  let usedFallback = false
+  // If scoping to our platform ID returns nothing, the ID mapping may be off
+  // for this console (or IGDB just doesn't tag this particular entry with
+  // it) — retry unscoped rather than silently reporting "no match" over a
+  // filter bug rather than an actual missing game.
+  if (platformId && (!Array.isArray(games) || games.length === 0)) {
+    games = await igdbSearch(gameName, null, token)
+    usedFallback = true
+  }
+
+  if (!Array.isArray(games) || games.length === 0) {
+    logArtwork(`NO RESULTS  "${gameName}" (platform=${platformName}/${platformId ?? 'none'}, fallback=${usedFallback})`)
+    return null
+  }
+  const hasArt = g => !!g.cover?.image_id
+
+  // Prefer the closest title match, but always prefer a candidate that
+  // actually has cover art over one that doesn't (ROM-hack/beta entries in
+  // IGDB frequently have no cover uploaded at all).
+  const target = coreTitle(gameName)
+  const tier = g => {
+    const t = coreTitle(g.name)
+    if (t === target) return 0
+    if (t.startsWith(target) || target.startsWith(t)) return 1
+    return 2
+  }
+  const ranked = [...games].sort((a, b) => {
+    const artDiff = Number(hasArt(b)) - Number(hasArt(a))
+    if (artDiff !== 0) return artDiff
+    return tier(a) - tier(b)
   })
-  if (platformId) params.set('filter[platform]', String(platformId))
 
-  const res = await fetch(`https://api.thegamesdb.net/v1/Games/ByGameName?${params}`)
-  if (!res.ok) throw new Error(`TheGamesDB HTTP ${res.status}`)
-  const data = await res.json()
-
-  const game = data?.data?.games?.[0]
-  if (!game) return null
-  const boxartBase = data?.include?.boxart?.base_url?.medium
-  const entries = data?.include?.boxart?.data?.[String(game.id)]
-  const front = Array.isArray(entries) ? entries.find(b => b.side === 'front') || entries[0] : null
-  if (!boxartBase || !front) return null
-  return `${boxartBase}${front.filename}`
+  const game = ranked[0]
+  if (!hasArt(game)) {
+    logArtwork(`NO COVER    "${gameName}" → best match "${game.name}" (of ${games.length} results, fallback=${usedFallback}) has no cover art in IGDB`)
+    return null
+  }
+  logArtwork(`MATCHED     "${gameName}" → "${game.name}" (fallback=${usedFallback})`)
+  return `https://images.igdb.com/igdb/image/upload/t_cover_big/${game.cover.image_id}.jpg`
 }
 
-app.get('/roms/gamesdb-key', (req, res) => {
-  res.json({ hasKey: !!config.gamesDbApiKey })
+// Manually set (or clear) box art for one game, overriding whatever the scraper found/missed
+app.post('/roms/artwork', (req, res) => {
+  const { platform, name, url } = req.body || {}
+  if (!platform || !name) return res.status(400).json({ error: 'platform and name are required' })
+  const cacheKey = `${platform}::${normalizeGameTitle(name)}`
+  romArtwork[cacheKey] = url || null
+  saveJson(ROM_ARTWORK_FILE, romArtwork)
+  res.json({ ok: true, boxArt: romArtwork[cacheKey] })
 })
 
-app.post('/roms/gamesdb-key', (req, res) => {
-  const { key } = req.body || {}
-  if (!key) return res.status(400).json({ error: 'key is required' })
-  config.gamesDbApiKey = key
+// Force a fresh IGDB lookup for one game, bypassing the cache (including a cached miss).
+// `query` optionally overrides what's actually sent to IGDB (e.g. the user
+// typing the real title when the ROM filename doesn't match anything) — the result
+// is still cached/applied under the game's own name+platform key.
+app.post('/roms/artwork/rescan', async (req, res) => {
+  const { platform, name, query } = req.body || {}
+  if (!platform || !name) return res.status(400).json({ error: 'platform and name are required' })
+  if (!config.igdbClientId || !config.igdbClientSecret) return res.status(400).json({ error: 'IGDB credentials not configured' })
+  try {
+    const url = await fetchBoxArt((query || '').trim() || normalizeGameTitle(name), platform)
+    const cacheKey = `${platform}::${normalizeGameTitle(name)}`
+    romArtwork[cacheKey] = url
+    saveJson(ROM_ARTWORK_FILE, romArtwork)
+    res.json({ boxArt: url })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/roms/igdb-key', (req, res) => {
+  // IGDB's rate limit clears within seconds (unlike TheGamesDB's month-long
+  // quota), so only report it as "exceeded" if it happened very recently —
+  // otherwise it'd falsely show as permanently blocked after one blip.
+  const recentQuotaHit = igdbQuotaExceededAt && (Date.now() - igdbQuotaExceededAt) < 30_000
+  res.json({ hasKey: !!(config.igdbClientId && config.igdbClientSecret), quotaExceededAt: recentQuotaHit ? igdbQuotaExceededAt : null })
+})
+
+app.post('/roms/igdb-key', (req, res) => {
+  const { clientId, clientSecret } = req.body || {}
+  if (!clientId || !clientSecret) return res.status(400).json({ error: 'clientId and clientSecret are required' })
+  config.igdbClientId = clientId
+  config.igdbClientSecret = clientSecret
+  igdbToken = null // force a fresh token exchange with the new credentials
   saveConfig()
   res.json({ ok: true })
 })
@@ -516,6 +826,377 @@ function scanRomDir(dir, depth = 0, results = []) {
   }
   return results
 }
+
+function scanReadingDir(dir, depth = 0, results = []) {
+  if (depth > 6) return results
+  let entries
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) { console.warn(`[reading] cannot read dir: ${dir} — ${e.message}`); return results }
+  for (const e of entries) {
+    const full = path.join(dir, e.name)
+    if (e.isDirectory()) {
+      scanReadingDir(full, depth + 1, results)
+    } else if (e.isFile()) {
+      const ext = path.extname(e.name).toLowerCase()
+      const kind = READING_EXTS[ext]
+      if (kind) {
+        results.push({
+          name: path.basename(e.name, ext),
+          filename: e.name,
+          path: full,
+          ext,
+          kind, // 'comic' | 'book'
+        })
+      }
+    }
+  }
+  return results
+}
+
+// ── Reading library (comics + ebooks) ──────────────────────────────────────
+app.get('/reading/folders', (req, res) => {
+  res.json(readingFolders.map(f => ({ ...f, exists: fs.existsSync(f.folderPath) })))
+})
+
+// `category` only matters for EPUB/PDF folders — CBZ/CBR files are always
+// comics regardless of what's set here. There's no reliable way to tell a
+// prose novel from a graphic novel by file type alone (both are commonly
+// EPUB/PDF), so the folder itself carries the distinction the user picks
+// when adding it, same as how ROM folders don't need per-file classification.
+const READING_CATEGORIES = ['comics', 'graphic-novels', 'novels']
+
+app.post('/reading/folders', (req, res) => {
+  const { id, folderPath, name, category } = req.body || {}
+  if (!id || !folderPath) return res.status(400).json({ error: 'id and folderPath are required' })
+  if (!fs.existsSync(folderPath)) return res.status(404).json({ error: `Folder not found: ${folderPath}` })
+  readingFolders = readingFolders.filter(f => f.id !== id)
+  const entry = { id, folderPath, name: name || path.basename(folderPath), category: READING_CATEGORIES.includes(category) ? category : 'novels' }
+  readingFolders.push(entry)
+  saveJson(READING_STATE_FILE, readingFolders)
+  res.status(201).json(entry)
+})
+
+app.delete('/reading/folders/:id', (req, res) => {
+  readingFolders = readingFolders.filter(f => f.id !== req.params.id)
+  saveJson(READING_STATE_FILE, readingFolders)
+  res.json({ ok: true })
+})
+
+app.get('/reading/folders/:id/scan', (req, res) => {
+  const folder = readingFolders.find(f => f.id === req.params.id)
+  if (!folder) return res.status(404).json({ error: 'Not found' })
+  try {
+    const items = scanReadingDir(folder.folderPath)
+    for (const it of items) {
+      it.category = it.kind === 'comic' ? 'comics' : (folder.category || 'novels')
+      const cacheKey = `${it.kind}::${normalizeGameTitle(it.name)}`
+      if (Object.prototype.hasOwnProperty.call(readingArtwork, cacheKey)) {
+        const cached = readingArtwork[cacheKey]
+        // Backward-compat: cache used to store a bare cover URL string before
+        // publisher tracking was added — treat that as { cover: <string> }.
+        if (cached && typeof cached === 'object') { it.cover = cached.cover; it.publisher = cached.publisher || null }
+        else { it.cover = cached; it.publisher = null }
+      }
+      if (Object.prototype.hasOwnProperty.call(readingOverrides, cacheKey)) it.override = readingOverrides[cacheKey]
+    }
+    console.log(`[reading] ${folder.id} → ${folder.folderPath} → ${items.length} items`)
+    res.json({ id: folder.id, items, count: items.length })
+    // Automatic background scrape, same fire-and-forget pattern as the ROM
+    // library's box art — doesn't block the response, capped per scan.
+    scrapeMissingReadingArt(items)
+      .then(r => { if (r.quotaExceeded) readingQuotaExceededAt = Date.now() })
+      .catch(e => console.warn('[reading] background art scrape error:', e.message))
+  } catch (e) {
+    console.error(`[reading] ${folder.id} error:`, e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Manually triggered "Scrape All" — mirrors the ROM library's equivalent
+app.post('/reading/artwork/scrape-all', (req, res) => {
+  const allItems = readingFolders.flatMap(f => {
+    try { return scanReadingDir(f.folderPath) } catch { return [] }
+  })
+  res.json({ ok: true, count: allItems.length })
+  scrapeMissingReadingArt(allItems, Infinity)
+    .then(r => { if (r.quotaExceeded) readingQuotaExceededAt = Date.now() })
+    .catch(e => console.warn('[reading] scrape-all error:', e.message))
+})
+
+// Manually set (or clear) cover art for one item
+app.post('/reading/artwork', (req, res) => {
+  const { kind, name, url, publisher } = req.body || {}
+  if (!kind || !name) return res.status(400).json({ error: 'kind and name are required' })
+  const cacheKey = `${kind}::${normalizeGameTitle(name)}`
+  // Preserve whatever publisher was already scraped unless one's explicitly
+  // passed — manually fixing just the cover shouldn't wipe the DC/Marvel tag.
+  const existing = readingArtwork[cacheKey]
+  const existingPublisher = existing && typeof existing === 'object' ? existing.publisher : null
+  readingArtwork[cacheKey] = { cover: url || null, publisher: publisher !== undefined ? publisher : existingPublisher }
+  saveJson(READING_ARTWORK_FILE, readingArtwork)
+  res.json({ ok: true, cover: readingArtwork[cacheKey].cover })
+})
+
+// Force a fresh lookup for one item, bypassing the cache. Optional year /
+// issueNumber let the user correct what filename-parsing guessed wrong (a
+// mistagged scanlation year, a missing issue number, etc.) — once passed,
+// they're saved to READING_OVERRIDES_FILE so every future scrape (including
+// unattended background ones) keeps using the corrected values, not just this
+// one-off lookup.
+app.post('/reading/artwork/rescan', async (req, res) => {
+  const { kind, name, query, year: yearOverride, issueNumber: issueOverride } = req.body || {}
+  if (!kind || !name) return res.status(400).json({ error: 'kind and name are required' })
+  try {
+    const cacheKey = `${kind}::${normalizeGameTitle(name)}`
+    const defaultTitle = kind === 'comic' ? comicSeriesTitle(name) : normalizeGameTitle(name)
+    const year = kind === 'comic'
+      ? (yearOverride != null && yearOverride !== '' ? parseInt(yearOverride, 10) : extractComicYear(name))
+      : null
+    const issueNumber = kind === 'comic'
+      ? (issueOverride != null && issueOverride !== '' ? parseInt(issueOverride, 10) : extractComicIssueNumber(name))
+      : null
+    if (kind === 'comic' && (yearOverride != null || issueOverride != null)) {
+      readingOverrides[cacheKey] = {
+        ...(yearOverride != null && yearOverride !== '' ? { year: parseInt(yearOverride, 10) } : {}),
+        ...(issueOverride != null && issueOverride !== '' ? { issueNumber: parseInt(issueOverride, 10) } : {}),
+      }
+      saveJson(READING_OVERRIDES_FILE, readingOverrides)
+    }
+    const result = await fetchReadingArt((query || '').trim() || defaultTitle, kind, year, issueNumber)
+    readingArtwork[cacheKey] = result
+    saveJson(READING_ARTWORK_FILE, readingArtwork)
+    res.json({ cover: result.cover, publisher: result.publisher })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/reading/comicvine-key', (req, res) => {
+  const recentQuotaHit = readingQuotaExceededAt && (Date.now() - readingQuotaExceededAt) < 30_000
+  res.json({ hasKey: !!config.comicVineApiKey, quotaExceededAt: recentQuotaHit ? readingQuotaExceededAt : null })
+})
+
+app.post('/reading/comicvine-key', (req, res) => {
+  const { key } = req.body || {}
+  config.comicVineApiKey = (key || '').trim()
+  saveConfig()
+  res.json({ ok: true })
+})
+
+// ── Automatic cover-art scraping (ComicVine for comics if a key is set,
+// Open Library otherwise — Open Library needs zero API key/signup at all,
+// so covers work out of the box for both comics and ebooks; ComicVine is
+// purely an accuracy upgrade for comics specifically when configured) ──────
+const READING_SCRAPE_BATCH_LIMIT = 15
+const READING_SCRAPE_DELAY_MS    = 300
+
+let readingQuotaExceededAt = null
+
+async function scrapeMissingReadingArt(items, limit = READING_SCRAPE_BATCH_LIMIT) {
+  const unscraped = items.filter(it => {
+    const key = `${it.kind}::${normalizeGameTitle(it.name)}`
+    return !Object.prototype.hasOwnProperty.call(readingArtwork, key)
+  }).slice(0, limit)
+  if (!unscraped.length) return { scraped: 0, total: 0 }
+
+  console.log(`[reading] Scraping cover art for ${unscraped.length} item(s)…`)
+  let changed = false
+  let quotaExceeded = false
+  for (const it of unscraped) {
+    const cacheKey = `${it.kind}::${normalizeGameTitle(it.name)}`
+    try {
+      const override = readingOverrides[cacheKey]
+      const searchTitle = it.kind === 'comic' ? comicSeriesTitle(it.name) : normalizeGameTitle(it.name)
+      const year = it.kind === 'comic' ? (override?.year ?? extractComicYear(it.name)) : null
+      const issueNumber = it.kind === 'comic' ? (override?.issueNumber ?? extractComicIssueNumber(it.name)) : null
+      const result = await fetchReadingArt(searchTitle, it.kind, year, issueNumber)
+      readingArtwork[cacheKey] = result
+      changed = true
+    } catch (e) {
+      if (e instanceof ArtworkApiError) {
+        console.warn(`[reading] rate limit hit — stopping scrape early (${e.message})`)
+        quotaExceeded = true
+        break
+      }
+      console.warn(`[reading] Scrape failed for "${it.name}":`, e.message)
+    }
+    if (unscraped.length > 1) await sleep(READING_SCRAPE_DELAY_MS)
+  }
+  if (changed) saveJson(READING_ARTWORK_FILE, readingArtwork)
+  return { scraped: unscraped.length, total: items.length, quotaExceeded }
+}
+
+// Always returns { cover, publisher } — publisher is only ever populated by
+// ComicVine (used to group the Comics section by DC/Marvel/Dark Horse/etc in
+// the UI); Open Library results always have publisher: null since grouping
+// by publisher was only requested for comics, not novels.
+async function fetchReadingArt(title, kind, year, issueNumber) {
+  if (kind === 'comic' && config.comicVineApiKey) {
+    try {
+      const result = await fetchComicVineCover(title, year, issueNumber)
+      if (result?.cover) return result
+    } catch (e) {
+      if (e instanceof ArtworkApiError) throw e
+      console.warn('[reading] ComicVine lookup failed, falling back to Open Library:', e.message)
+    }
+  }
+  const cover = await fetchOpenLibraryCover(title)
+  return { cover, publisher: null }
+}
+
+// The publication year in "(2012)" is the ONE piece of parenthetical info
+// that actually disambiguates which volume of a long-running series this is
+// (Batman has been relaunched under the same one-word name a dozen times
+// since 1940) — pull it out before comicSeriesTitle strips all parens as cruft.
+function extractComicYear(name) {
+  const m = name.match(/\((19|20)\d{2}\)/)
+  return m ? parseInt(m[0].slice(1, -1)) : null
+}
+
+// Comic filenames carry the issue number AFTER the series name ("X-Men 001
+// (2020).cbz"), unlike ROM catalog numbers which come first — so this strips
+// a trailing issue number / "Vol N" marker to search for the series itself
+// ("X-Men"), not the literal "x men 001" which matches nothing real and was
+// exactly what let a completely unrelated (and inappropriate) result through
+// via the old "just take the first search result" fallback below.
+function comicSeriesTitle(name) {
+  return normalizeGameTitle(name)
+    .replace(/\s*#?\d+\s*$/, '')
+    .replace(/\s+(vol(ume)?)\s*\d*\s*$/i, '')
+    .trim()
+}
+
+// The trailing issue number stripped by comicSeriesTitle above — needed
+// separately so we can fetch that specific issue's own cover instead of the
+// volume's cover (see fetchComicVineIssueCover: a ComicVine "volume" record
+// has exactly one representative image, so #1/#2/#3 of the same series would
+// otherwise all resolve to that same image).
+function extractComicIssueNumber(name) {
+  const m = normalizeGameTitle(name).match(/\s*#?(\d+)\s*$/)
+  return m ? parseInt(m[1], 10) : null
+}
+
+// Only ever return a cover for a confident title match (exact, or one is a
+// clean prefix of the other) — never fall back to "just pick the first
+// result," which is how an unrelated/inappropriate cover could get attached
+// to a mainstream title in the first place. No match found means no cover,
+// which is always the safer outcome than a wrong one. When a publication
+// year is known and multiple titles match equally well (e.g. a dozen
+// "Batman" volumes across 80 years), the one whose start_year matches wins —
+// without this a long-running series just gets whichever volume ComicVine
+// happens to rank first, usually the oldest/most "canonical" one, not the
+// specific relaunch the file is actually from.
+//
+// The year on a comic filename is that ISSUE's own cover/release year, not
+// necessarily the volume's start_year — a series that launched in 2011 keeps
+// publishing issues dated years later, so an exact start_year === year check
+// only ever matches the very first year of a run. When no exact match exists,
+// fall back to the candidate with the latest start_year that's still <= the
+// target year (the volume that was actually running/on-sale that year) —
+// otherwise every later-dated issue silently falls through to matches[0] and
+// every one of them ends up pinned to the same wrong volume/cover.
+function confidentMatch(candidates, target, getTitle, year, getYear) {
+  const matches = candidates.filter(c => {
+    const t = coreTitle(getTitle(c))
+    return t === target || (t.length > 3 && target.length > 3 && (t.startsWith(target) || target.startsWith(t)))
+  })
+  if (!matches.length) return null
+  if (year && getYear) {
+    const yearMatch = matches.find(c => getYear(c) === year)
+    if (yearMatch) return yearMatch
+    const runningDuring = matches
+      .filter(c => { const y = getYear(c); return y != null && y <= year })
+      .sort((a, b) => getYear(b) - getYear(a))
+    if (runningDuring.length) return runningDuring[0]
+  }
+  return matches[0]
+}
+
+async function fetchComicVineCover(title, year, issueNumber) {
+  const params = new URLSearchParams({
+    api_key: config.comicVineApiKey,
+    format:  'json',
+    query:   title,
+    resources: 'volume', // series-level search — much less noisy than individual issues
+    field_list: 'id,name,image,start_year,publisher',
+    limit: '100', // must be wide enough to include the real long-running volume,
+                   // not just whatever ComicVine ranks in the top 10 by relevance
+  })
+  const res = await fetch(`https://comicvine.gamespot.com/api/search/?${params}`, {
+    headers: { 'User-Agent': 'VaultTV/1.0' }, // ComicVine requires a User-Agent header
+  })
+  if (res.status === 420 || res.status === 429) throw new ArtworkApiError('ComicVine rate limit hit')
+  if (!res.ok) throw new Error(`ComicVine HTTP ${res.status}`)
+  const data = await res.json()
+  const results = data?.results
+  if (!Array.isArray(results) || !results.length) return { cover: null, publisher: null }
+  const best = confidentMatch(results, coreTitle(title), r => r.name || '', year, r => r.start_year ? parseInt(r.start_year) : null)
+  let cover = best?.image?.medium_url || best?.image?.small_url || null
+  // The volume's own image is the same for every issue in it — once we know
+  // WHICH volume this file belongs to, look up that specific issue number
+  // within it so #1/#2/#3 get their own distinct covers instead of all
+  // falling back to the volume's single representative image.
+  if (issueNumber != null && best?.id) {
+    try {
+      const issueCover = await fetchComicVineIssueCover(best.id, issueNumber)
+      if (issueCover) cover = issueCover
+    } catch (e) {
+      if (e instanceof ArtworkApiError) throw e
+      console.warn('[reading] issue-level cover lookup failed, using volume cover:', e.message)
+    }
+  }
+  return {
+    cover,
+    publisher: best?.publisher?.name || null,
+  }
+}
+
+async function fetchComicVineIssueCover(volumeId, issueNumber) {
+  const params = new URLSearchParams({
+    api_key: config.comicVineApiKey,
+    format:  'json',
+    filter:  `volume:${volumeId},issue_number:${issueNumber}`,
+    field_list: 'image,issue_number',
+    limit: '1',
+  })
+  const res = await fetch(`https://comicvine.gamespot.com/api/issues/?${params}`, {
+    headers: { 'User-Agent': 'VaultTV/1.0' },
+  })
+  if (res.status === 420 || res.status === 429) throw new ArtworkApiError('ComicVine rate limit hit')
+  if (!res.ok) throw new Error(`ComicVine HTTP ${res.status}`)
+  const data = await res.json()
+  const issue = data?.results?.[0]
+  return issue?.image?.medium_url || issue?.image?.small_url || null
+}
+
+async function fetchOpenLibraryCover(title) {
+  const params = new URLSearchParams({ title, limit: '10' })
+  const res = await fetch(`https://openlibrary.org/search.json?${params}`)
+  if (res.status === 429) throw new ArtworkApiError('Open Library rate limit hit')
+  if (!res.ok) throw new Error(`Open Library HTTP ${res.status}`)
+  const data = await res.json()
+  const docs = (data?.docs || []).filter(d => d.cover_i)
+  if (!docs.length) return null
+  const best = confidentMatch(docs, coreTitle(title), d => d.title || '')
+  if (!best?.cover_i) return null
+  return `https://covers.openlibrary.org/b/id/${best.cover_i}-M.jpg`
+}
+
+// Streams the raw file so the client-side reader (jszip for CBZ, epub.js for
+// EPUB, pdf.js for PDF) can parse it directly — same "server finds files,
+// client renders them" split as ROM launching. `path` must be one of the
+// paths this server already returned via the scan endpoint above; nothing
+// else is servable, and only within a configured reading folder.
+app.get('/reading/file', (req, res) => {
+  const filePath = req.query.path
+  if (!filePath) return res.status(400).json({ error: 'path is required' })
+  // Case-insensitive for the same reason as isInsideWatchedFolder — a Windows
+  // path differing only in case is the same folder, not an escape attempt.
+  const inFolder = readingFolders.some(f =>
+    f.folderPath && filePath.toLowerCase().startsWith(f.folderPath.toLowerCase()))
+  if (!inFolder) return res.status(403).json({ error: 'Path is outside configured reading folders' })
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' })
+  res.sendFile(filePath)
+})
 
 app.get('/roms/retroarch', (req, res) => {
   res.json({ path: config.retroarchPath || '', exists: config.retroarchPath ? fs.existsSync(config.retroarchPath) : false })
@@ -684,7 +1365,15 @@ app.get('/stream', (req, res) => {
 
 function streamFile(req, res) {
   const filePath = req.query.path
-  const allowed = watchedFolders.some(f => filePath.startsWith(f.folderPath))
+  let allowed = isInsideWatchedFolder(filePath)
+  if (!allowed) {
+    // Before rejecting, re-reconcile against config.json — the runtime list may
+    // simply have drifted out of sync (see syncFoldersFromConfig). Only a real
+    // out-of-library path should 403.
+    syncFoldersFromConfig()
+    allowed = isInsideWatchedFolder(filePath)
+    if (allowed) console.warn('[stream] watched-folder list had drifted; re-synced from config')
+  }
   if (!allowed) return res.status(403).json({ error: 'Path is not inside a watched folder' })
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' })
 
@@ -696,7 +1385,16 @@ function streamFile(req, res) {
   if (range) {
     const [rawStart, rawEnd] = range.replace(/bytes=/, '').split('-')
     const start = parseInt(rawStart, 10)
-    const end   = rawEnd ? parseInt(rawEnd, 10) : Math.min(start + 10 * 1024 * 1024 - 1, total - 1)
+    // An open-ended range ("bytes=0-") must serve through the end of the file,
+    // per RFC 7233. This used to cap it at 10 MB, which browsers tolerated
+    // because they just re-request the next chunk — but ffmpeg opens ONE
+    // continuous read for the whole title, so it saw the stream die after
+    // 10 MB, logged "Stream ends prematurely … should be <full size>", and
+    // aborted. Every transcode therefore produced ~11 MB of valid-but-truncated
+    // MP4 and stopped, which surfaced as "Transcode failed" / a player that
+    // never started. Node streams handle backpressure, so serving the full
+    // remainder doesn't buffer the file in memory.
+    const end   = rawEnd ? parseInt(rawEnd, 10) : total - 1
     res.writeHead(206, {
       'Content-Range': `bytes ${start}-${end}/${total}`,
       'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1, 'Content-Type': mimeType,
@@ -708,9 +1406,36 @@ function streamFile(req, res) {
   }
 }
 
+/**
+ * Rewrite a source URL that points back at THIS server so ffmpeg/ffprobe fetch
+ * it over loopback instead of the public tunnel.
+ *
+ * Remote clients send us URLs built from their own companion base — e.g.
+ * https://vault.bitclip.app/stream?path=… . Feeding that straight to ffmpeg
+ * makes the server pull its own file back out through Cloudflare and in again:
+ * two extra WAN trips, TLS, and Cloudflare buffering on every read, for bytes
+ * already sitting on local disk. That's what made playback crawl once the
+ * phone switched to the tunnel URL.
+ */
+function localizeSourceUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl)
+    if (!/^\/(stream|stream\/by-filename)$/.test(u.pathname)) return rawUrl
+    const selfHosts = new Set(['localhost', '127.0.0.1', '::1'])
+    try { if (config.tunnelUrl) selfHosts.add(new URL(config.tunnelUrl).hostname) } catch {}
+    for (const nic of Object.values(os.networkInterfaces()).flat()) {
+      if (nic && nic.family === 'IPv4' && !nic.internal) selfHosts.add(nic.address)
+    }
+    if (!selfHosts.has(u.hostname)) return rawUrl
+    return `http://127.0.0.1:${PORT}${u.pathname}${u.search}`
+  } catch {
+    return rawUrl
+  }
+}
+
 // ── Probe ─────────────────────────────────────────────────────────────────────
 app.get('/probe', (req, res) => {
-  const sourceUrl = req.query.url
+  const sourceUrl = localizeSourceUrl(req.query.url)
   if (!sourceUrl) return res.status(400).json({ error: 'url required' })
   const ff = spawn('ffprobe', [
     '-v', 'quiet', '-print_format', 'json', '-show_streams',
@@ -721,20 +1446,31 @@ app.get('/probe', (req, res) => {
   ff.on('close', () => {
     try {
       const { streams = [] } = JSON.parse(out)
-      res.json({
+      const result = {
         audioCodec: streams.find(s => s.codec_type === 'audio')?.codec_name || null,
         videoCodec: streams.find(s => s.codec_type === 'video')?.codec_name || null,
-      })
-    } catch { res.json({ audioCodec: null, videoCodec: null }) }
+      }
+      // Log what the client actually receives — null codecs make the player
+      // silently skip transcoding, which is indistinguishable downstream from
+      // "transcode was attempted and failed".
+      console.log(`[probe] -> audio=${result.audioCodec} video=${result.videoCodec}`)
+      res.json(result)
+    } catch {
+      console.warn('[probe] ffprobe output unparseable — returning null codecs (client will NOT transcode)')
+      res.json({ audioCodec: null, videoCodec: null })
+    }
   })
   ff.on('error', err => res.status(err.code === 'ENOENT' ? 500 : 500).json({ error: err.message }))
 })
 
 // ── Transcode ─────────────────────────────────────────────────────────────────
 app.get('/transcode', (req, res) => {
-  const { url: sourceUrl, t, tv, al } = req.query
-  if (!sourceUrl) return res.status(400).json({ error: 'url required' })
-  try { new URL(sourceUrl) } catch { return res.status(400).json({ error: 'Invalid URL' }) }
+  const { url: rawSourceUrl, t, tv, al } = req.query
+  if (!rawSourceUrl) return res.status(400).json({ error: 'url required' })
+  try { new URL(rawSourceUrl) } catch { return res.status(400).json({ error: 'Invalid URL' }) }
+  // Read our own files over loopback, never back out through the tunnel.
+  const sourceUrl = localizeSourceUrl(rawSourceUrl)
+  if (sourceUrl !== rawSourceUrl) console.log('[transcode] source localized to loopback')
 
   const startSec       = parseFloat(t)  || 0
   const transcodeVideo = tv === '1'
@@ -744,12 +1480,42 @@ app.get('/transcode', (req, res) => {
   if (startSec > 0) args.push('-ss', String(startSec))
   args.push('-i', sourceUrl)
   if (transcodeVideo) {
-    args.push('-map', '0:v:0', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-threads', '2')
+    // -pix_fmt yuv420p is REQUIRED, not cosmetic. Most HEVC rips are 10-bit
+    // (yuv420p10le); without this libx264 preserves that and emits H.264
+    // "High 10" profile, which no browser can decode — so the transcode
+    // "succeeded" and still played nothing, which is the exact failure this
+    // whole path exists to avoid. Forcing 8-bit yields plain High profile.
+    // veryfast rather than ultrafast: measured 3.1x realtime encoding at
+    // ultrafast, so there was plenty of CPU headroom being spent on bitrate
+    // instead of compression — it produced ~6.3 Mbps for 1080p, which a
+    // Cloudflare tunnel struggles to sustain. veryfast plus an explicit cap
+    // lands around 3-4 Mbps at similar quality and still encodes well ahead of
+    // playback. maxrate/bufsize also flatten the spikes that trigger rebuffering.
+    args.push('-map', '0:v:0', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+              '-maxrate', '4M', '-bufsize', '8M',
+              '-pix_fmt', 'yuv420p', '-threads', '2')
   } else {
     args.push('-map', '0:v:0', '-c:v', 'copy')
   }
   args.push('-map', audioLang ? `0:a:m:language:${audioLang}` : '0:a:0')
-  args.push('-c:a', 'aac', '-b:a', '128k', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1')
+  // Downmix to stereo: this endpoint is the compatibility fallback, and a 5.1
+  // AAC track is exactly the kind of thing a phone/browser silently refuses to
+  // render. -dn drops the stray data stream mkv sources carry into the mp4.
+  // +default_base_moof is REQUIRED for browsers, not optional tuning. Without
+  // it Chrome's demuxer never resolves fragment base offsets, so a <video>
+  // element receives megabytes of perfectly valid MP4 (ftyp/moov/moof all
+  // present, ffprobe reads it fine) and simply hangs — no loadedmetadata, no
+  // error event, just an eternal spinner. -dn drops the stray data track mkv
+  // sources otherwise carry into the mp4.
+  // -map_chapters -1 matters more than it looks: BluRay-sourced MKVs carry
+  // chapters, and the mp4 muxer turns those into a third "bin_data" track that
+  // -dn does NOT strip. ffprobe reads such a file happily, but a browser
+  // <video> element stalls on it forever — no loadedmetadata, no error, just a
+  // spinner — which is indistinguishable from a network hang. Dropping
+  // chapters leaves a clean h264+aac pair.
+  args.push('-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-dn', '-map_chapters', '-1',
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+            '-f', 'mp4', 'pipe:1')
 
   res.setHeader('Content-Type', 'video/mp4')
   res.setHeader('Cache-Control', 'no-cache')
@@ -1299,6 +2065,11 @@ function adminPage() {
     <div class="field">
       <label>Supabase Anon Key</label>
       <input type="text" id="supabaseAnonKey" value="${escHtml(config.supabaseAnonKey || '')}" placeholder="eyJ...">
+    </div>
+    <div class="field">
+      <label>API Token <span style="font-size:.8rem;color:rgba(255,255,255,.4)">(paste into the desktop app's Settings → Companion Server)</span></label>
+      <input type="text" readonly value="${escHtml(config.serverToken || '')}" onclick="this.select()" style="font-family:monospace;font-size:.8rem;opacity:.85">
+      <p style="margin:.35rem 0 0;font-size:.8rem;color:rgba(255,255,255,.4)">The desktop app talks to this server cross-origin, so it can't rely on your browser login cookie — paste this token in once and it authenticates every request instead.</p>
     </div>
     <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
   </div>
@@ -1904,6 +2675,42 @@ async function startTunnel() {
   if (!bin) {
     console.log('   Tunnel: cloudflared not found — using manual tunnel URL from config.json')
     return
+  }
+
+  // A named tunnel (`cloudflared tunnel login` + `tunnel create` + `tunnel
+  // route dns`, see ~/.cloudflared/config.yml) gives a stable hostname that
+  // survives restarts — unlike the ephemeral --url quick-tunnel mode below,
+  // whose *.trycloudflare.com URL is randomly regenerated every single spawn.
+  // That randomness is what made the Server Admin panel and config.json
+  // disagree on the "current" URL across multiple instances/restarts, and
+  // made Supabase OAuth redirect allowlisting impossible (can't allowlist a
+  // URL that changes every launch). Prefer the named tunnel whenever one's
+  // configured; fall back to the quick tunnel for anyone who hasn't set one up.
+  const namedConfigPath = path.join(os.homedir(), '.cloudflared', 'config.yml')
+  if (fs.existsSync(namedConfigPath)) {
+    const yml = fs.readFileSync(namedConfigPath, 'utf8')
+    const hostnameMatch = yml.match(/hostname:\s*(\S+)/)
+    if (hostnameMatch) {
+      const stableUrl = `https://${hostnameMatch[1]}`
+      console.log(`   Tunnel: starting named cloudflared tunnel (${bin}) → ${stableUrl}`)
+      // --no-autoupdate is a top-level flag, not a `tunnel run` flag — passing
+      // it after `run` makes cloudflared reject it and print usage + exit(0),
+      // which looked like a silent no-op failure (no error, tunnel just never came up).
+      tunnelProc = spawn(bin, ['--no-autoupdate', 'tunnel', 'run'], { stdio: ['ignore', 'pipe', 'pipe'] })
+      // Known upfront — no need to scrape stdout for a URL like the quick-tunnel path does.
+      if (stableUrl !== config.tunnelUrl) {
+        config.tunnelUrl = stableUrl
+        saveConfig()
+        registerWithRelay()
+      }
+      tunnelProc.stdout.on('data', d => console.log(`   Tunnel: ${d.toString().trim()}`))
+      tunnelProc.stderr.on('data', d => console.log(`   Tunnel: ${d.toString().trim()}`))
+      tunnelProc.on('exit', code => {
+        console.warn(`   Tunnel: cloudflared exited (code ${code}) — remote access may be unavailable`)
+        tunnelProc = null
+      })
+      return
+    }
   }
 
   console.log(`   Tunnel: starting cloudflared (${bin})…`)

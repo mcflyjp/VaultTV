@@ -8,7 +8,7 @@
  * All requests go to 127.0.0.1 only — nothing leaves your machine.
  */
 
-const COMPANION_PORT = 8080
+export const COMPANION_PORT = 8080
 
 function getCompanionBase() {
   // When served by VaultTV Server, all routes are on the same origin — no port needed.
@@ -28,6 +28,50 @@ function getCompanionBase() {
 Object.defineProperty(window, '__companionBase', { get: getCompanionBase, configurable: true })
 const BASE = { toString() { return getCompanionBase() } }
 
+/**
+ * Fetch the server's configured remote-access (Cloudflare Tunnel) URL.
+ * Goes through the actual companion base + auth token, unlike the old
+ * relative /internal/status fetch this replaced — that one only worked when
+ * already browsing the server's own origin. Resolves to '' if unreachable.
+ */
+export async function fetchRemoteAccess() {
+  try {
+    const r = await fetch(`${BASE}/api/remote-access`, { credentials: 'include', headers: authHeaders() })
+    if (!r.ok) return ''
+    return (await r.json()).tunnelUrl || ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * The server's LAN base URL, cached after first lookup.
+ *
+ * Only used for casting. The phone itself must stay on the HTTPS tunnel (its
+ * WebView blocks http:// media from an https:// page), but the Cast device is
+ * native and has no such restriction — so pointing the TV at the LAN address
+ * keeps the stream local instead of round-tripping through Cloudflare.
+ */
+let _lanUrl = null
+export async function getLanBaseUrl() {
+  if (_lanUrl !== null) return _lanUrl
+  try {
+    const r = await fetch(`${BASE}/api/remote-access`, { credentials: 'include', headers: authHeaders() })
+    _lanUrl = r.ok ? ((await r.json()).lanUrl || '') : ''
+  } catch { _lanUrl = '' }
+  return _lanUrl
+}
+
+/** Swap a companion URL's origin for the LAN one, when we know it. */
+export function toLanUrl(url, lanBase) {
+  if (!url || !lanBase) return url
+  try {
+    const u = new URL(url), l = new URL(lanBase)
+    u.protocol = l.protocol; u.hostname = l.hostname; u.port = l.port
+    return u.toString()
+  } catch { return url }
+}
+
 /** Check if companion is reachable. Resolves to true/false. */
 export async function pingCompanion() {
   try {
@@ -44,7 +88,7 @@ export async function pingCompanion() {
 
 /** List folders the companion is watching */
 export async function listWatchedFolders() {
-  const r = await fetch(`${BASE}/folders`)
+  const r = await fetch(`${BASE}/folders`, { credentials: 'include', headers: authHeaders() })
   if (!r.ok) throw new Error('Companion request failed')
   return r.json()
 }
@@ -56,7 +100,8 @@ export async function listWatchedFolders() {
 export async function addWatchedFolder({ id, folderPath, type, name }) {
   const r = await fetch(`${BASE}/folders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ id, folderPath, type, name }),
   })
   if (!r.ok) {
@@ -68,7 +113,7 @@ export async function addWatchedFolder({ id, folderPath, type, name }) {
 
 /** Tell the companion to stop watching a folder */
 export async function removeWatchedFolder(id) {
-  await fetch(`${BASE}/folders/${id}`, { method: 'DELETE' })
+  await fetch(`${BASE}/folders/${id}`, { method: 'DELETE', credentials: 'include', headers: authHeaders() })
 }
 
 /**
@@ -79,7 +124,7 @@ export async function scanFolder(id) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 30_000)
   try {
-    const r = await fetch(`${BASE}/folders/${id}/scan`, { signal: ctrl.signal })
+    const r = await fetch(`${BASE}/folders/${id}/scan`, { signal: ctrl.signal, credentials: 'include', headers: authHeaders() })
     if (!r.ok) throw new Error(`Companion scan failed: ${r.status}`)
     return r.json() // { id, count, files: [{ name, path, rootFolder }] }
   } finally { clearTimeout(timer) }
@@ -91,9 +136,14 @@ export async function scanFolder(id) {
  */
 export async function fetchLibrary() {
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 5000)
+  // Unlike other companion calls, this one's payload scales with library
+  // size (multi-MB JSON once a couple thousand files are scanned) — 5s was
+  // fine on LAN but silently aborted on slower/higher-latency connections
+  // (phone over a tunnel, etc.), which looked exactly like "new files never
+  // show up on my phone" with no visible error anywhere.
+  const timer = setTimeout(() => ctrl.abort(), 30_000)
   try {
-    const r = await fetch(`${BASE}/library`, { signal: ctrl.signal })
+    const r = await fetch(`${BASE}/library`, { signal: ctrl.signal, credentials: 'include', headers: authHeaders() })
     if (!r.ok) throw new Error(`Library fetch failed: ${r.status}`)
     return r.json()
   } finally { clearTimeout(timer) }
@@ -109,7 +159,8 @@ export async function saveLibrary(data) {
   try {
     await fetch(`${BASE}/library`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(data),
       signal: ctrl.signal,
     })
@@ -118,100 +169,223 @@ export async function saveLibrary(data) {
 
 // ── ROM library (RetroArch) — server/index.js (Media Server) only for now ────
 
+/**
+ * Parse a roms response as JSON, but give a clear error instead of a cryptic
+ * "Unexpected token '<'" crash when the response is actually HTML — which
+ * happens if the request got redirected to the login page (session cookie
+ * missing/expired) or fell through to the SPA catch-all (route doesn't exist
+ * on whatever build is actually running).
+ */
+async function romsJson(r, fallbackMsg) {
+  const ct = r.headers.get('content-type') || ''
+  if (!ct.includes('application/json')) {
+    if (r.redirected && /__login/.test(r.url)) {
+      throw new Error('Not logged in to Media Server — open it in a browser and sign in, then retry')
+    }
+    throw new Error(`${fallbackMsg} (Media Server didn't return JSON — it may need restarting after an update)`)
+  }
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || fallbackMsg)
+  }
+  return r.json()
+}
+
 /** List configured ROM folders */
 export async function listRomFolders() {
-  const r = await fetch(`${BASE}/roms/folders`)
-  if (!r.ok) throw new Error('Failed to list ROM folders')
-  return r.json()
+  const r = await fetch(`${BASE}/roms/folders`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to list ROM folders')
 }
 
 /** Add a ROM folder to scan. @param {{id, folderPath, name}} opts */
 export async function addRomFolder({ id, folderPath, name }) {
   const r = await fetch(`${BASE}/roms/folders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ id, folderPath, name }),
   })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    throw new Error(err.error || 'Failed to add ROM folder')
-  }
-  return r.json()
+  return romsJson(r, 'Failed to add ROM folder')
 }
 
 /** Remove a ROM folder */
 export async function removeRomFolder(id) {
-  await fetch(`${BASE}/roms/folders/${id}`, { method: 'DELETE' })
+  await fetch(`${BASE}/roms/folders/${id}`, { method: 'DELETE', credentials: 'include', headers: authHeaders() })
 }
 
-/** Scan a ROM folder — returns { id, games, count }. Each game: { name, filename, path, ext, platform } */
+/** Scan a ROM folder — returns { id, games, count }. Each game: { name, filename, path, ext, platform, boxArt } */
 export async function scanRomFolder(id) {
-  const r = await fetch(`${BASE}/roms/folders/${id}/scan`)
-  if (!r.ok) throw new Error(`ROM scan failed: ${r.status}`)
-  return r.json()
+  const r = await fetch(`${BASE}/roms/folders/${id}/scan`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'ROM scan failed')
 }
 
 /** Get the configured RetroArch executable path. Returns { path, exists } */
 export async function getRetroarchPath() {
-  const r = await fetch(`${BASE}/roms/retroarch`)
-  if (!r.ok) throw new Error('Failed to get RetroArch path')
-  return r.json()
+  const r = await fetch(`${BASE}/roms/retroarch`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to get RetroArch path')
 }
 
 /** Set the RetroArch executable path (any local or mapped-network-drive path) */
 export async function setRetroarchPath(exePath) {
   const r = await fetch(`${BASE}/roms/retroarch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ path: exePath }),
   })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    throw new Error(err.error || 'Failed to set RetroArch path')
-  }
-  return r.json()
+  return romsJson(r, 'Failed to set RetroArch path')
 }
 
 /** Check common local install paths for RetroArch. Returns { found: string|null } */
 export async function detectRetroarch() {
-  const r = await fetch(`${BASE}/roms/retroarch/detect`)
-  if (!r.ok) throw new Error('Detect failed')
-  return r.json()
+  const r = await fetch(`${BASE}/roms/retroarch/detect`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Detect failed')
 }
 
 /** Launch a game via RetroArch. @param {{romPath: string, ext: string}} opts */
 export async function launchGame({ romPath, ext }) {
   const r = await fetch(`${BASE}/roms/launch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ romPath, ext }),
   })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    throw new Error(err.error || 'Failed to launch game')
-  }
-  return r.json()
+  return romsJson(r, 'Failed to launch game')
 }
 
-/** Check whether a TheGamesDB API key is configured (never returns the key itself). */
-export async function getGamesDbKeyStatus() {
-  const r = await fetch(`${BASE}/roms/gamesdb-key`)
-  if (!r.ok) throw new Error('Failed to check GamesDB key status')
-  return r.json() // { hasKey }
-}
-
-/** Set the TheGamesDB API key — used server-side only to scrape box art. */
-export async function setGamesDbKey(key) {
-  const r = await fetch(`${BASE}/roms/gamesdb-key`, {
+/** Manually set (or clear, with url: '') box art for a game, overriding the scraper. */
+export async function setGameArtwork({ platform, name, url }) {
+  const r = await fetch(`${BASE}/roms/artwork`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ platform, name, url }),
+  })
+  return romsJson(r, 'Failed to save box art')
+}
+
+/** Scrape box art for every not-yet-cached game across all ROM folders. Returns { count } */
+export async function scrapeAllArtwork() {
+  const r = await fetch(`${BASE}/roms/artwork/scrape-all`, { method: 'POST', credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to start scraping')
+}
+
+/** Force a fresh IGDB lookup for one game, bypassing the cache. `query` optionally
+ *  overrides the search term sent to IGDB. Returns { boxArt } */
+export async function rescanGameArtwork({ platform, name, query }) {
+  const r = await fetch(`${BASE}/roms/artwork/rescan`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ platform, name, query }),
+  })
+  return romsJson(r, 'Failed to rescan box art')
+}
+
+/** Check whether IGDB credentials are configured (never returns the secret itself). */
+export async function getIgdbKeyStatus() {
+  const r = await fetch(`${BASE}/roms/igdb-key`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to check IGDB credential status') // { hasKey, quotaExceededAt }
+}
+
+/** Set the IGDB (Twitch dev app) Client ID + Secret — used server-side only to scrape box art. */
+export async function setIgdbKeys(clientId, clientSecret) {
+  const r = await fetch(`${BASE}/roms/igdb-key`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ clientId, clientSecret }),
+  })
+  return romsJson(r, 'Failed to save IGDB credentials')
+}
+
+// ── Reading library (comics + ebooks) — server/index.js (Media Server) only ──
+
+/** List configured comic/book folders */
+export async function listReadingFolders() {
+  const r = await fetch(`${BASE}/reading/folders`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to list reading folders')
+}
+
+/** Add a comic/book folder to scan. @param {{id, folderPath, name}} opts */
+export async function addReadingFolder({ id, folderPath, name, category }) {
+  const r = await fetch(`${BASE}/reading/folders`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ id, folderPath, name, category }),
+  })
+  return romsJson(r, 'Failed to add reading folder')
+}
+
+/** Remove a comic/book folder */
+export async function removeReadingFolder(id) {
+  await fetch(`${BASE}/reading/folders/${id}`, { method: 'DELETE', credentials: 'include', headers: authHeaders() })
+}
+
+/** Scan a comic/book folder — returns { id, items, count }. Each item: { name, filename, path, ext, kind } */
+export async function scanReadingFolder(id) {
+  const r = await fetch(`${BASE}/reading/folders/${id}/scan`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Reading folder scan failed')
+}
+
+/**
+ * Fetch a comic/book file's raw bytes as an ArrayBuffer, for client-side
+ * parsing (jszip for CBZ, epub.js for EPUB, pdf.js for PDF). Auth can't be
+ * passed via URL query to a plain <img>/<iframe> src, so this always goes
+ * through fetch() with the same credentials/token as everything else.
+ */
+export async function fetchReadingFile(filePath) {
+  const r = await fetch(`${BASE}/reading/file?path=${encodeURIComponent(filePath)}`, { credentials: 'include', headers: authHeaders() })
+  if (!r.ok) throw new Error(`Failed to load file (${r.status})`)
+  return r.arrayBuffer()
+}
+
+/** Manually set (or clear, with url: '') cover art for a comic/book, overriding the scraper. */
+export async function setReadingArtwork({ kind, name, url }) {
+  const r = await fetch(`${BASE}/reading/artwork`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ kind, name, url }),
+  })
+  return romsJson(r, 'Failed to save cover art')
+}
+
+/** Force a fresh cover-art lookup for one item, bypassing the cache. `year`/`issueNumber`
+ *  correct what filename-parsing guessed and are saved server-side so future scrapes
+ *  (including unattended ones) keep using them. Returns { cover } */
+export async function rescanReadingArtwork({ kind, name, query, year, issueNumber }) {
+  const r = await fetch(`${BASE}/reading/artwork/rescan`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ kind, name, query, year, issueNumber }),
+  })
+  return romsJson(r, 'Failed to rescan cover art')
+}
+
+/** Scrape cover art for every not-yet-cached item across all reading folders. Returns { count } */
+export async function scrapeAllReadingArtwork() {
+  const r = await fetch(`${BASE}/reading/artwork/scrape-all`, { method: 'POST', credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to start scraping')
+}
+
+/** Check whether an (optional) ComicVine API key is configured. */
+export async function getComicVineKeyStatus() {
+  const r = await fetch(`${BASE}/reading/comicvine-key`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to check ComicVine key status') // { hasKey, quotaExceededAt }
+}
+
+/** Set (or clear, with '') the optional ComicVine API key — improves comic cover accuracy. */
+export async function setComicVineKey(key) {
+  const r = await fetch(`${BASE}/reading/comicvine-key`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ key }),
   })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    throw new Error(err.error || 'Failed to save GamesDB key')
-  }
-  return r.json()
+  return romsJson(r, 'Failed to save ComicVine key')
 }
 
 /**
@@ -238,7 +412,13 @@ export async function probeAudioCodec(sourceUrl) {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 6000)
     try {
-      const r = await fetch(`${BASE}/probe?url=${encodeURIComponent(sourceUrl)}`, { signal: ctrl.signal })
+      // Needs auth like every other /api-ish route. Without these it silently
+      // followed the /__login redirect, got HTML, failed to parse as JSON and
+      // returned null — indistinguishable from "companion offline", so the
+      // caller just skipped transcoding entirely and played nothing.
+      const r = await fetch(`${BASE}/probe?url=${encodeURIComponent(sourceUrl)}`, {
+        signal: ctrl.signal, credentials: 'include', headers: authHeaders(),
+      })
       if (!r.ok) return null
       const data = await r.json()
       return { audioCodec: data.audioCodec || null, videoCodec: data.videoCodec || null }
@@ -277,6 +457,11 @@ export function transcodeUrl(sourceUrl, startSec = 0, transcodeVideo = false, au
   if (startSec > 0) params.set('t', String(Math.floor(startSec)))
   if (transcodeVideo) params.set('tv', '1')
   if (audioLang) params.set('al', audioLang)
+  // This URL is assigned straight to <video src>, which can't send an auth
+  // header and won't carry a SameSite=Lax cookie cross-site — so the token
+  // rides along in the query string (server/index.js requireAuth accepts it).
+  const token = localStorage.getItem('vt-companion-token')
+  if (token) params.set('token', token)
   return `${BASE}/transcode?${params}`
 }
 

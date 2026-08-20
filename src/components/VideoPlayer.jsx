@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
 import { useLanguage } from '../context/LanguageContext'
+import { useCast } from '../context/CastContext'
 import Hls from 'hls.js'
-import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode, pingCompanion } from '../lib/companion'
+import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode, pingCompanion, COMPANION_PORT, getLanBaseUrl, toLanUrl } from '../lib/companion'
 import { IS_ELECTRON } from '../lib/platform'
 import { fetchCompanionSub } from '../lib/subtitles'
 import {
@@ -10,7 +11,7 @@ import {
   FiMaximize, FiMinimize, FiX, FiSettings, FiChevronLeft,
 } from 'react-icons/fi'
 import {
-  MdSubtitles, MdAudiotrack, MdSpeed, MdSyncAlt, MdHighQuality,
+  MdSubtitles, MdAudiotrack, MdSpeed, MdSyncAlt, MdHighQuality, MdCast, MdCastConnected,
 } from 'react-icons/md'
 
 const HIDE_DELAY = 3000
@@ -48,6 +49,8 @@ function fmt(s) {
 export default function VideoPlayer() {
   const { session, closePlayer } = usePlayer()
   const { subLang, audioLang, autoFetchSubs, savePrefs, LANGUAGES } = useLanguage()
+  const cast = useCast()
+  const [castingThis, setCastingThis] = useState(false) // true once *this* session's media loaded onto the active cast session
 
   const videoRef     = useRef(null)
   const containerRef = useRef(null)
@@ -98,16 +101,35 @@ export default function VideoPlayer() {
   const [error,        setError]        = useState('')
   const [audioWarning, setAudioWarning] = useState('')   // codec/no-audio warning
   const [transcoding,  setTranscoding]  = useState(false) // currently using companion transcode
+  const [transcodeKind, setTranscodeKind] = useState('')  // 'video+audio' | 'audio'
+  // The badge is informational, not a live status readout — it used to sit
+  // pinned on screen for the entire episode. Flash it when the swap happens,
+  // then get out of the way.
+  const [showTranscodeBadge, setShowTranscodeBadge] = useState(false)
   const [buffering,    setBuffering]    = useState(true)  // true while video is loading/stalled
   const [showNoAudio,  setShowNoAudio]  = useState(false) // "No audio?" hint for first 8s
   const noAudioTimer = useRef(null)
   const rawUrlRef = useRef('')                             // original URL before transcoding
+  // Seconds of the title that the CURRENT src already skips past. A transcode
+  // URL bakes the resume point in via ffmpeg -ss, so its own timeline starts
+  // at 0 there; everything else is 0. Used to avoid double-seeking and to keep
+  // saved progress in title-time rather than stream-time. A ref, not state,
+  // because onLoadedMetadata can fire before a setState would be visible.
+  const srcStartOffsetRef = useRef(0)
+  // Whether a Web Audio graph can legally be built over the current source —
+  // see the crossOrigin decision in the load effect.
+  const canUseWebAudioRef = useRef(true)
   const [hoverTime,      setHoverTime]      = useState(null)  // for progress tooltip
   const [hoverX,         setHoverX]         = useState(0)
   const [timelineActive, setTimelineActiveState] = useState(false)
   const [backToast, setBackToast] = useState(false)
   const [upNextCountdown, setUpNextCountdown] = useState(null) // null | number (seconds left)
   const upNextTimer = useRef(null)
+  // Sticky "user said no" flag. dismissUpNext() only used to null the
+  // countdown, but onTimeUpdate re-evaluates ~4x/sec and its trigger
+  // condition (`upNextCountdown === null`) was true again the instant it
+  // was dismissed — so Cancel just made the banner reappear immediately.
+  const upNextDismissed = useRef(false)
   const backToastTimer  = useRef(null)
   const backPressedOnce = useRef(false)
   // FireTV scrubbing state
@@ -160,15 +182,17 @@ export default function VideoPlayer() {
     setBuffered(0); setError(''); setAudioWarning(''); setQualities([]); setQuality(-1)
     setAudioTracks([]); setAudioTrack(0); setAudioDelay(0)
     setManualSubUrl(''); setSubOffset(0); setPlaybackRate(1)
-    setSettingsOpen(false); setTranscoding(false); setAutoSubFetching(false)
+    setSettingsOpen(false); setTranscoding(false); setTranscodeKind(''); setAutoSubFetching(false)
     setBuffering(true); setShowNoAudio(false); setShowControls(true)
     clearTimeout(noAudioTimer.current)
     clearInterval(upNextTimer.current)
     setUpNextCountdown(null)
+    upNextDismissed.current = false  // new episode — offer Up Next again
     // Auto-hide controls after a moment on each new episode load
     clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => setShowControls(false), HIDE_DELAY)
     rawUrlRef.current = session.url || ''
+    srcStartOffsetRef.current = 0   // fresh source — nothing skipped yet
 
     // Auto-select subtitle track by preferred language, fall back to English then first
     const tracks = session.subtitleTracks || []
@@ -211,17 +235,42 @@ export default function VideoPlayer() {
 
       if (!src) { setError('No stream URL provided.'); return }
 
-      const isCompanion = src.includes(':7842/')
-      const isRemote    = src.startsWith('http') && !isCompanion
+      // Identify streams coming from our own server. This used to only match
+      // ':7842/' — the legacy standalone companion/server.js port — so files
+      // served by the VaultTV Media Server (port 8080, what everyone actually
+      // runs now) were misclassified as external addon streams: no
+      // crossOrigin for the Web Audio API, and routed down the isRemote
+      // probe/transcode path meant for third-party sources. Match either
+      // server, and prefer an exact base-URL match over a bare port sniff so
+      // a remote stream that happens to use the same port isn't caught.
+      const companionBase = (window.__companionBase || '').replace(/\/$/, '')
+      const isCompanion = (companionBase && src.startsWith(companionBase))
+        || src.includes(':7842/')
+        || src.includes(`:${COMPANION_PORT}/`)
 
-      // Companion URLs need crossOrigin="anonymous" for the Web Audio API.
-      // External URLs must NOT have it set — CORS headers on stream servers
-      // are inconsistent and setting crossOrigin causes many streams to fail.
-      if (isCompanion) {
-        video.crossOrigin = 'anonymous'
-      } else {
-        video.removeAttribute('crossOrigin')
-      }
+      // crossOrigin="anonymous" buys the Web Audio API an untainted source, but
+      // it also forces a CORS check on the media load itself — and that is not
+      // free everywhere.
+      //
+      // In the Android app the page is https://vaulttv.pages.dev while the
+      // companion is http:// on the LAN. WebView permits that mixed-content
+      // media load ONLY while it carries no CORS requirement; set crossOrigin
+      // and the request is blocked before it ever leaves the app (server logs
+      // showed zero WebView-originated /stream hits — only ffprobe's). So the
+      // element must stay CORS-free whenever the load is mixed-content.
+      let sameOrigin = false
+      try { sameOrigin = new URL(src, location.href).origin === location.origin } catch { /* blob:, etc. */ }
+      const mixedContent = location.protocol === 'https:' && src.startsWith('http:')
+      const useCors = isCompanion && !mixedContent && !sameOrigin
+
+      if (useCors) video.crossOrigin = 'anonymous'
+      else video.removeAttribute('crossOrigin')
+
+      // Without CORS on a cross-origin element, createMediaElementSource()
+      // yields a tainted node that outputs pure silence — so the Web Audio
+      // graph has to be skipped, not merely unused. Volume/mute fall back to
+      // the element's own controls (see changeVolume's gainRef null branch).
+      canUseWebAudioRef.current = sameOrigin || useCors
 
       // ── Start playback immediately — don't wait for codec probe ──────────
       // Probing via companion takes 1-6s. If we await it before calling
@@ -304,7 +353,15 @@ export default function VideoPlayer() {
       // Runs after playback has already started. If the companion is offline
       // this resolves to null quickly and we do nothing. If codecs are bad,
       // we seamlessly restart at the current timestamp via the transcode URL.
-      if (isRemote) {
+      //
+      // Probes ANY http(s) source, not just non-companion ones. Files served
+      // by our own server are the case that needs this most: an HEVC/10-bit
+      // rip plays fine in Electron (native decode) but no browser will touch
+      // it, so a phone got a silent/blank player and no transcode was ever
+      // attempted. The old `isRemote` gate here predated the Media Server and
+      // meant "not one of ours" — which silently excluded every local file.
+      // Electron still skips the actual swap via the IS_ELECTRON checks below.
+      if (src.startsWith('http')) {
         probeCodecs(src).then(codecs => {
           if (!codecs) return  // companion offline — native playback continues
           let { needed, transcodeVideo } = needsTranscode(codecs)
@@ -322,11 +379,16 @@ export default function VideoPlayer() {
           const al = audioLang && streamLangs.includes(audioLang) ? audioLang : ''
           const tUrl    = transcodeUrl(src, seekTo, transcodeVideo, al)
 
-          // Tear down HLS if active, swap src to transcode stream
+          // Tear down HLS if active, swap src to transcode stream.
+          // Same CORS rule as the initial load — forcing crossOrigin on a
+          // mixed-content URL blocks the request outright in Android WebView.
           if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
-          video.crossOrigin = 'anonymous'
+          if (useCors) video.crossOrigin = 'anonymous'
+          else video.removeAttribute('crossOrigin')
           video.src = tUrl
+          srcStartOffsetRef.current = seekTo   // tUrl starts here; see onLoadedMetadata
           video.play().catch(() => {})
+          setTranscodeKind(transcodeVideo ? 'video+audio' : 'audio')
           setTranscoding(true)
         }).catch(() => {})  // probe fetch error — ignore, native playback continues
       }
@@ -418,6 +480,9 @@ export default function VideoPlayer() {
   function initAudio() {
     const video = videoRef.current
     if (!video || audioCtxRef.current) return
+    // Bail out when the source is cross-origin without CORS: routing it through
+    // createMediaElementSource() would silence it outright.
+    if (!canUseWebAudioRef.current) return
     try {
       const ctx      = new AudioContext()
       const source   = ctx.createMediaElementSource(video)
@@ -490,10 +555,22 @@ export default function VideoPlayer() {
       setCurrentTime(v.currentTime)
       if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1))
       if (progressRef.current) progressRef.current.value = v.currentTime
-      session?.onProgress?.(v.currentTime, v.duration)
+      // Report in title-time, not stream-time: a transcoded stream's clock
+      // restarts at 0 from the seek point, so without the offset resuming at
+      // 20 min would save "2 min" and wipe the real position.
+      const off = srcStartOffsetRef.current
+      session?.onProgress?.(v.currentTime + off, off ? v.duration + off : v.duration)
 
-      // Up Next countdown — only for TV episodes with a next-ep handler
-      if (session?.onEpisodeEnded && session?.episode) {
+      // Up Next countdown — only for TV episodes with a next-ep handler.
+      //
+      // Skipped entirely while transcoding: that stream is a fragmented MP4
+      // piped straight out of ffmpeg (-movflags frag_keyframe+empty_moov,
+      // -f mp4 pipe:1) with no duration in its header, so the browser reports
+      // a placeholder that tracks how much has buffered rather than the real
+      // runtime. `duration - currentTime` was therefore tiny from the first
+      // seconds of playback and fired Up Next immediately. Auto-advance still
+      // works on those streams — onEnded() calls onEpisodeEnded() directly.
+      if (session?.onEpisodeEnded && session?.episode && !transcoding && !upNextDismissed.current) {
         const timeLeft = v.duration - v.currentTime
         if (timeLeft <= 30 && timeLeft > 0 && upNextCountdown === null) {
           // Start countdown
@@ -513,6 +590,7 @@ export default function VideoPlayer() {
   function dismissUpNext() {
     clearInterval(upNextTimer.current)
     setUpNextCountdown(null)
+    upNextDismissed.current = true  // stays dismissed until the next episode loads
   }
 
   function onWaiting() { setBuffering(true) }
@@ -521,8 +599,15 @@ export default function VideoPlayer() {
   function onLoadedMetadata(e) {
     const v = e.currentTarget
     if (v.duration && isFinite(v.duration)) setDuration(v.duration)
-    // Apply resume position now that the video is seekable
-    if (session?.startTime && v.currentTime < session.startTime) {
+    // Apply resume position now that the video is seekable — but ONLY for a
+    // direct, seekable source. A transcode URL already begins at the resume
+    // point, so its currentTime starts at 0 and this test looked "unresumed";
+    // seeking again pushed it another startTime seconds in. The transcode is a
+    // live ffmpeg pipe with no seekable range, so the browser aborted and
+    // re-requested — spawning a second ffmpeg and looping forever instead of
+    // ever playing. Symptom: two concurrent hevc decoders in the server log
+    // plus "Stream ends prematurely".
+    if (!srcStartOffsetRef.current && session?.startTime && v.currentTime < session.startTime) {
       v.currentTime = session.startTime
     }
     setAudioWarning('')
@@ -538,6 +623,26 @@ export default function VideoPlayer() {
   function onError(e)  {
     const v = e.currentTarget
     const code = v.error?.code
+    // Ship the failure to the server log. Inside the Android WebView there are
+    // no devtools, so this is the only way to see what actually went wrong
+    // rather than inferring it from which requests did/didn't arrive.
+    try {
+      fetch(`${window.__companionBase}/clientlog`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          at: 'video.onError',
+          code,
+          message: v.error?.message || '',
+          src: (v.currentSrc || v.src || '').slice(0, 160),
+          crossOrigin: v.crossOrigin,
+          transcoding,
+          pageProtocol: location.protocol,
+          companionBase: String(window.__companionBase),
+          build: 'xorigin-fix-1',
+        }),
+      }).catch(() => {})
+    } catch { /* never let diagnostics break playback */ }
     // MediaError codes: 1=aborted, 2=network, 3=decode, 4=not supported
     if (code === 4 || code === 3) {
       // On FireTV the companion is never available — ExoPlayer should handle codecs.
@@ -574,15 +679,135 @@ export default function VideoPlayer() {
 
     // On Electron, HEVC is supported natively — only transcode audio
     const doTranscodeVideo = !IS_ELECTRON
-    const tUrl = transcodeUrl(src, Math.floor(video.currentTime || 0), doTranscodeVideo)
+    const seekTo = Math.floor(video.currentTime || 0)
+    const tUrl = transcodeUrl(src, seekTo, doTranscodeVideo)
+    srcStartOffsetRef.current = seekTo   // tUrl starts here; see onLoadedMetadata
+    setTranscodeKind(doTranscodeVideo ? 'video+audio' : 'audio')
     setTranscoding(true)
     setAudioWarning('')
     setError('')
     setShowNoAudio(false)
-    video.crossOrigin = 'anonymous'
+    // Only request CORS when the load isn't mixed-content — otherwise Android
+    // WebView blocks it before it leaves the app (see the load effect).
+    if (location.protocol === 'https:' && tUrl.startsWith('http:')) {
+      video.removeAttribute('crossOrigin')
+      canUseWebAudioRef.current = false
+    } else {
+      video.crossOrigin = 'anonymous'
+    }
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
     video.src = tUrl
     video.play().catch(() => {})
+  }
+
+  // ── Cast ─────────────────────────────────────────────────────
+  // Two independent routes to a TV, because one alone doesn't cover both:
+  //
+  //  1. Google Cast Web Sender SDK (CastContext) — desktop Chrome/Edge.
+  //  2. Remote Playback API (`video.remote`) — the standards-based route that
+  //     Chrome for Android actually exposes. The Cast SDK is documented
+  //     ambiguously for mobile and in practice `window.chrome.cast` is often
+  //     absent there, which is why no button appeared on a phone at all.
+  //
+  // Route 2 casts whatever the <video> is currently playing, which is exactly
+  // what we want: by the time it matters we've already swapped to the
+  // transcoded H.264/AAC stream, so the TV gets something it can decode.
+  const [remoteAvailable, setRemoteAvailable] = useState(false)
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v?.remote?.watchAvailability) return
+    let cancelled = false
+    let watchId = null
+    v.remote.watchAvailability(isAvailable => {
+      if (!cancelled) setRemoteAvailable(isAvailable)
+    }).then(id => {
+      watchId = id
+      // Element unmounted/session changed before the promise settled
+      if (cancelled && watchId != null) v.remote.cancelWatchAvailability(watchId).catch(() => {})
+    }).catch(() => {}) // unsupported or disallowed — Cast SDK path still applies
+    return () => {
+      cancelled = true
+      setRemoteAvailable(false)
+      if (watchId != null) v.remote.cancelWatchAvailability(watchId).catch(() => {})
+    }
+  }, [session?.url])
+
+  // Reset "casting this" state on session change or full disconnect — a stale
+  // true here would show the casting overlay for a video that was never sent.
+  const castRequested = useRef(false)
+  useEffect(() => { setCastingThis(false); castRequested.current = false }, [session?.url])
+  useEffect(() => {
+    if (cast.connected) { if (castRequested.current) setCastingThis(true) }
+    else { setCastingThis(false); castRequested.current = false }
+  }, [cast.connected])
+
+  useEffect(() => {
+    if (!transcoding) { setShowTranscodeBadge(false); return }
+    setShowTranscodeBadge(true)
+    const t = setTimeout(() => setShowTranscodeBadge(false), 5000)
+    return () => clearTimeout(t)
+  }, [transcoding])
+
+  function guessContentType(url) {
+    const clean = (url || '').split('?')[0].toLowerCase()
+    if (clean.endsWith('.m3u8')) return 'application/x-mpegURL'
+    if (clean.endsWith('.mkv'))  return 'video/x-matroska'
+    if (clean.endsWith('.webm')) return 'video/webm'
+    return 'video/mp4'
+  }
+
+  async function handleCast() {
+    if (castingThis) { cast.stopCasting(); setCastingThis(false); return }
+    const v = videoRef.current
+
+    // No Cast SDK on this platform (typically mobile) — hand off to the
+    // Remote Playback API. The browser owns the device picker and keeps the
+    // <video> as the controller, so there's no overlay state to track here.
+    if (!cast.available && remoteAvailable && v?.remote?.prompt) {
+      try { await v.remote.prompt() } catch { /* user dismissed the picker */ }
+      return
+    }
+
+    // Normally cast the original source and let the TV pull it directly,
+    // skipping our transcode pipe. But when we're already transcoding, the
+    // original is precisely what the browser couldn't decode (e.g. 10-bit
+    // HEVC), and most Cast devices can't either — so send the transcoded
+    // H.264/AAC stream we're actually playing instead.
+    let castUrl = transcoding
+      ? (v?.currentSrc || session?.url)
+      : (session?.rawStreamUrl || session?.url)
+    if (!castUrl || castUrl.startsWith('blob:')) return
+
+    // Hand the TV the LAN address when there is one. The phone is pinned to the
+    // HTTPS tunnel because its WebView refuses http:// media from an https://
+    // page, but a Cast receiver is a native device with no such rule — and
+    // routing a ~6 Mbps stream out to Cloudflare and back, to a TV sitting on
+    // the same switch as the server, is what made casting rebuffer. Only
+    // rewrite URLs that point at our own companion; addon streams stay as-is.
+    try {
+      const companionBase = (window.__companionBase || '').replace(/\/$/, '')
+      if (companionBase && castUrl.startsWith(companionBase)) {
+        const lan = await getLanBaseUrl()
+        if (lan) castUrl = toLanUrl(castUrl, lan)
+      }
+    } catch { /* fall back to whatever URL we already had */ }
+
+    try {
+      await cast.loadMedia({
+        url: castUrl, title, poster: session?.poster,
+        contentType: guessContentType(castUrl),
+      })
+      if (v && !v.paused) v.pause()
+      // On the native (APK) bridge loadMedia is fire-and-forget: the device
+      // picker is still open at this point, so committing to the overlay here
+      // would show it over a cast that hasn't happened — and leave it stuck if
+      // the user cancels. Let the real connection state drive it instead.
+      if (window.vaulttvBridge?.isCastAvailable) castRequested.current = true
+      else setCastingThis(true)
+    } catch {
+      // User cancelled the device picker, or the load failed — stay local.
+    }
   }
 
   // ── Controls ─────────────────────────────────────────────────
@@ -915,11 +1140,70 @@ export default function VideoPlayer() {
         )}
       </video>
 
-      {/* ── Transcoding indicator ── */}
-      {transcoding && (
+      {/* ── Casting overlay — local video is paused while this session's
+          media is loaded on the Chromecast; show remote state instead ── */}
+      {castingThis && (
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', inset: 0, zIndex: 20,
+            background: 'linear-gradient(180deg, #0a0a0f 0%, #150826 100%)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem',
+          }}
+        >
+          <MdCastConnected size={64} style={{ color: 'var(--accent)' }} />
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Casting to {cast.deviceName || 'TV'}</p>
+            <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'rgba(255,255,255,0.55)' }}>{title}</p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <button
+              onClick={() => (cast.remotePlaying ? cast.pause() : cast.play())}
+              title={cast.remotePlaying ? 'Pause' : 'Play'}
+              style={{ width: 52, height: 52, borderRadius: '50%', background: 'var(--accent)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              {cast.remotePlaying ? <FiPause size={22} /> : <FiPlay size={22} style={{ marginLeft: 2 }} />}
+            </button>
+            <button
+              onClick={() => { cast.stopCasting(); setCastingThis(false) }}
+              title="Stop casting"
+              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
+            >
+              Stop Casting
+            </button>
+          </div>
+          {cast.remoteDuration > 0 && (
+            <div style={{ width: 'min(400px, 80vw)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{fmt(cast.remoteTime)}</span>
+              <div
+                onClick={e => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  cast.seek(((e.clientX - rect.left) / rect.width) * cast.remoteDuration)
+                }}
+                style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.15)', borderRadius: 2, cursor: 'pointer', position: 'relative' }}
+              >
+                <div style={{ position: 'absolute', inset: 0, width: `${(cast.remoteTime / cast.remoteDuration) * 100}%`, background: 'var(--accent)', borderRadius: 2 }} />
+              </div>
+              <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{fmt(cast.remoteDuration)}</span>
+            </div>
+          )}
+          <button
+            onClick={closePlayer}
+            title="Close"
+            style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', width: 36, height: 36, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <FiX size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* ── Transcoding indicator — flashes briefly, see showTranscodeBadge ── */}
+      {showTranscodeBadge && (
         <div style={{ position: 'absolute', top: '1rem', right: '4rem', zIndex: 10, background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(74,222,128,0.4)', borderRadius: 6, padding: '0.3rem 0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', animation: 'pulse 1.5s ease-in-out infinite' }} />
-          <span style={{ color: '#4ade80', fontSize: '0.72rem', fontWeight: 600 }}>AAC transcode</span>
+          <span style={{ color: '#4ade80', fontSize: '0.72rem', fontWeight: 600 }}>
+            {transcodeKind === 'video+audio' ? 'Transcoding video + audio' : 'Transcoding audio'}
+          </span>
         </div>
       )}
 
@@ -1256,6 +1540,15 @@ export default function VideoPlayer() {
               CC{activeSub >= 0 ? ` · ${subTracks[activeSub]?.lang?.toUpperCase() || 'ON'}` : ''}
               {autoSubFetching && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', animation: 'pulse 1.5s ease-in-out infinite', display: 'inline-block' }} />}
             </button>
+
+            {/* Cast — hidden entirely when no receivers on the network, or
+                when the current source is a browser-local blob: URL (a
+                Chromecast can't fetch that itself, it needs a real network URL) */}
+            {(cast.available || remoteAvailable) && !(session?.rawStreamUrl || session?.url || '').startsWith('blob:') && (
+              <CtrlBtn onClick={handleCast} title={castingThis ? `Casting to ${cast.deviceName || 'device'} — click to stop` : 'Cast to TV'} active={castingThis}>
+                {castingThis ? <MdCastConnected size={18} /> : <MdCast size={18} />}
+              </CtrlBtn>
+            )}
 
             {/* Settings */}
             <CtrlBtn ref={settingsBtnRef} onClick={() => { setSettingsOpen(o => !o); setAudioMenuOpen(false) }} title="Settings" active={settingsOpen}>
