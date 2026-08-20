@@ -31,8 +31,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isFullScreen:     () => ipcRenderer.invoke('is-fullscreen'),
   onFullscreenChange: (cb) => ipcRenderer.on('fullscreen-changed', (_e, v) => cb(v)),
 
-  // Auto-updater — fires when a new version is available or downloaded
+  // Auto-updater — fires when a new version is available/downloading/done/errored
   onUpdateAvailable:  (cb) => ipcRenderer.on('update-available',  (_e, info) => cb(info)),
+  onUpdateProgress:   (cb) => ipcRenderer.on('update-progress',   (_e, info) => cb(info)),
   onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', (_e, info) => cb(info)),
+  onUpdateError:      (cb) => ipcRenderer.on('update-error',      (_e, info) => cb(info)),
   installUpdate:      ()   => ipcRenderer.send('update-install'),
+  openUpdateLog:       ()  => ipcRenderer.send('open-update-log'),
+
+  // Local RetroArch (this machine, independent of the Media Server's own
+  // RetroArch config) — lets each desktop app installation launch games
+  // with whatever RetroArch is actually installed on that PC.
+  getLocalRetroarch:    ()          => ipcRenderer.invoke('get-local-retroarch'),
+  setLocalRetroarch:    (path)      => ipcRenderer.invoke('set-local-retroarch', path),
+  detectLocalRetroarch: ()          => ipcRenderer.invoke('detect-local-retroarch'),
+  launchLocalRom:       (romPath, ext) => ipcRenderer.invoke('launch-local-rom', { romPath, ext }),
 })

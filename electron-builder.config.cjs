@@ -20,6 +20,13 @@ module.exports = {
     buildResources: 'public',
   },
 
+  // electron-builder's auto-generated latest.yml always references a
+  // hyphenated filename (e.g. "VaultTV-Setup-1.1.19.exe") regardless of this
+  // setting, but the actual built .exe defaults to a spaced name ("VaultTV
+  // Setup 1.1.19.exe") unless artifactName matches — that mismatch is what
+  // caused every manually-uploaded release to 404 mid-download and loop.
+  artifactName: '${productName}-Setup-${version}.${ext}',
+
   files: [
     'dist/**/*',            // built React app
     'electron/**/*.cjs',    // main + preload (CommonJS, avoids ESM conflict)
@@ -62,6 +69,9 @@ module.exports = {
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
     shortcutName: 'VaultTV',
+    // Self-deletes the installer .exe after a successful install — see
+    // build/installer.nsh (shared with server-builder.config.cjs).
+    include: 'build/installer.nsh',
   },
 
   mac: {

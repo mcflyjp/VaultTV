@@ -4,9 +4,23 @@ const PlayerContext = createContext(null)
 
 const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 
+// FireTV only — which native player playVideo() routes through by default.
+// 'exoplayer' still auto-falls-back to VLC per-title on a codec failure (see
+// MainActivity's RESULT_RETRY_VLC handling); this is just which one gets
+// tried first. Some users prefer starting on VLC directly for titles ExoPlayer
+// struggles with generally (audio delay control, certain HEVC/Atmos sources).
+const DEFAULT_PLAYER_KEY = 'vt-default-player'
+
 export function PlayerProvider({ children }) {
   const [session, setSession] = useState(null)
   // session = { url, title, year, type, poster, startTime, fileHandle, onProgress }
+  const [defaultPlayer, setDefaultPlayerState] = useState(
+    () => localStorage.getItem(DEFAULT_PLAYER_KEY) || 'exoplayer'
+  )
+  function setDefaultPlayer(player) {
+    localStorage.setItem(DEFAULT_PLAYER_KEY, player)
+    setDefaultPlayerState(player)
+  }
 
   // Keep last opts so the native player done callback can report progress
   const lastOptsRef = useRef(null)
@@ -31,13 +45,30 @@ export function PlayerProvider({ children }) {
   }, [])
 
   function play(opts) {
-    // On FireTV: route through native ExoPlayer bridge.
-    // ExoPlayer uses hardware MediaCodec — supports HEVC, AC3, DTS, HLS natively.
+    // On FireTV: route through whichever native player is set as default.
+    // ExoPlayer uses hardware MediaCodec — supports HEVC, AC3, DTS, HLS
+    // natively — and is still tried first unless the user has explicitly
+    // chosen VLC as their default in Settings; a codec failure on ExoPlayer
+    // still silently retries with VLC regardless (see MainActivity's
+    // RESULT_RETRY_VLC handling) — this only changes which one goes first.
     if (IS_FIRETV) {
       const url = opts.url || ''
       if (url && typeof window.vaulttvBridge !== 'undefined') {
         try {
           lastOptsRef.current = opts
+          if (defaultPlayer === 'vlc') {
+            window.vaulttvBridge.playVideoVlc(url, opts.title || '', opts.startTime || 0)
+            return
+          }
+          if (defaultPlayer === 'mxplayer' && typeof window.vaulttvBridge.playVideoMx === 'function') {
+            // MX Player supports multiple subtitle tracks (its own array-based
+            // API), unlike ExoPlayer's single subtitleUrl param below.
+            const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
+            const subUrls  = JSON.stringify(tracks.map(t => t.url))
+            const subNames = JSON.stringify(tracks.map(t => t.label || t.lang || 'Subtitle'))
+            window.vaulttvBridge.playVideoMx(url, opts.title || '', opts.startTime || 0, subUrls, subNames)
+            return
+          }
           // Pick the best subtitle URL to pass to native ExoPlayer (first English, direct HTTP only)
           // Blob URLs (from companion/createObjectURL) are browser-local and crash ExoPlayer
           const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
@@ -46,7 +77,7 @@ export function PlayerProvider({ children }) {
           window.vaulttvBridge.playVideo(url, opts.title || '', opts.startTime || 0, subUrl)
           return
         } catch (e) {
-          console.warn('[player] ExoPlayer bridge failed, falling back to web player:', e)
+          console.warn('[player] native player bridge failed, falling back to web player:', e)
         }
       }
     }
@@ -73,7 +104,7 @@ export function PlayerProvider({ children }) {
   }
 
   return (
-    <PlayerContext.Provider value={{ session, play, playVlc, closePlayer }}>
+    <PlayerContext.Provider value={{ session, play, playVlc, closePlayer, defaultPlayer, setDefaultPlayer }}>
       {children}
     </PlayerContext.Provider>
   )

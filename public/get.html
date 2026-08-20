@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Get VaultTV</title>
+<meta name="description" content="VaultTV — your streams, your library, your Vault. Free forever.">
+<style>
+  :root {
+    --accent: #7c3aed;
+    --accent-light: #a78bfa;
+    --bg: #0a0a0f;
+    --bg-card: #1c1c28;
+    --border: rgba(255,255,255,0.1);
+    --text-secondary: rgba(255,255,255,0.6);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: radial-gradient(ellipse at top, #150826 0%, var(--bg) 55%);
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 4rem;
+  }
+  .logo-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    margin-bottom: 1.5rem;
+  }
+  .logo-row svg { width: 56px; height: auto; flex-shrink: 0; }
+  .logo-row span {
+    font-size: 1.9rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    margin: 0 0 0.5rem;
+    letter-spacing: 0.02em;
+  }
+  p.sub {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    max-width: 480px;
+    margin: 0 auto 2.5rem;
+    line-height: 1.6;
+  }
+  .badge {
+    display: block;
+    text-align: center;
+    margin: 0 auto 2.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #4ade80;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.1rem 1.3rem;
+    text-decoration: none;
+    color: #fff;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .card .icon {
+    width: 42px; height: 42px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(124,58,237,0.15);
+    border-radius: 10px;
+    font-size: 1.3rem;
+  }
+  .card .info { flex: 1; min-width: 0; }
+  .card .info .title { font-weight: 700; font-size: 0.98rem; margin-bottom: 2px; }
+  .card .info .desc { font-size: 0.8rem; color: var(--text-secondary); }
+  .card .arrow { color: var(--text-secondary); font-size: 1.2rem; flex-shrink: 0; }
+
+  .support {
+    margin-top: 2.5rem;
+    text-align: center;
+    padding: 1.75rem 1.5rem;
+    background: linear-gradient(135deg, rgba(124,58,237,0.15), rgba(251,191,36,0.06));
+    border: 1px solid rgba(124,58,237,0.3);
+    border-radius: 16px;
+  }
+  .support p { margin: 0 0 1rem; color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6; }
+  .support a {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 0.92rem;
+    padding: 0.7rem 1.6rem;
+    border-radius: 10px;
+    transition: background 0.15s;
+  }
+  .support a:hover { background: #6d28d9; }
+
+  footer {
+    text-align: center;
+    margin-top: 3rem;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.3);
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo-row">
+      <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+        <rect fill="#7c3aed" x="75" y="140" width="350" height="240" rx="28" ry="28"/>
+        <rect fill="#1a0a2e" x="92" y="153" width="278" height="200" rx="22" ry="22"/>
+        <line stroke="#7c3aed" stroke-width="14" stroke-linecap="round" x1="155" y1="140" x2="100" y2="55"/>
+        <circle fill="#7c3aed" cx="100" cy="52" r="10"/>
+        <line stroke="#7c3aed" stroke-width="14" stroke-linecap="round" x1="345" y1="140" x2="400" y2="55"/>
+        <circle fill="#7c3aed" cx="400" cy="52" r="10"/>
+        <rect fill="#5b21b6" x="140" y="378" width="52" height="24" rx="6"/>
+        <rect fill="#5b21b6" x="308" y="378" width="52" height="24" rx="6"/>
+        <text x="100" y="296" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="130" fill="#7c3aed">V</text>
+        <text x="196" y="296" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="130" fill="#ffffff">TV</text>
+      </svg>
+      <span>VaultTV</span>
+    </div>
+
+    <h1>Your streams. Your library. Your Vault.</h1>
+    <p class="sub">One app for everything you watch — Stremio add-ons, your own local library, all in one place. Free, forever.</p>
+    <span class="badge">✓ 100% free — no paywalls, no subscription</span>
+
+    <div class="cards">
+      <a class="card" href="https://github.com/mcflyjp/VaultTV/releases/latest" target="_blank" rel="noopener">
+        <div class="icon">🖥️</div>
+        <div class="info">
+          <div class="title">Desktop App — Windows</div>
+          <div class="desc">Full app experience on your PC</div>
+        </div>
+        <div class="arrow">→</div>
+      </a>
+
+      <a class="card" href="https://github.com/mcflyjp/VaultTV/releases/latest" target="_blank" rel="noopener">
+        <div class="icon">🗄️</div>
+        <div class="info">
+          <div class="title">Media Server — self-hosted</div>
+          <div class="desc">Run it on a home server, stream anywhere</div>
+        </div>
+        <div class="arrow">→</div>
+      </a>
+
+      <a class="card" href="https://vaulttv.pages.dev" target="_blank" rel="noopener">
+        <div class="icon">🌐</div>
+        <div class="info">
+          <div class="title">Web App — no install</div>
+          <div class="desc">Open it right in your browser</div>
+        </div>
+        <div class="arrow">→</div>
+      </a>
+    </div>
+
+    <div class="support">
+      <p>Enjoying VaultTV? Support keeps development moving — early builds, a say in what's next, and my direct attention on your bug reports. Nothing here is ever required to use the app.</p>
+      <a href="https://www.patreon.com/VaultTVMediaCenter" target="_blank" rel="noopener" id="patreon-link">Support on Patreon</a>
+    </div>
+
+    <footer>VaultTV — built solo, nights and weekends.</footer>
+  </div>
+</body>
+</html>

@@ -18,6 +18,12 @@ module.exports = {
     buildResources: 'public',
   },
 
+  // Must match the hyphenated name electron-builder bakes into media-server.yml's
+  // path/url fields regardless of this setting — without it, the actual built
+  // .exe has spaces in its name and every update download 404s. See the same
+  // comment in electron-builder.config.cjs for the full story.
+  artifactName: 'VaultTV-Media-Server-Setup-${version}.${ext}',
+
   // Entry point is the server tray app.
   // "name" MUST differ from electron-builder.config.cjs's — see its comment for why.
   extraMetadata: {
@@ -61,6 +67,9 @@ module.exports = {
     shortcutName:                    'VaultTV Media Server',
     installerIcon:                   'public/logo.ico',
     uninstallerIcon:                 'public/logo.ico',
+    // Self-deletes the installer .exe after a successful install — see
+    // build/installer.nsh (shared with electron-builder.config.cjs).
+    include: 'build/installer.nsh',
   },
 
   mac: {
