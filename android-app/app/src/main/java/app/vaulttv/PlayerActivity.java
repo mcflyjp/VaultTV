@@ -21,7 +21,11 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.RenderersFactory;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
 
@@ -46,8 +50,8 @@ public class PlayerActivity extends Activity {
     private boolean              dimmed          = false;
     private boolean              bannerDismissed = false;
     private boolean              subsEnabled     = true;
-    private float                playbackSpeed   = 1.0f;
     private long                 lastMenuPressMs = 0;
+    private final DelayAudioProcessor delayAudioProcessor = new DelayAudioProcessor();
     private TextView             nextEpBanner;
     private TextView             hudView;
 
@@ -91,7 +95,22 @@ public class PlayerActivity extends Activity {
                 .setExceedAudioConstraintsIfNecessary(true)
                 .build());
 
-        player = new ExoPlayer.Builder(this)
+        // Route audio through DelayAudioProcessor so Up/Down can nudge A/V sync —
+        // ExoPlayer has no built-in per-track delay API, unlike VLC's setAudioDelay().
+        RenderersFactory renderersFactory = new DefaultRenderersFactory(this) {
+            @Override
+            protected AudioSink buildAudioSink(android.content.Context context,
+                                                boolean enableFloatOutput,
+                                                boolean enableAudioTrackPlaybackParams) {
+                return new DefaultAudioSink.Builder(context)
+                        .setAudioProcessorChain(new DefaultAudioSink.DefaultAudioProcessorChain(delayAudioProcessor))
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        .build();
+            }
+        };
+
+        player = new ExoPlayer.Builder(this, renderersFactory)
                 .setTrackSelector(trackSelector)
                 .setSeekBackIncrementMs(10000)
                 .setSeekForwardIncrementMs(10000)
@@ -207,17 +226,13 @@ public class PlayerActivity extends Activity {
         trackSelector.setParameters(trackSelector.buildUponParameters()
                 .setRendererDisabled(C.TRACK_TYPE_TEXT, !subsEnabled)
                 .build());
-        showHud("Subtitles: " + (subsEnabled ? "ON" : "OFF") + "   |   Hold ☰ → VLC");
+        showHud("Subtitles: " + (subsEnabled ? "ON" : "OFF") + "   |   2x ☰ → VLC");
     }
 
-    private void adjustSpeed(float delta) {
-        playbackSpeed = Math.round((playbackSpeed + delta) * 100) / 100f;
-        playbackSpeed = Math.max(0.80f, Math.min(1.20f, playbackSpeed));
-        if (player != null) {
-            player.setPlaybackParameters(new androidx.media3.common.PlaybackParameters(playbackSpeed));
-        }
-        String label = playbackSpeed == 1.0f ? "Normal" : String.format("%.2fx", playbackSpeed);
-        showHud("Speed: " + label + "   ↑/↓ adjust");
+    private void adjustAudioDelay(long deltaUs) {
+        delayAudioProcessor.setDelayUs(delayAudioProcessor.getDelayUs() + deltaUs);
+        long ms = delayAudioProcessor.getDelayUs() / 1000;
+        showHud("Audio delay: " + (ms >= 0 ? "+" : "") + ms + " ms\n(↑ later  ↓ earlier)");
     }
 
     // ── Lifecycle helpers ─────────────────────────────────────────────────────
@@ -328,14 +343,23 @@ public class PlayerActivity extends Activity {
 
             if (!controlsVisible) {
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                    adjustSpeed(+0.02f);
+                    adjustAudioDelay(+100_000);
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                    adjustSpeed(-0.02f);
+                    adjustAudioDelay(-100_000);
                     return true;
                 }
                 playerView.showController();
+                return true;
+            }
+
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                adjustAudioDelay(+100_000);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                adjustAudioDelay(-100_000);
                 return true;
             }
         }

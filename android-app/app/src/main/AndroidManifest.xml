@@ -17,6 +17,8 @@
     <queries>
         <package android:name="psplay.grill.com" />
         <package android:name="com.retroarch" />
+        <package android:name="com.mxtech.videoplayer.pro" />
+        <package android:name="com.mxtech.videoplayer.ad" />
     </queries>
 
     <application
@@ -65,6 +67,12 @@
             android:exported="false"
             android:screenOrientation="landscape"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <!-- Cast SDK entry point. CastContext.getSharedInstance() resolves this
+             class by name and throws if the meta-data is missing. -->
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="app.vaulttv.CastOptionsProvider" />
 
         <!-- VLC player activity — non-FireTV Android devices (universal codec support) -->
         <activity

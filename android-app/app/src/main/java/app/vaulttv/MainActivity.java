@@ -313,6 +313,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ProgressBar progressBar;
+    private CastController castController;
     private volatile boolean backHandledByWeb = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -386,6 +387,107 @@ public class MainActivity extends Activity {
                 intent.putExtra("start_time_ms", (long)(startTimeSec * 1000));
                 //noinspection deprecation
                 startActivityForResult(intent, REQUEST_PLAY_VIDEO);
+            });
+        }
+
+        // ── Cast ─────────────────────────────────────────────────────────────
+        // The web layer's own Cast paths (chrome.cast / video.remote) don't
+        // exist inside a WebView, so these bridge straight to the native SDK.
+        // See CastController for the full reasoning.
+
+        /** True when Play services exist AND at least one cast device is visible. */
+        @JavascriptInterface
+        public boolean isCastAvailable() {
+            return castController != null && castController.isAvailable();
+        }
+
+        /** Cast a URL. Opens the device picker first if nothing is connected yet. */
+        @JavascriptInterface
+        public void castVideo(String url, String title, String poster, String contentType, double startTimeSec) {
+            if (castController != null) castController.castVideo(url, title, poster, contentType, startTimeSec);
+        }
+
+        @JavascriptInterface
+        public void castStop() { if (castController != null) castController.stop(); }
+
+        @JavascriptInterface
+        public void castPlayPause() { if (castController != null) castController.playPause(); }
+
+        @JavascriptInterface
+        public void castSeek(double sec) { if (castController != null) castController.seek(sec); }
+
+        /** Returns true if either MX Player variant (Pro or Free) is installed —
+         *  used by Settings to only show the MX Player option when it'd actually work. */
+        @JavascriptInterface
+        public boolean isMxPlayerInstalled() {
+            for (String pkg : new String[]{ "com.mxtech.videoplayer.pro", "com.mxtech.videoplayer.ad" }) {
+                if (getPackageManager().getLaunchIntentForPackage(pkg) != null) return true;
+            }
+            return false;
+        }
+
+        /**
+         * Launch the external MX Player app using its documented third-party
+         * integration API (sites.google.com/site/mxvpen/api) — the same
+         * result-based contract Jellyfin's Android app uses, NOT a loose
+         * fire-and-forget handoff. return_result=true makes MX Player call
+         * back into onActivityResult with position/duration/end_by extras
+         * when it exits, exactly like our own PlayerActivity/VlcPlayerActivity
+         * do, so Back reliably returns to VaultTV in one press and resume
+         * position is something WE track, not something MX Player has to
+         * remember on its own (that inconsistency is what this replaces).
+         *
+         * Tries the Pro package first, then Free, since either may be
+         * installed; if neither is, falls back to ExoPlayer rather than
+         * dead-ending on a Play Store redirect mid-playback.
+         *
+         * @param subtitleUrls   JSON array string of subtitle URLs (non-blob, direct HTTP only)
+         * @param subtitleLabels JSON array string of matching labels, same length/order
+         */
+        @JavascriptInterface
+        public void playVideoMx(String url, String title, double startTimeSec,
+                                 String subtitleUrls, String subtitleLabels) {
+            mainHandler.post(() -> {
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(Uri.parse(url), "video/*");
+                intent.putExtra("title",         title);
+                intent.putExtra("position",      (int)(startTimeSec * 1000));
+                intent.putExtra("return_result",  true);
+                intent.putExtra("decode_mode",    (byte) 1); // hardware decode
+
+                try {
+                    org.json.JSONArray urls   = new org.json.JSONArray(subtitleUrls != null ? subtitleUrls : "[]");
+                    org.json.JSONArray labels = new org.json.JSONArray(subtitleLabels != null ? subtitleLabels : "[]");
+                    if (urls.length() > 0) {
+                        Uri[]    subUris  = new Uri[urls.length()];
+                        String[] subNames = new String[urls.length()];
+                        for (int i = 0; i < urls.length(); i++) {
+                            subUris[i]  = Uri.parse(urls.getString(i));
+                            subNames[i] = i < labels.length() ? labels.getString(i) : ("Subtitle " + (i + 1));
+                        }
+                        intent.putExtra("subs",      subUris);
+                        intent.putExtra("subs.name", subNames);
+                    }
+                } catch (Exception ignored) {
+                    // Malformed subtitle JSON — play without subs rather than failing the launch
+                }
+
+                for (String pkg : new String[]{ "com.mxtech.videoplayer.pro", "com.mxtech.videoplayer.ad" }) {
+                    intent.setPackage(pkg);
+                    try {
+                        //noinspection deprecation
+                        startActivityForResult(intent, REQUEST_PLAY_VIDEO);
+                        return;
+                    } catch (ActivityNotFoundException ignored) {}
+                }
+
+                // Neither MX Player variant installed — fall back to ExoPlayer
+                Intent fallback = new Intent(MainActivity.this, PlayerActivity.class);
+                fallback.putExtra("url",           url);
+                fallback.putExtra("title",         title);
+                fallback.putExtra("start_time_ms", (long)(startTimeSec * 1000));
+                //noinspection deprecation
+                startActivityForResult(fallback, REQUEST_PLAY_VIDEO);
             });
         }
 
@@ -514,6 +616,11 @@ public class MainActivity extends Activity {
 
         // Bridge so the web page can signal it consumed the back button
         webView.addJavascriptInterface(new VaultTVBridge(), "vaulttvBridge");
+
+        // Cast: no-ops on FireTV (no Play services), so this is safe to call
+        // unconditionally rather than gating on isRunningOnTelevision().
+        castController = new CastController(this, webView);
+        castController.init();
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -726,9 +833,19 @@ public class MainActivity extends Activity {
         }
 
         if (data != null && resultCode == RESULT_OK) {
-            long posMs       = data.getLongExtra("position_ms", 0);
-            long durMs       = data.getLongExtra("duration_ms", 0);
-            boolean autoAdv  = data.getBooleanExtra("auto_advance", false);
+            long posMs; long durMs; boolean autoAdv;
+            if (data.hasExtra("end_by")) {
+                // MX Player's own result contract (sites.google.com/site/mxvpen/api) —
+                // different key names/types than our own PlayerActivity/VlcPlayerActivity,
+                // since MX Player is a separate app we don't control the shape of.
+                posMs   = data.getIntExtra("position", 0);
+                durMs   = data.getIntExtra("duration", 0);
+                autoAdv = "playback_completion".equals(data.getStringExtra("end_by"));
+            } else {
+                posMs   = data.getLongExtra("position_ms", 0);
+                durMs   = data.getLongExtra("duration_ms", 0);
+                autoAdv = data.getBooleanExtra("auto_advance", false);
+            }
             String js = "window.__nativePlayerDone && window.__nativePlayerDone("
                       + posMs + "," + durMs + "," + autoAdv + ");";
             webView.evaluateJavascript(js, null);
@@ -754,9 +871,9 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onPause()  { super.onPause();  webView.onPause(); }
+    protected void onPause()  { super.onPause();  webView.onPause(); if (castController != null) castController.onPause(); }
     @Override
-    protected void onResume() { super.onResume(); webView.onResume(); }
+    protected void onResume() { super.onResume(); webView.onResume(); if (castController != null) castController.onResume(); }
     @Override
     protected void onDestroy(){ super.onDestroy(); webView.destroy(); }
 }

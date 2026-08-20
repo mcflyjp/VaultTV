@@ -20,7 +20,7 @@ bin/
 
 # Electron build output — never commit these
 C:/VaultTVBuild/
-VaultTV/
+/VaultTV/
 dist-electron/
 *.asar
 release/
@@ -36,3 +36,7 @@ release/
 *.njsproj
 *.sln
 *.sw?
+
+# Locally-built installers (published to GitHub Releases, not the repo)
+VaultTV*Setup*.exe
+*.blockmap

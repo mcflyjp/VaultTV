@@ -10,8 +10,8 @@ android {
         applicationId   'app.vaulttv'
         minSdk          22          // Fire OS 5+ / Android 5.1+
         targetSdk       34
-        versionCode     28
-        versionName     '0.27.0'
+        versionCode     32
+        versionName     '0.31.0'
     }
 
     buildTypes {
@@ -42,4 +42,17 @@ dependencies {
     // traversal (raw ContentResolver/DocumentsContract queries work too, but
     // DocumentFile is the standard, much less error-prone API for this)
     implementation 'androidx.documentfile:documentfile:1.0.1'
+
+    // Google Cast — phones/tablets only. The web layer's Cast support
+    // (CastContext.jsx / Remote Playback API) is inert here: Android WebView
+    // ships without Chrome's media-router integration, so neither
+    // window.chrome.cast nor video.remote exists. Casting from this app has to
+    // go through the native SDK and out over the JS bridge.
+    //
+    // Pinned to 21.3.0 deliberately: it still supports minSdk 21, whereas
+    // 22.x raises the floor to 23 and would drop Fire OS 5 (minSdk 22) here.
+    // Cast isn't used on FireTV anyway — Play services aren't present there —
+    // so paying for it with TV compatibility would be a bad trade.
+    implementation 'com.google.android.gms:play-services-cast-framework:21.3.0'
+    implementation 'androidx.mediarouter:mediarouter:1.6.0'
 }
