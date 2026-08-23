@@ -421,7 +421,11 @@ export async function probeAudioCodec(sourceUrl) {
       })
       if (!r.ok) return null
       const data = await r.json()
-      return { audioCodec: data.audioCodec || null, videoCodec: data.videoCodec || null }
+      return {
+        audioCodec: data.audioCodec || null,
+        videoCodec: data.videoCodec || null,
+        audioTracks: Array.isArray(data.audioTracks) ? data.audioTracks : [],
+      }
     } finally { clearTimeout(timer) }
   } catch {
     return null
@@ -452,11 +456,48 @@ export function needsTranscode({ audioCodec, videoCodec } = {}) {
  * @param {number} [startSec]     Optional seek offset in seconds
  * @param {boolean} [transcodeVideo]  True to re-encode video (HEVC→H.264)
  */
-export function transcodeUrl(sourceUrl, startSec = 0, transcodeVideo = false, audioLang = '') {
-  const params = new URLSearchParams({ url: sourceUrl })
+/** Strips any /transcode wrapper, returning the original source URL. */
+function unwrapTranscode(url) {
+  let u = url
+  for (let i = 0; i < 4; i++) {
+    try {
+      const parsed = new URL(u, location.href)
+      if (!parsed.pathname.endsWith('/transcode')) return u
+      const inner = parsed.searchParams.get('url')
+      if (!inner) return u
+      u = inner
+    } catch { return u }
+  }
+  return u
+}
+
+/**
+ * Picks the audio stream index to transcode.
+ *
+ * Prefers a track tagged with the requested language, but an untagged track is
+ * a candidate rather than a rejection: most single-audio rips carry no language
+ * metadata at all, and treating those as "not a match" is what made ffmpeg
+ * abort with an empty stream map and no playable output.
+ */
+export function pickAudioTrack(audioTracks, preferredLang = '') {
+  if (!audioTracks?.length) return 0
+  const want = (preferredLang || '').toLowerCase().slice(0, 2)
+  if (want) {
+    const tagged = audioTracks.find(t => t.lang && t.lang.startsWith(want))
+    if (tagged) return tagged.index
+  }
+  const untagged = audioTracks.find(t => !t.lang)
+  return untagged ? untagged.index : audioTracks[0].index
+}
+
+export function transcodeUrl(sourceUrl, startSec = 0, transcodeVideo = false, audioIndex = 0) {
+  // Never wrap a transcode URL in another one — ffmpeg would be pointed at our
+  // own fragmented output and fail with "Invalid data found". The server
+  // unwraps defensively too; this stops it before the request is even made.
+  const params = new URLSearchParams({ url: unwrapTranscode(sourceUrl) })
   if (startSec > 0) params.set('t', String(Math.floor(startSec)))
   if (transcodeVideo) params.set('tv', '1')
-  if (audioLang) params.set('al', audioLang)
+  if (audioIndex > 0) params.set('ai', String(audioIndex))
   // This URL is assigned straight to <video src>, which can't send an auth
   // header and won't carry a SameSite=Lax cookie cross-site — so the token
   // rides along in the query string (server/index.js requireAuth accepts it).

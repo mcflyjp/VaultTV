@@ -3,7 +3,7 @@ import { usePlayer } from '../context/PlayerContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useCast } from '../context/CastContext'
 import Hls from 'hls.js'
-import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode, pingCompanion, COMPANION_PORT, getLanBaseUrl, toLanUrl } from '../lib/companion'
+import { transcodeUrl, probeAudioCodec as probeCodecs, needsTranscode, pickAudioTrack, pingCompanion, COMPANION_PORT, getLanBaseUrl, toLanUrl } from '../lib/companion'
 import { IS_ELECTRON } from '../lib/platform'
 import { fetchCompanionSub } from '../lib/subtitles'
 import {
@@ -110,6 +110,8 @@ export default function VideoPlayer() {
   const [showNoAudio,  setShowNoAudio]  = useState(false) // "No audio?" hint for first 8s
   const noAudioTimer = useRef(null)
   const rawUrlRef = useRef('')                             // original URL before transcoding
+  const audioTracksRef = useRef([])                        // real audio streams, from /probe
+  const pendingCastRef = useRef(false)                     // next session should resume on the TV
   // Seconds of the title that the CURRENT src already skips past. A transcode
   // URL bakes the resume point in via ffmpeg -ss, so its own timeline starts
   // at 0 there; everything else is 0. Used to avoid double-seeking and to keep
@@ -192,6 +194,7 @@ export default function VideoPlayer() {
     clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => setShowControls(false), HIDE_DELAY)
     rawUrlRef.current = session.url || ''
+    audioTracksRef.current = []
     srcStartOffsetRef.current = 0   // fresh source — nothing skipped yet
 
     // Auto-select subtitle track by preferred language, fall back to English then first
@@ -374,10 +377,14 @@ export default function VideoPlayer() {
 
           console.log(`[player] Swapping to transcode — audio:${codecs.audioCodec} video:${codecs.videoCodec} transcodeVideo:${transcodeVideo}`)
           const seekTo  = Math.floor(video.currentTime || 0)
-          // Use preferred audio language so ffmpeg selects the right track by default
-          const streamLangs = session.streamLangs || []
-          const al = audioLang && streamLangs.includes(audioLang) ? audioLang : ''
-          const tUrl    = transcodeUrl(src, seekTo, transcodeVideo, al)
+          // Select the track by index off the real stream list rather than by
+          // language tag. The addon's `streamLangs` describes the release, not
+          // the file, so it happily claimed "en" for rips whose audio carries
+          // no language metadata at all — and a language selector that matches
+          // nothing aborts ffmpeg outright instead of falling back.
+          audioTracksRef.current = codecs.audioTracks || []
+          const ai = pickAudioTrack(audioTracksRef.current, audioLang)
+          const tUrl = transcodeUrl(src, seekTo, transcodeVideo, ai)
 
           // Tear down HLS if active, swap src to transcode stream.
           // Same CORS rule as the initial load — forcing crossOrigin on a
@@ -587,6 +594,46 @@ export default function VideoPlayer() {
     }
   }
 
+  // Up Next while casting.
+  //
+  // The countdown above rides on the local <video>'s timeupdate, which stops
+  // firing the moment playback moves to the TV — so the prompt simply vanished
+  // mid-episode. The receiver's clock is already being pushed to us
+  // (CastController's progress listener -> window.__castProgress), so the same
+  // 30-second rule is applied to that instead.
+  //
+  // Auto-advance is deliberately left to the user here: there's no reliable
+  // "finished" signal from the receiver yet (nothing listens for
+  // IDLE_REASON_FINISHED), and inferring the end from the clock would risk
+  // skipping an episode early on a TV that stalls near the end.
+  useEffect(() => {
+    if (!castingThis || !session?.onEpisodeEnded || !session?.episode) return
+    if (upNextDismissed.current || transcoding) return
+    const { remoteTime, remoteDuration } = cast
+    if (!remoteDuration || !isFinite(remoteDuration)) return
+    const timeLeft = remoteDuration - remoteTime
+    if (timeLeft <= 30 && timeLeft > 0) {
+      if (upNextCountdown === null) setUpNextCountdown(Math.ceil(timeLeft))
+      else if (Math.ceil(timeLeft) !== upNextCountdown) setUpNextCountdown(Math.ceil(timeLeft))
+    }
+  }, [castingThis, cast.remoteTime, cast.remoteDuration, transcoding, session, upNextCountdown])
+
+  // Advancing an episode while casting: the new session loads locally first,
+  // then gets pushed to the TV once its URL exists. Without this the next
+  // episode would quietly start playing on the phone while the TV sat idle.
+  useEffect(() => {
+    if (!pendingCastRef.current || !session?.url) return
+    pendingCastRef.current = false
+    handleCast(true)
+  }, [session?.url])
+
+  function playNextNow() {
+    clearInterval(upNextTimer.current)
+    setUpNextCountdown(null)
+    if (castingThis) pendingCastRef.current = true
+    session?.onEpisodeEnded?.()
+  }
+
   function dismissUpNext() {
     clearInterval(upNextTimer.current)
     setUpNextCountdown(null)
@@ -680,7 +727,8 @@ export default function VideoPlayer() {
     // On Electron, HEVC is supported natively — only transcode audio
     const doTranscodeVideo = !IS_ELECTRON
     const seekTo = Math.floor(video.currentTime || 0)
-    const tUrl = transcodeUrl(src, seekTo, doTranscodeVideo)
+    const ai = pickAudioTrack(audioTracksRef.current, audioLang)
+    const tUrl = transcodeUrl(src, seekTo, doTranscodeVideo, ai)
     srcStartOffsetRef.current = seekTo   // tUrl starts here; see onLoadedMetadata
     setTranscodeKind(doTranscodeVideo ? 'video+audio' : 'audio')
     setTranscoding(true)
@@ -757,8 +805,11 @@ export default function VideoPlayer() {
     return 'video/mp4'
   }
 
-  async function handleCast() {
-    if (castingThis) { cast.stopCasting(); setCastingThis(false); return }
+  async function handleCast(force = false) {
+    // `force` skips the stop-toggle: used when advancing to the next episode,
+    // where the session is already casting and we want to replace the media
+    // rather than disconnect.
+    if (castingThis && !force) { cast.stopCasting(); setCastingThis(false); return }
     const v = videoRef.current
 
     // No Cast SDK on this platform (typically mobile) — hand off to the
@@ -1233,8 +1284,26 @@ export default function VideoPlayer() {
           <div>
             <p style={{ margin: 0, fontSize: '0.72rem', color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Up Next</p>
             <p style={{ margin: '2px 0 0', fontSize: '0.95rem', fontWeight: 700, color: '#fff' }}>Next Episode</p>
-            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>Starts in {upNextCountdown}s</p>
+            <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>
+              {/* Casting doesn't auto-advance, so promising a countdown to
+                  playback would be a lie — say what's actually left. */}
+              {castingThis ? `${upNextCountdown}s left` : `Starts in ${upNextCountdown}s`}
+            </p>
           </div>
+          {/* While casting nothing advances on its own — the receiver reports no
+              "finished" event — so the prompt has to be actionable, not just
+              a countdown the user can cancel. */}
+          {castingThis && (
+            <button
+              onClick={playNextNow}
+              style={{
+                padding: '0.4rem 0.9rem', borderRadius: 6, border: 'none',
+                background: '#fff', color: '#000', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700,
+              }}
+            >
+              Play now
+            </button>
+          )}
           <button
             onClick={dismissUpNext}
             style={{
@@ -1662,7 +1731,11 @@ export default function VideoPlayer() {
                           key={lang}
                           onClick={() => {
                             if (!session.rawStreamUrl) return
-                            const url = transcodeUrl(session.rawStreamUrl, 0, !!session.transcodeVideo, lang.toLowerCase())
+                            // Map the advertised language onto a real stream
+                            // index; without probed tracks fall back to the
+                            // first, which still plays.
+                            const ai = pickAudioTrack(audioTracksRef.current, lang.toLowerCase())
+                            const url = transcodeUrl(session.rawStreamUrl, 0, !!session.transcodeVideo, ai)
                             // Swap the video src without destroying the full session
                             const video = videoRef.current
                             if (video) { video.src = url; video.play().catch(() => {}) }

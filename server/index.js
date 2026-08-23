@@ -1433,6 +1433,25 @@ function localizeSourceUrl(rawUrl) {
   }
 }
 
+/**
+ * If `rawUrl` points at our own /transcode endpoint, return the inner `url`
+ * it wraps (recursively). Guards against ffmpeg being pointed at this
+ * server's own fragmented output, which it cannot demux.
+ */
+function unwrapTranscodeUrl(rawUrl) {
+  let url = rawUrl
+  for (let i = 0; i < 4; i++) {
+    try {
+      const u = new URL(url)
+      if (!u.pathname.endsWith('/transcode')) return url
+      const inner = u.searchParams.get('url')
+      if (!inner) return url
+      url = inner
+    } catch { return url }
+  }
+  return url
+}
+
 // ── Probe ─────────────────────────────────────────────────────────────────────
 app.get('/probe', (req, res) => {
   const sourceUrl = localizeSourceUrl(req.query.url)
@@ -1446,18 +1465,32 @@ app.get('/probe', (req, res) => {
   ff.on('close', () => {
     try {
       const { streams = [] } = JSON.parse(out)
+      // Audio tracks are reported with their per-type index (0:a:N), which is
+      // what -map wants, plus whatever language tag exists. Many single-audio
+      // rips carry NO language tag at all, so `lang` is frequently null — the
+      // client must treat that as "usable", not "not English".
+      const audioTracks = streams
+        .filter(s => s.codec_type === 'audio')
+        .map((s, i) => ({
+          index:    i,
+          codec:    s.codec_name || null,
+          lang:     s.tags?.language?.toLowerCase() || null,
+          title:    s.tags?.title || null,
+          channels: s.channels || null,
+        }))
       const result = {
         audioCodec: streams.find(s => s.codec_type === 'audio')?.codec_name || null,
         videoCodec: streams.find(s => s.codec_type === 'video')?.codec_name || null,
+        audioTracks,
       }
       // Log what the client actually receives — null codecs make the player
       // silently skip transcoding, which is indistinguishable downstream from
       // "transcode was attempted and failed".
-      console.log(`[probe] -> audio=${result.audioCodec} video=${result.videoCodec}`)
+      console.log(`[probe] -> audio=${result.audioCodec} video=${result.videoCodec} tracks=${audioTracks.length}`)
       res.json(result)
     } catch {
       console.warn('[probe] ffprobe output unparseable — returning null codecs (client will NOT transcode)')
-      res.json({ audioCodec: null, videoCodec: null })
+      res.json({ audioCodec: null, videoCodec: null, audioTracks: [] })
     }
   })
   ff.on('error', err => res.status(err.code === 'ENOENT' ? 500 : 500).json({ error: err.message }))
@@ -1465,16 +1498,27 @@ app.get('/probe', (req, res) => {
 
 // ── Transcode ─────────────────────────────────────────────────────────────────
 app.get('/transcode', (req, res) => {
-  const { url: rawSourceUrl, t, tv, al } = req.query
-  if (!rawSourceUrl) return res.status(400).json({ error: 'url required' })
-  try { new URL(rawSourceUrl) } catch { return res.status(400).json({ error: 'Invalid URL' }) }
+  const { url: rawUrlParam, t, tv, al, ai } = req.query
+  if (!rawUrlParam) return res.status(400).json({ error: 'url required' })
+  try { new URL(rawUrlParam) } catch { return res.status(400).json({ error: 'Invalid URL' }) }
+  // Unwrap a transcode URL handed back to us. When that happened, ffmpeg was
+  // told to read this endpoint's own output: it re-entered the server (visible
+  // in the log as a request with a `Lavf/*` user-agent) and died on the
+  // fragmented stream with "Invalid data found when processing input".
+  const rawSourceUrl = unwrapTranscodeUrl(rawUrlParam)
+  if (rawSourceUrl !== rawUrlParam) console.warn('[transcode] unwrapped a nested /transcode URL')
   // Read our own files over loopback, never back out through the tunnel.
   const sourceUrl = localizeSourceUrl(rawSourceUrl)
   if (sourceUrl !== rawSourceUrl) console.log('[transcode] source localized to loopback')
 
   const startSec       = parseFloat(t)  || 0
   const transcodeVideo = tv === '1'
-  const audioLang      = (al || '').toLowerCase().trim()
+  // `ai` (audio stream index) is authoritative. `al` is only still accepted so
+  // an older cached client doesn't break; it can't be resolved to an index
+  // here without another ffprobe, so it degrades to the first track — the
+  // wrong language at worst, never a failed play.
+  const audioIndex = Number.isInteger(+ai) && +ai >= 0 ? +ai : 0
+  if (al && ai == null) console.warn(`[transcode] legacy al=${al} without ai — using first audio track`)
 
   const args = ['-threads', '2']
   if (startSec > 0) args.push('-ss', String(startSec))
@@ -1491,13 +1535,23 @@ app.get('/transcode', (req, res) => {
     // Cloudflare tunnel struggles to sustain. veryfast plus an explicit cap
     // lands around 3-4 Mbps at similar quality and still encodes well ahead of
     // playback. maxrate/bufsize also flatten the spikes that trigger rebuffering.
-    args.push('-map', '0:v:0', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+    args.push('-map', '0:V:0', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
               '-maxrate', '4M', '-bufsize', '8M',
               '-pix_fmt', 'yuv420p', '-threads', '2')
   } else {
-    args.push('-map', '0:v:0', '-c:v', 'copy')
+    args.push('-map', '0:V:0', '-c:v', 'copy')
   }
-  args.push('-map', audioLang ? `0:a:m:language:${audioLang}` : '0:a:0')
+  // Capital V selects real video streams only. Lowercase v also matches the
+  // "attached pic" stream that releases with embedded cover art carry, so
+  // cover.jpg could be chosen as the video track.
+  //
+  // Audio is selected by index, resolved by the client from /probe. The old
+  // `0:a:m:language:<lang>` selector was fatal rather than a preference: a rip
+  // whose audio carries no language tag matched nothing, and ffmpeg aborted
+  // with "Stream map '' matches no streams" before producing a byte — which
+  // reached the browser as MediaError 4 and got reported as possible DRM.
+  // The trailing `?` keeps a bad index from being fatal for the same reason.
+  args.push('-map', `0:a:${audioIndex}?`)
   // Downmix to stereo: this endpoint is the compatibility fallback, and a 5.1
   // AAC track is exactly the kind of thing a phone/browser silently refuses to
   // render. -dn drops the stray data stream mkv sources carry into the mp4.
