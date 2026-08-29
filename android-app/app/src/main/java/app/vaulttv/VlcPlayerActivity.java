@@ -23,6 +23,7 @@ import android.widget.TextView;
 import org.videolan.libvlc.LibVLC;
 import org.videolan.libvlc.Media;
 import org.videolan.libvlc.MediaPlayer;
+import org.videolan.libvlc.interfaces.IVLCVout;
 
 import java.util.ArrayList;
 
@@ -117,8 +118,30 @@ public class VlcPlayerActivity extends Activity {
 
         libVLC      = new LibVLC(this, opts);
         mediaPlayer = new MediaPlayer(libVLC);
-        mediaPlayer.getVLCVout().setVideoView(surfaceView);
-        mediaPlayer.getVLCVout().attachViews();
+        final IVLCVout vout = mediaPlayer.getVLCVout();
+        vout.setVideoView(surfaceView);
+        vout.attachViews();
+
+        // VLC does not read the surface's dimensions on its own. Without
+        // setWindowSize it renders at its own default anchored to the top-left
+        // of the surface, which on a TV looks like the picture shoved against
+        // the left edge with a black bar down the right-hand side. The size
+        // has to be pushed on every layout pass, not just once: the first
+        // attach happens before the SurfaceView has been measured, so an
+        // initial call alone reports 0x0 and is ignored.
+        surfaceView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) -> {
+            int w = r - l, h = b - t;
+            if (w > 0 && h > 0) vout.setWindowSize(w, h);
+        });
+        surfaceView.post(() -> {
+            int w = surfaceView.getWidth(), h = surfaceView.getHeight();
+            if (w > 0 && h > 0) vout.setWindowSize(w, h);
+        });
+
+        // Scale 0 means "fit the window, preserving aspect ratio" — letterbox
+        // rather than stretch. A null aspect ratio keeps the source's own.
+        mediaPlayer.setAspectRatio(null);
+        mediaPlayer.setScale(0f);
 
         mediaPlayer.setEventListener(event -> {
             if (event.type == MediaPlayer.Event.Buffering
