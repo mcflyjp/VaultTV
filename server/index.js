@@ -261,8 +261,15 @@ function requireAuth(req, res, next) {
 
   const token = req.cookies?.vt_session
   if (!token || !verifyToken(token)) {
+    // Media routes must never redirect. A player following a redirect to
+    // /__login receives the login page with a 200, has nothing to decode and
+    // simply stops — a black screen with no error surfaced anywhere. That is
+    // exactly how an untokened /stream failed on FireTV's ExoPlayer, which
+    // sends `Accept: */*` and so satisfied req.accepts('html'). Fail loudly
+    // with a 401 instead so the client can report something useful.
+    const isMedia = /^\/(stream|transcode|probe|reading\/file|roms\/file)/.test(req.path)
     // API routes return 401 JSON; page routes redirect to login
-    if (req.path.startsWith('/auth') || req.accepts('html')) {
+    if (!isMedia && (req.path.startsWith('/auth') || req.accepts('html'))) {
       return res.redirect('/__login')
     }
     return res.status(401).json({ error: 'Not authenticated' })

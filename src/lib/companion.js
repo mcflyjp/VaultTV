@@ -394,11 +394,29 @@ export async function setComicVineKey(key) {
  * @param {string} filePath  Absolute OS path to the video file
  */
 export function streamUrl(filePath) {
-  return `${BASE}/stream?path=${encodeURIComponent(filePath)}`
+  return withToken(`${BASE}/stream?path=${encodeURIComponent(filePath)}`)
 }
 
 export function streamByFilenameUrl(filename) {
-  return `${BASE}/stream/by-filename?filename=${encodeURIComponent(filename)}`
+  return withToken(`${BASE}/stream/by-filename?filename=${encodeURIComponent(filename)}`)
+}
+
+/**
+ * Append the server token to a media URL.
+ *
+ * These URLs are handed to a player, not to fetch(): in the browser that's a
+ * <video src>, and on FireTV it's native ExoPlayer via the bridge. Neither can
+ * set an auth header, and ExoPlayer has no cookie jar at all — so on FireTV an
+ * untokened /stream hit requireAuth, matched `req.accepts('html')`, and got
+ * redirected to /__login. ExoPlayer dutifully followed the redirect, received
+ * the login page with a 200, found nothing decodable and aborted: a black
+ * screen with no error anywhere in the UI. /transcode already did this; the
+ * plain stream path did not.
+ */
+function withToken(url) {
+  const token = localStorage.getItem('vt-companion-token')
+  if (!token) return url
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
 }
 
 /**
