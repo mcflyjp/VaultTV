@@ -47,6 +47,7 @@ public class PlayerActivity extends Activity {
     private String               url;
     private long                 startTimeMs;
     private boolean              finished        = false;
+    private boolean              triedVlcFallback = false;
     private boolean              dimmed          = false;
     private boolean              bannerDismissed = false;
     private boolean              subsEnabled     = true;
@@ -184,6 +185,25 @@ public class PlayerActivity extends Activity {
         player.addListener(new Player.Listener() {
             @Override public void onPlayerError(PlaybackException e) {
                 android.util.Log.e("VaultTV", "Player error: " + e.getMessage());
+                // Previously this ONLY logged. Any failure ExoPlayer couldn't
+                // recover from therefore left a black surface with no message
+                // and no fallback -- indistinguishable from a hung download,
+                // and invisible without adb. A Pokemon episode carrying a PGS
+                // (bitmap) subtitle track failed exactly this way while the
+                // same show's SRT-subtitled seasons played fine.
+                //
+                // VLC handles far more container/track combinations than
+                // ExoPlayer, so hand off to it once. Only once: a VLC failure
+                // must not bounce back here and loop.
+                if (!triedVlcFallback) {
+                    triedVlcFallback = true;
+                    reportPlayerError(e);
+                    android.util.Log.w("VaultTV", "Falling back to VLC after player error");
+                    finishForVlcFallback();
+                    return;
+                }
+                reportPlayerError(e);
+                showFatalError(e);
             }
             @Override public void onIsPlayingChanged(boolean playing) {
                 if (playing) { undim(); }
@@ -266,6 +286,59 @@ public class PlayerActivity extends Activity {
         result.putExtra("auto_advance", autoAdvance);
         setResult(RESULT_OK, result);
         finish();
+    }
+
+    /**
+     * Surface a playback failure to the user. Reaching here means VLC has
+     * already been tried, so there is nothing left to fall back to and the
+     * only wrong answer is a silent black screen.
+     */
+    private void showFatalError(PlaybackException e) {
+        runOnUiThread(() -> {
+            String msg = "Playback failed: " + (e.getMessage() != null ? e.getMessage() : e.getErrorCodeName());
+            android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show();
+            handler.postDelayed(() -> finishWithProgress(false), 400);
+        });
+    }
+
+    /**
+     * POST the failure to the Media Server's /clientlog. A FireTV has no
+     * reachable devtools and this player's errors previously went only to
+     * logcat, so a failure here was invisible unless someone had adb attached
+     * to the television.
+     */
+    private void reportPlayerError(PlaybackException e) {
+        // The media URL is itself served by the companion for local playback, so
+        // its origin is the right place to report to. Addon/torrent streams
+        // point elsewhere and are simply not reported -- no extra plumbing
+        // through the JS bridge for the case that matters.
+        if (url == null || url.isEmpty()) return;
+        final String base;
+        try {
+            java.net.URL u = new java.net.URL(url);
+            if (!url.contains("/stream") && !url.contains("/transcode")) return;
+            base = u.getProtocol() + "://" + u.getAuthority();
+        } catch (Exception ex) { return; }
+        new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c =
+                        (java.net.HttpURLConnection) new java.net.URL(base + "/clientlog").openConnection();
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setDoOutput(true);
+                c.setConnectTimeout(4000);
+                c.setReadTimeout(4000);
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("at", "exoplayer.onPlayerError");
+                o.put("code", e.getErrorCodeName());
+                o.put("message", e.getMessage() == null ? "" : e.getMessage());
+                o.put("cause", e.getCause() == null ? "" : String.valueOf(e.getCause()));
+                o.put("url", url == null ? "" : url.substring(0, Math.min(url.length(), 200)));
+                o.put("build", "firetv-error-fallback-1");
+                c.getOutputStream().write(o.toString().getBytes("UTF-8"));
+                c.getInputStream().close();
+            } catch (Exception ignored) { /* diagnostics must never break playback */ }
+        }).start();
     }
 
     private void finishForVlcFallback() {
