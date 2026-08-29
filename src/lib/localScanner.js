@@ -159,7 +159,13 @@ function cleanTitle(raw) {
  * Returns a number 0–100; higher = better match.
  */
 function titleScore(resultTitle, query) {
-  const norm = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+  // Fold accents to their base letter BEFORE stripping punctuation. Deleting
+  // them instead turned "Pokemon" into "pokmon", which shares no whole word
+  // with the query "pokemon" — so the real show scored 25 while the unaccented
+  // spin-off "Pokemon Get TV" scored 85 and won every episode in the folder.
+  const norm = s => s
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
   const a = norm(resultTitle)
   const b = norm(query)
   if (a === b) return 100
