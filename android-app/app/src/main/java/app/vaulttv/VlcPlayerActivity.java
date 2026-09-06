@@ -366,11 +366,13 @@ public class VlcPlayerActivity extends Activity {
                 break;
             case IDX_AUDIO:
                 showTrackPicker("Audio Track", mediaPlayer.getAudioTracks(),
-                    mediaPlayer.getAudioTrack(), id -> mediaPlayer.setAudioTrack(id));
+                    mediaPlayer.getAudioTrack(), id -> mediaPlayer.setAudioTrack(id),
+                    () -> mediaPlayer.getAudioTrack());
                 break;
             case IDX_SUBS:
                 showTrackPicker("Subtitles", mediaPlayer.getSpuTracks(),
-                    mediaPlayer.getSpuTrack(), id -> mediaPlayer.setSpuTrack(id));
+                    mediaPlayer.getSpuTrack(), id -> mediaPlayer.setSpuTrack(id),
+                    () -> mediaPlayer.getSpuTrack());
                 break;
         }
     }
@@ -378,9 +380,10 @@ public class VlcPlayerActivity extends Activity {
     // ── Track picker dialog ───────────────────────────────────────────────────
 
     interface TrackSetter { void set(int id); }
+    interface TrackGetter { int get(); }
 
     private void showTrackPicker(String title, MediaPlayer.TrackDescription[] tracks,
-                                  int currentId, TrackSetter setter) {
+                                  int currentId, TrackSetter setter, TrackGetter getter) {
         mainHandler.removeCallbacks(hideControls);
         if (tracks == null || tracks.length == 0) {
             showHud("No " + title + " tracks available");
@@ -399,8 +402,21 @@ public class VlcPlayerActivity extends Activity {
             .setSingleChoiceItems(names, checkedItem, (d, which) -> selected[0] = which)
             .setPositiveButton("OK", (d, w) -> {
                 setter.set(tracks[selected[0]].id);
-                showHud(title + ": " + names[selected[0]]);
-                resetHideTimer();
+                // Report what the player actually did, not what was picked.
+                // This HUD echoed the selection unconditionally, so a set that
+                // silently failed still displayed as success -- which is how
+                // "subtitles off" could sit on screen over visible subtitles.
+                mainHandler.postDelayed(() -> {
+                    int now = getter.get();
+                    String actual = null;
+                    for (MediaPlayer.TrackDescription t : tracks) {
+                        if (t.id == now) { actual = (t.name != null && !t.name.isEmpty()) ? t.name : ("Track " + t.id); break; }
+                    }
+                    if (actual == null) actual = "Disabled";
+                    boolean ok = now == tracks[selected[0]].id;
+                    showHud(title + ": " + actual + (ok ? "" : "  (could not switch)"));
+                    resetHideTimer();
+                }, 250);
             })
             .setNegativeButton("Cancel", (d, w) -> resetHideTimer())
             .show();

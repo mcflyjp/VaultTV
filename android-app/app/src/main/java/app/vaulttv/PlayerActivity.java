@@ -243,8 +243,14 @@ public class PlayerActivity extends Activity {
 
     private void toggleSubtitles() {
         subsEnabled = !subsEnabled;
+        // setRendererDisabled takes a renderer INDEX, not a track type.
+        // C.TRACK_TYPE_TEXT is 3, and in the default renderer ordering
+        // (0=video, 1=audio, 2=text, 3=metadata) that disabled the metadata
+        // renderer while subtitles carried on rendering — the HUD said OFF and
+        // the text stayed on screen. setTrackTypeDisabled is the type-based
+        // API this always wanted.
         trackSelector.setParameters(trackSelector.buildUponParameters()
-                .setRendererDisabled(C.TRACK_TYPE_TEXT, !subsEnabled)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsEnabled)
                 .build());
         showHud("Subtitles: " + (subsEnabled ? "ON" : "OFF") + "   |   2x ☰ → VLC");
     }

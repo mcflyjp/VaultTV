@@ -115,6 +115,7 @@ const QUALITY_TIERS = [
  *   seeds       — integer seed count or null (Torrentio: "👤 42")
  *   sizeGb      — file size in GB or null  (Torrentio: "💾 15.2 GB")
  *   qualityTier — 0-5 quality tier (5 = 4K, 4 = 1080p, …)
+ *   hardsub     — true when the release name marks burned-in subtitles
  */
 export function parseStreamMeta(stream) {
   const text = [stream.name, stream.title, stream.description, stream.behaviorHints?.filename]
@@ -144,7 +145,17 @@ export function parseStreamMeta(stream) {
     if (re.test(text)) { qualityTier = tier; break }
   }
 
-  return { seeds, sizeGb, qualityTier }
+  // Burned-in subtitles. These are part of the video frames, so no player can
+  // switch them off: disabling ExoPlayer's text renderer and setting VLC's SPU
+  // track to -1 both leave them on screen, which reads as a broken toggle
+  // rather than a property of the release. Flag it so the choice is informed.
+  //
+  // Word-boundary matching on HC matters — it appears inside plenty of
+  // innocent tokens (HDCAM, "HC" within a group name like ARCHiE), and a
+  // false positive here mislabels a perfectly good stream.
+  const hardsub = /(?:HC|HARDSUB(?:BED)?|KORSUB|SUBBED)/i.test(text)
+
+  return { seeds, sizeGb, qualityTier, hardsub }
 }
 
 /**
