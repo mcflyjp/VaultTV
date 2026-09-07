@@ -1,7 +1,13 @@
-// Fallback IMDb ID resolution for titles where TMDB's external_ids.imdb_id
-// is empty (a real, recurring TMDB data gap — e.g. Danger Force). Stremio
-// itself resolves these via Cinemeta's own catalog search, so we do the same
-// rather than falling back to a `tmdb:` id that stream addons don't recognize.
+/**
+ * Cinemeta IMDb lookup
+ *
+ * Fallback resolution of an IMDb id for titles where TMDB's
+ * external_ids.imdb_id is empty, which is a real and recurring gap in TMDB's
+ * data, Danger Force being one example. Stremio resolves these through
+ * Cinemeta's own catalogue search, so VaultTV does the same rather than fall
+ * back to a tmdb: id that stream add-ons do not recognise.
+ */
+
 export async function findImdbIdByTitle(title, year, mediaType) {
   if (!title) return null
   const stremioType = mediaType === 'tv' ? 'series' : 'movie'
