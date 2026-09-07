@@ -399,8 +399,13 @@ export default function Detail() {
       // Deferred a frame so the rows exist before we look for them.
       requestAnimationFrame(() => {
         const first = streamPanelRef.current?.querySelector('[data-card]')
-        if (first) first.focus()
-        else holdFocus()
+        if (!first) { holdFocus(); return }
+        // preventScroll + an explicit nearest scroll, matching what
+        // MainActivity's spatial navigation does. A bare focus() lets the
+        // WebView pick its own scroll position, which on a panel this far
+        // down the page throws the rest of the layout off screen.
+        first.focus({ preventScroll: true })
+        first.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
       })
     }
   }
@@ -1216,7 +1221,16 @@ function StreamPanel({ loading, streams, onSelect, preferredLang }) {
           {sorted.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams match the current filters.</p>
           ) : IS_FIRETV ? (
-            <div data-stream-row style={{ display: 'flex', flexDirection: 'row', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
+            /* overscrollBehavior: contain stops a horizontal scroll that has
+               hit the end of the rail from chaining to the page and carrying
+               the whole layout off screen — the same guard the sidebar nav
+               uses. scrollPadding keeps the focused card off the very edge so
+               the spatial-nav's 'nearest' scroll leaves it fully visible. */
+            <div data-stream-row style={{
+              display: 'flex', flexDirection: 'row', gap: '0.6rem',
+              overflowX: 'auto', paddingBottom: '0.5rem',
+              overscrollBehavior: 'contain', scrollPaddingLeft: '1rem', scrollPaddingRight: '1rem',
+            }}>
               {sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} companionOnline={companionOnline} horizontal />)}
             </div>
           ) : sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} companionOnline={companionOnline} />)}
