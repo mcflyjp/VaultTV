@@ -67,6 +67,14 @@ export default function Detail() {
   const [posterHovered, setPosterHovered] = useState(false)
   const [streams, setStreams]         = useState(null)
   const [loadingStreams, setLoadingStreams] = useState(false)
+  // FireTV focus anchors. Mounting the stream panel inserts a large subtree
+  // into the page, and the WebView's focus engine responds by dropping focus
+  // to the document's first focusable element — the Back button — which also
+  // scrolls the page to the top. Worse, the in-flight key event could then
+  // land on Back and navigate away from the title entirely. Focus is therefore
+  // pinned explicitly across the load instead of left to the browser.
+  const findStreamsBtnRef = useRef(null)
+  const streamPanelRef    = useRef(null)
   const [autoSubs, setAutoSubs]       = useState([])
   const [selectedSeason, setSelectedSeason] = useState(1)
   const [streamEp, setStreamEp]       = useState(null) // { season, episode } currently expanded
@@ -361,6 +369,21 @@ export default function Detail() {
     setStreamEp({ season, episode })
     setLoadingStreams(true)
     setStreams(null)
+
+    // Hold focus on the button while the panel mounts. Without this the
+    // WebView reassigns focus to the first focusable element on the page and
+    // jumps to the top, so the user has to scroll back down to reach the
+    // streams that just appeared.
+    const holdFocus = () => {
+      const btn = findStreamsBtnRef.current
+      if (!btn) return
+      const lost = !document.activeElement
+        || document.activeElement === document.body
+        || !document.contains(document.activeElement)
+      if (lost) btn.focus({ preventScroll: true })
+    }
+    const holdTimers = [0, 60, 160, 320].map(ms => setTimeout(holdFocus, ms))
+
     try {
       const [streamResults, subResults] = await Promise.all([
         getStreams(type, imdbId, season, episode),
@@ -369,6 +392,16 @@ export default function Detail() {
       setStreams(streamResults.map(s => ({ ...s, _subtitles: subResults })))
     } finally {
       setLoadingStreams(false)
+      holdTimers.forEach(clearTimeout)
+      // Then hand focus to the first stream. This is what the user was
+      // reaching for anyway, and moving there deliberately means the page
+      // scrolls to the streams instead of to wherever focus happened to land.
+      // Deferred a frame so the rows exist before we look for them.
+      requestAnimationFrame(() => {
+        const first = streamPanelRef.current?.querySelector('[data-card]')
+        if (first) first.focus()
+        else holdFocus()
+      })
     }
   }
 
@@ -697,6 +730,7 @@ export default function Detail() {
                 {type === 'movie' && (
                   <button
                     className="btn-accent"
+                    ref={findStreamsBtnRef}
                     autoFocus
                     onClick={() => handleWatch()}
                     style={{ fontSize: '0.9rem', padding: '0.65rem 1.6rem' }}
@@ -939,7 +973,7 @@ export default function Detail() {
 
         {/* ── Movie streams panel (unchanged — shows below poster/info) ── */}
         {type === 'movie' && (loadingStreams || streams !== null) && (
-          <div style={{ padding: '0 2rem 2rem' }}>
+          <div style={{ padding: '0 2rem 2rem' }} ref={streamPanelRef}>
             <StreamErrorBoundary>
             <StreamPanel
               loading={loadingStreams}
