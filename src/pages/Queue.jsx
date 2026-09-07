@@ -1,3 +1,11 @@
+/**
+ * Up Next queue
+ *
+ * The ordered list of titles lined up to watch, from QueueContext. Rows can be
+ * played, reordered or removed. Distinct from Continue Watching, which is
+ * derived from playback history rather than chosen by hand.
+ */
+
 import { useNavigate } from 'react-router-dom'
 import { useQueue } from '../context/QueueContext'
 import { useContextMenu } from '../context/ContextMenuContext'

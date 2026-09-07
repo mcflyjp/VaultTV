@@ -1,3 +1,13 @@
+/**
+ * WatchHistoryContext
+ *
+ * Playback position and watched state: what powers Continue Watching and the
+ * watched ticks on episode lists. Progress is written to as many of three
+ * places as are available, meaning localStorage, the Media Server, and
+ * Supabase, so a title resumes at the right point on whichever device is used
+ * next.
+ */
+
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { fetchProgress, pushProgress, deleteProgress } from '../lib/companion'
 import { cloudFetchProgress, cloudPushProgress, cloudDeleteProgress } from '../lib/cloudSync'

@@ -1,3 +1,18 @@
+/**
+ * MainActivity
+ *
+ * The app itself: a WebView loading VaultTV, plus the native capabilities the
+ * web layer cannot reach on its own. Exposes window.vaulttvBridge to
+ * JavaScript for launching native players, casting and picking folders, and
+ * injects the D-pad spatial navigation that makes the web UI usable from a TV
+ * remote.
+ *
+ * Two user agent flags are set and they are not interchangeable. VaultTV-App
+ * marks every native WebView including phones, while VaultTV-FireTV is only
+ * set on real TV hardware. The phone app is therefore not FireTV and uses the
+ * web player.
+ */
+
 package app.vaulttv;
 
 import android.annotation.SuppressLint;

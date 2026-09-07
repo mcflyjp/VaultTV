@@ -1,3 +1,12 @@
+/**
+ * AlphabetScroller
+ *
+ * The A to Z rail down the side of a large library grid. Clicking a letter
+ * jumps to the first title filed under it. Letters with nothing behind them
+ * are shown inactive rather than hidden, so the rail does not reflow as
+ * filters change.
+ */
+
 import { useMemo, useRef, useState } from 'react'
 import { sortableTitle } from '../lib/sortTitle'
 

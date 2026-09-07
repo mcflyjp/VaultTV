@@ -1,3 +1,10 @@
+/**
+ * Navbar
+ *
+ * The compact navigation bar used on narrow layouts, where the full Sidebar
+ * does not fit. TopNav is the wide screen counterpart.
+ */
+
 import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { FiSearch, FiSettings, FiGrid, FiHome } from 'react-icons/fi'

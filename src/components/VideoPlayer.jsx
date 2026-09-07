@@ -1,3 +1,22 @@
+/**
+ * VideoPlayer
+ *
+ * The in page player used by the browser, the desktop app and the Android
+ * phone app. FireTV does not use this file at all: it hands playback to a
+ * native activity instead, so anything here is irrelevant on a TV.
+ *
+ * Responsibilities beyond pressing play: probing a stream's codecs and
+ * swapping to the Media Server's transcoder when the browser cannot decode it,
+ * subtitles, resume position, casting to a TV, and the Up Next prompt for the
+ * next episode.
+ *
+ * Two constraints shape much of the code. Android WebView blocks http media
+ * loads from an https page, so companion URLs must match the page's scheme.
+ * And setting crossOrigin forces a CORS check that blocks such a load
+ * outright, while omitting it makes Web Audio silent, so the two are decided
+ * together rather than independently.
+ */
+
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { usePlayer } from '../context/PlayerContext'
 import { useLanguage } from '../context/LanguageContext'

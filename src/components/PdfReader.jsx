@@ -1,3 +1,11 @@
+/**
+ * PdfReader
+ *
+ * Full screen reader for PDFs, rendering pages to canvas through pdfjs. Used
+ * for the Reading section where a file is a fixed page layout rather than
+ * reflowable text.
+ */
+
 import { useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import { motion, AnimatePresence } from 'framer-motion'

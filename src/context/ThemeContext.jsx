@@ -1,3 +1,11 @@
+/**
+ * ThemeContext
+ *
+ * The active colour theme. THEMES lists every available palette; the selection
+ * is stored as 'vt-theme' and applied by setting CSS custom properties on the
+ * document root, which the rest of the UI reads.
+ */
+
 import { createContext, useContext, useState } from 'react'
 
 export const THEMES = [

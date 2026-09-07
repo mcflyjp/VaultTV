@@ -1,3 +1,16 @@
+/**
+ * VlcPlayerActivity
+ *
+ * The libVLC player, used when ExoPlayer cannot handle a file or when the user
+ * has chosen VLC as their default. Supports far more container and track
+ * combinations, at the cost of software decoding.
+ *
+ * VLC does not size its own video output. Without pushing the surface
+ * dimensions in on every layout pass it renders anchored to the top left,
+ * which on a TV shows as the picture jammed against the left edge with a black
+ * bar on the right.
+ */
+
 package app.vaulttv;
 
 import android.app.Activity;
@@ -404,7 +417,7 @@ public class VlcPlayerActivity extends Activity {
                 setter.set(tracks[selected[0]].id);
                 // Report what the player actually did, not what was picked.
                 // This HUD echoed the selection unconditionally, so a set that
-                // silently failed still displayed as success -- which is how
+                // silently failed still displayed as success, which is how
                 // "subtitles off" could sit on screen over visible subtitles.
                 mainHandler.postDelayed(() -> {
                     int now = getter.get();

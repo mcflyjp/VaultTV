@@ -1,3 +1,11 @@
+/**
+ * Reading library
+ *
+ * Comics and ebooks grouped by publisher and series, opening into the reader
+ * that matches the format. Covers are scraped and cached, and ArtworkModal
+ * allows correcting one by hand. Backed by useReadingLibrary.
+ */
+
 import { useState } from 'react'
 import { FiBook, FiImage, FiRefreshCw, FiX, FiPlay } from 'react-icons/fi'
 import { useReadingLibrary } from '../hooks/useReadingLibrary'

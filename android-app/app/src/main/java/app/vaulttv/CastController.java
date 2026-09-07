@@ -1,3 +1,16 @@
+/**
+ * CastController
+ *
+ * Google Cast for the Android app, done natively because Android WebView has
+ * neither the Cast Web Sender SDK nor the Remote Playback API, so the browser
+ * route is inert inside the app. Owns the device picker, the session, and
+ * loading media onto the receiver.
+ *
+ * Session and progress state is pushed into JavaScript through
+ * window.__castState and window.__castProgress rather than being polled from
+ * the web side. Cast APIs must be called on the main thread.
+ */
+
 package app.vaulttv;
 
 import android.app.Activity;

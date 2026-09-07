@@ -1,3 +1,11 @@
+/**
+ * ComicReader
+ *
+ * Full screen reader for CBZ and CBR comics. Unpacks the archive in the
+ * browser, sorts the pages by filename, and pages through them. Used by the
+ * Reading section for comic formats; EpubReader and PdfReader cover the rest.
+ */
+
 import { useEffect, useRef, useState, forwardRef } from 'react'
 import JSZip from 'jszip'
 import { createExtractorFromData } from 'node-unrar-js'

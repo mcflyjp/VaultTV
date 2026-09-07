@@ -1,3 +1,11 @@
+/**
+ * useReadingLibrary
+ *
+ * Backs the Reading section: comic and ebook folders, the files found in them,
+ * and their covers. Formats are handed to the matching reader component, so
+ * CBZ and CBR go to ComicReader, EPUB to EpubReader, and PDF to PdfReader.
+ */
+
 import { useEffect, useState, useCallback } from 'react'
 import {
   listReadingFolders, addReadingFolder, removeReadingFolder, scanReadingFolder,

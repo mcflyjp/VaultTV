@@ -1,3 +1,11 @@
+/**
+ * MetadataContext
+ *
+ * Per title metadata corrections that override what TMDB returned, such as a
+ * manually chosen match for a local file that was identified wrongly. Stored
+ * under 'vt-metadata-overrides' and applied on top of fetched data.
+ */
+
 import { createContext, useContext, useState } from 'react'
 
 const MetadataContext = createContext(null)

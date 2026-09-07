@@ -1,9 +1,18 @@
+/**
+ * AddonsContext
+ *
+ * The user's installed Stremio add-ons: the list of manifest URLs that every
+ * stream and catalogue lookup is fanned out to. Stored in localStorage under
+ * 'vt-addons' and mirrored to Supabase when signed in, so the same add-ons
+ * follow the account onto another device.
+ */
+
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 const AddonsContext = createContext(null)
 
-// --- Supabase helpers ---
+// ── Supabase helpers ──────────────────────────────────────────────────────────
 async function fetchCloudAddons(userId) {
   const { data, error } = await supabase
     .from('user_settings')

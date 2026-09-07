@@ -1,3 +1,10 @@
+/**
+ * MediaRow
+ *
+ * A titled horizontal strip of poster cards. The plainer sibling of
+ * MediaShelf, which adds scroll affordances and cinematic sizing.
+ */
+
 import MediaCard from './MediaCard'
 
 export default function MediaRow({ title, items = [] }) {

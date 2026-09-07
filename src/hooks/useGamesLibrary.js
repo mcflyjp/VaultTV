@@ -1,3 +1,12 @@
+/**
+ * useGamesLibrary
+ *
+ * Backs the Games section: ROM folders, the games found in them, and launching
+ * one through RetroArch. Works against whichever host is present, meaning the
+ * Android bridge or Electron, which is what the exported HAS_ constants
+ * report. Box art is scraped from IGDB and cached by the Media Server.
+ */
+
 import { useEffect, useState, useCallback } from 'react'
 import {
   listRomFolders, addRomFolder, removeRomFolder, scanRomFolder,

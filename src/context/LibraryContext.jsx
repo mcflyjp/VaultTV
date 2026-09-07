@@ -1,3 +1,12 @@
+/**
+ * LibraryContext
+ *
+ * The user's saved titles: the watchlist, plus anything added from a detail
+ * page. Held in localStorage under 'vt-library' and synced to Supabase.
+ * setTraktWatchlistSync lets TraktContext register callbacks so adds and
+ * removes are mirrored to Trakt without this file importing it.
+ */
+
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 

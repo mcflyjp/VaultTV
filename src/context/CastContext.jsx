@@ -1,3 +1,14 @@
+/**
+ * CastContext
+ *
+ * One interface over two very different Cast implementations. In a desktop
+ * browser it drives the Google Cast Web Sender SDK; inside the Android app it
+ * talks to native Java through window.vaulttvBridge, because Android WebView
+ * ships neither window.chrome.cast nor the Remote Playback API. Native session
+ * and progress state is pushed in from CastController.java rather than polled,
+ * via window.__castState and window.__castProgress.
+ */
+
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { IS_ELECTRON } from '../lib/platform'
 

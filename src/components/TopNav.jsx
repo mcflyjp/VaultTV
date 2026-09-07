@@ -1,3 +1,10 @@
+/**
+ * TopNav
+ *
+ * The top bar on wide layouts: search, profile, and the actions that are not
+ * section navigation. Section links live in Sidebar.
+ */
+
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTheme, THEMES } from '../context/ThemeContext'

@@ -1,3 +1,12 @@
+/**
+ * Settings
+ *
+ * Every user facing option in one page: account, appearance and theme,
+ * playback and language, parental controls, the Media Server connection,
+ * Trakt, and the API keys for artwork scraping. Most settings write straight
+ * to their own context, which owns persistence and any cloud sync.
+ */
+
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchRemoteAccess } from '../lib/companion'
@@ -676,6 +685,9 @@ export default function Settings() {
   )
 }
 
+// ── Resync library ────────────────────────────────────────────────────────────
+// Forces a full re-upload of the local library to the cloud. For when a device
+// shows a library that has drifted from what the Media Server actually holds.
 function ResyncLibraryButton() {
   const local = useLocalLibrary()
   const [status, setStatus] = useState(null) // null | 'syncing' | 'done' | 'error'
@@ -737,6 +749,10 @@ function ResyncLibraryButton() {
   )
 }
 
+// ── Media Server connection ───────────────────────────────────────────────────
+// Where to find the Media Server and the token used to authenticate. Remote
+// clients cannot rely on a cookie, so the token is also what media URLs carry
+// in their query string. Tests the address before saving it.
 function CompanionHostInput() {
   const local = useLocalLibrary()
   const [val,   setVal]   = useState(() => localStorage.getItem('vt-companion-host') || '')
@@ -787,6 +803,9 @@ function CompanionHostInput() {
   )
 }
 
+// ── Sign in ───────────────────────────────────────────────────────────────────
+// Email and Google sign in through Supabase, shown when signed out. Signing in
+// is what enables cloud sync of the library, ratings and settings.
 function LoginPanel({ signInWithEmail, signUpWithEmail, signInWithGoogle }) {
   const [mode,     setMode]     = useState('signin') // 'signin' | 'signup'
   const [email,    setEmail]    = useState('')
@@ -865,6 +884,8 @@ function LoginPanel({ signInWithEmail, signUpWithEmail, signInWithGoogle }) {
   )
 }
 
+// ── Account ───────────────────────────────────────────────────────────────────
+// Shown when signed in: who you are, sync state, and sign out.
 function AccountPanel({ user, signOut, syncing, syncError }) {
   const [signingOut, setSigningOut] = useState(false)
 
@@ -902,6 +923,10 @@ function AccountPanel({ user, signOut, syncing, syncError }) {
   )
 }
 
+// ── Server folders ────────────────────────────────────────────────────────────
+// Administers the Media Server's watched folders, meaning the directories it
+// scans and is allowed to stream from. A path outside these is refused by the
+// server, so adding media here is what makes it playable at all.
 function ServerAdminCard() {
   const local = useLocalLibrary()
   const [folders,    setFolders]    = useState([])
@@ -1089,6 +1114,10 @@ function ServerAdminCard() {
   )
 }
 
+// ── Remote access ─────────────────────────────────────────────────────────────
+// Shows the addresses the Media Server is reachable on: the Cloudflare tunnel
+// for use away from home, and the LAN address, which is preferred for casting
+// since it keeps a large stream on the local network.
 function RemoteAccessCard() {
   const [tunnelUrl, setTunnelUrl] = useState('')
   const [copied,    setCopied]    = useState(false)
@@ -1131,6 +1160,8 @@ function RemoteAccessCard() {
   )
 }
 
+// ── Layout helper ─────────────────────────────────────────────────────────────
+// The bordered, titled panel every settings section is wrapped in.
 function Card({ title, icon, children }) {
   return (
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem', marginBottom: '1.5rem' }}>

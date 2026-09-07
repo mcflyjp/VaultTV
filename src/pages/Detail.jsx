@@ -1,3 +1,17 @@
+/**
+ * Title detail page
+ *
+ * Everything about one movie or show: artwork and metadata, cast, seasons and
+ * episodes, and the stream list. The main flows are playing a local file,
+ * finding add-on streams, and for TV picking a season then an episode.
+ *
+ * Focus handling here is deliberate rather than incidental. Mounting the
+ * stream panel inserts a large subtree, and the TV's WebView responds by
+ * dropping focus to the first element on the page, which scrolls to the top
+ * and can activate Back. Focus is therefore pinned across the load and handed
+ * to the streams once they exist.
+ */
+
 import { useState, useEffect, useRef, Component } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'

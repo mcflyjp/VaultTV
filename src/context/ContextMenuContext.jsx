@@ -1,3 +1,11 @@
+/**
+ * ContextMenuContext
+ *
+ * Tracks which right click menu is open and where it should be drawn. Kept
+ * global so only one menu can be open at a time and a click anywhere else
+ * closes it, rather than every card managing its own.
+ */
+
 import { createContext, useContext, useState, useEffect } from 'react'
 
 const ContextMenuContext = createContext(null)

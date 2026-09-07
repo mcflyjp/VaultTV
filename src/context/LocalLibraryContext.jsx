@@ -1,3 +1,17 @@
+/**
+ * LocalLibraryContext
+ *
+ * Your own media files, as opposed to add-on streams. Talks to the Media
+ * Server to scan configured folders, matches each file against TMDB through
+ * localScanner, and keeps the resulting library. Also resolves a playable URL
+ * for a local file and reports whether the companion is reachable at all.
+ *
+ * companionPath is the absolute path on the scanning machine and is stripped
+ * before anything is uploaded, since it means nothing on another device.
+ * Library state is held server side rather than in localStorage, which a large
+ * library overflows mid scan.
+ */
+
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { scanDirectory, parseFilename, matchTmdb, parseQuality } from '../lib/localScanner'
 import {

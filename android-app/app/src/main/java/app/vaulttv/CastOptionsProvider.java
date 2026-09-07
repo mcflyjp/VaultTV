@@ -1,3 +1,11 @@
+/**
+ * CastOptionsProvider
+ *
+ * Cast framework configuration, named in the manifest and instantiated by
+ * Google Play services rather than by app code. Sets the receiver application
+ * used when casting. Required for Cast to initialise at all.
+ */
+
 package app.vaulttv;
 
 import android.content.Context;

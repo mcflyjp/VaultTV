@@ -1,3 +1,10 @@
+/**
+ * PlaylistModal
+ *
+ * The dialog for adding a title to a playlist, including creating one on the
+ * spot. Reads and writes PlaylistContext.
+ */
+
 import { useState } from 'react'
 import { usePlaylist } from '../context/PlaylistContext'
 import { FiX, FiPlus, FiCheck } from 'react-icons/fi'

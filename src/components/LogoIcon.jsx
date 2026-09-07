@@ -1,3 +1,10 @@
+/**
+ * LogoIcon
+ *
+ * The VaultTV mark as inline SVG, sized and tinted by prop so it can sit in
+ * the sidebar, the nav bar or a splash without shipping separate assets.
+ */
+
 export default function LogoIcon({ size = 40, accent = 'var(--accent)' }) {
   const dark = accent === 'var(--accent)' ? 'var(--accent-hover)' : accent
   return (

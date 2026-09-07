@@ -1,3 +1,10 @@
+/**
+ * ProfilePanel
+ *
+ * The account menu: who is signed in, sign out, and the links to settings and
+ * preferences. Opened from TopNav or Sidebar.
+ */
+
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { FiX, FiUser, FiSettings, FiLogOut, FiMail, FiShield } from 'react-icons/fi'

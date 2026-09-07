@@ -1,3 +1,11 @@
+/**
+ * ContinueWatching
+ *
+ * The Home shelf of part watched titles, built from WatchHistoryContext. Each
+ * card resumes at the saved position, shows a progress bar, and can be
+ * dismissed to drop the title off the shelf without erasing its history.
+ */
+
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWatchHistory } from '../context/WatchHistoryContext'

@@ -1,3 +1,11 @@
+/**
+ * HeroBanner
+ *
+ * The large backdrop at the top of Home, showing one featured title with its
+ * logo, overview and play action. The cinematic variant is the taller treatment
+ * used on TV, where the banner is the first thing the remote lands on.
+ */
+
 import { useNavigate } from 'react-router-dom'
 import { useTheme } from '../context/ThemeContext'
 import { IMG } from '../lib/tmdb'

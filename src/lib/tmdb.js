@@ -1,3 +1,13 @@
+/**
+ * TMDB API client
+ *
+ * Every call to themoviedb.org: trending and popular rows, search, title and
+ * season detail, and the IMG helper that builds poster and backdrop URLs at a
+ * given size. getDetail deliberately appends credits, videos, ratings and
+ * external ids in one request so a detail page needs a single round trip.
+ * pickTrailer and pickTheme choose the best video from the results.
+ */
+
 const BASE = 'https://api.themoviedb.org/3'
 // When served by VaultTV Server, the key is injected into window.__TMDB_KEY
 // so it never needs to be baked into the built JS (useful for sharing the build).

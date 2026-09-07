@@ -1,3 +1,11 @@
+/**
+ * ReadingLibraryCard
+ *
+ * The Reading panel on the library screen: comic and ebook folders and their
+ * contents, grouped by publisher. Backed by useReadingLibrary. The Games
+ * equivalent is GamesLibraryCard.
+ */
+
 import { useState } from 'react'
 import { FiFolder, FiRefreshCw, FiPlus, FiTrash2, FiBook, FiImage } from 'react-icons/fi'
 import { LibraryCard } from './LibraryPanel'

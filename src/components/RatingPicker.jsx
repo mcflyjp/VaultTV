@@ -1,3 +1,10 @@
+/**
+ * RatingPicker
+ *
+ * The star rating dialog for a title. Writes to RatingsContext, which mirrors
+ * the rating to Trakt when an account is connected.
+ */
+
 import { useState } from 'react'
 import { useRatings } from '../context/RatingsContext'
 import { FiStar, FiX } from 'react-icons/fi'

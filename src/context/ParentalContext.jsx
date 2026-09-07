@@ -1,3 +1,11 @@
+/**
+ * ParentalContext
+ *
+ * Parental controls: whether filtering is on, the highest certification
+ * allowed, and the PIN that unlocks it. Stored in localStorage only, so the
+ * setting is per device and does not travel with the account.
+ */
+
 import { createContext, useContext, useState } from 'react'
 
 // TMDB certification order (US) — used for age-gating

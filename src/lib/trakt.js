@@ -1,3 +1,13 @@
+/**
+ * Trakt API client
+ *
+ * Raw HTTP against the Trakt v2 API, with no React or app state. Covers the
+ * device code sign in flow, token refresh, the signed in user's lists, and
+ * pushing watched state, ratings and watchlist changes back to Trakt.
+ * traktItemsToPartial converts a Trakt list response into the shape the rest
+ * of the app uses for a title. State and error handling live in TraktContext.
+ */
+
 const BASE = 'https://api.trakt.tv'
 
 function hdrs(clientId, accessToken) {

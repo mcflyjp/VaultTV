@@ -1,3 +1,10 @@
+/**
+ * MediaGrid
+ *
+ * Wraps a set of titles in a responsive poster grid. Column count follows the
+ * density set in LayoutContext.
+ */
+
 import MediaCard from './MediaCard'
 import { useLayout } from '../context/LayoutContext'
 

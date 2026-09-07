@@ -1,3 +1,12 @@
+/**
+ * LibraryPanel
+ *
+ * The settings surface for local media: which folders are watched for movies
+ * and TV, scanning and rescanning them, and the state of each source. The
+ * exported LibraryCard here is the collapsible section wrapper used by this
+ * panel and is unrelated to the poster card in LibraryCard.jsx.
+ */
+
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLibrary } from '../context/LibraryContext'

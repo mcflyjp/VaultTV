@@ -1,3 +1,12 @@
+/**
+ * Library grids
+ *
+ * The saved title grids: My Movies, My TV Shows and the other sections chosen
+ * by the :section route param. Combines cloud saved titles with matched local
+ * files, sorts them ignoring a leading article, and offers the A to Z rail for
+ * large collections. Games and Reading have their own pages.
+ */
+
 import { useMemo, useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLibrary } from '../context/LibraryContext'

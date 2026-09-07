@@ -1,3 +1,12 @@
+/**
+ * Sidebar
+ *
+ * The main navigation rail: Browse, My Library and the section links. Has a
+ * compact icon only mode for narrow windows, where text labels and tags are
+ * hidden because the rail is too narrow to hold them. LIB_META near the top
+ * defines each library entry, including which ones carry a Beta tag.
+ */
+
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { FiHome, FiSearch, FiGrid, FiSettings, FiChevronRight, FiFilm, FiTv, FiBookmark, FiList, FiMusic, FiLogOut, FiBookOpen, FiFolder, FiUser, FiMenu, FiX, FiPlay } from 'react-icons/fi'

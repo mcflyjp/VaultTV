@@ -1,3 +1,12 @@
+/**
+ * AuthContext
+ *
+ * Supabase session state for the whole app: the current user, sign in and sign
+ * out, and the loading flag routes use to avoid redirecting before the session
+ * has been restored. Everything that syncs to the cloud waits on the user
+ * object exposed here.
+ */
+
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 

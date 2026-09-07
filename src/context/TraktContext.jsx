@@ -1,3 +1,13 @@
+/**
+ * TraktContext
+ *
+ * Trakt account integration: device code sign in, token storage and refresh,
+ * and the user's Trakt lists. Also registers the sync callbacks that
+ * LibraryContext and RatingsContext call, so watchlist changes and ratings
+ * reach Trakt without those files depending on this one. Access tokens expire,
+ * so a refresh is attempted before any failure is surfaced to the user.
+ */
+
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import {
   requestDeviceCode, pollDeviceToken, refreshAccessToken,

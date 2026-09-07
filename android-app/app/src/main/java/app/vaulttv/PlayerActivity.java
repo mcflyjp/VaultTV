@@ -1,3 +1,16 @@
+/**
+ * PlayerActivity
+ *
+ * The native ExoPlayer used on FireTV, launched from the bridge. Handles remote
+ * key input, subtitle and audio track selection, audio delay, resume position,
+ * and the next episode prompt.
+ *
+ * Falls back to VLC when playback fails, which covers containers and subtitle
+ * formats ExoPlayer refuses, such as PGS bitmap subtitles. That fallback is
+ * the difference between an unplayable title and a working one, so any error
+ * routes through it before the user is shown a failure.
+ */
+
 package app.vaulttv;
 
 import android.app.Activity;
@@ -187,7 +200,7 @@ public class PlayerActivity extends Activity {
                 android.util.Log.e("VaultTV", "Player error: " + e.getMessage());
                 // Previously this ONLY logged. Any failure ExoPlayer couldn't
                 // recover from therefore left a black surface with no message
-                // and no fallback -- indistinguishable from a hung download,
+                // and no fallback, indistinguishable from a hung download,
                 // and invisible without adb. A Pokemon episode carrying a PGS
                 // (bitmap) subtitle track failed exactly this way while the
                 // same show's SRT-subtitled seasons played fine.
@@ -316,7 +329,7 @@ public class PlayerActivity extends Activity {
     private void reportPlayerError(PlaybackException e) {
         // The media URL is itself served by the companion for local playback, so
         // its origin is the right place to report to. Addon/torrent streams
-        // point elsewhere and are simply not reported -- no extra plumbing
+        // point elsewhere and are simply not reported, so no extra plumbing
         // through the JS bridge for the case that matters.
         if (url == null || url.isEmpty()) return;
         final String base;

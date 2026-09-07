@@ -1,3 +1,11 @@
+/**
+ * MediaCard
+ *
+ * The poster card used in shelves and rows: artwork, title, and the focus
+ * treatment the remote relies on to show where it is. Can render the backdrop
+ * instead of the poster for wide shelves.
+ */
+
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { IMG } from '../lib/tmdb'

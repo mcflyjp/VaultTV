@@ -1,3 +1,11 @@
+/**
+ * TmdbMatchModal
+ *
+ * Manual correction for a local file matched to the wrong title. Searches TMDB
+ * and lets the user pick the right one, storing the result as an override in
+ * MetadataContext so a rescan does not undo it.
+ */
+
 import { useState, useEffect, useRef } from 'react'
 import { search } from '../lib/tmdb'
 import { IMG } from '../lib/tmdb'

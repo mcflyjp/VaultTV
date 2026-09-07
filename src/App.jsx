@@ -1,3 +1,13 @@
+/**
+ * App shell and routing
+ *
+ * Defines every route and the persistent frame around them, meaning the
+ * sidebar or nav bar, the video player overlay, and the context menu. Routes
+ * of note: /detail/:type/:id is the title page, /library/:section covers the
+ * saved grids while games and reading have their own pages, and anything
+ * unmatched redirects Home.
+ */
+
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useTheme } from './context/ThemeContext'
 import { useLayout } from './context/LayoutContext'

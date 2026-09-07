@@ -1,3 +1,12 @@
+/**
+ * DelayAudioProcessor
+ *
+ * An ExoPlayer audio processor that shifts audio against video by a
+ * user adjustable offset, which is what the up and down keys change during
+ * playback. Exists for releases whose audio and video are mastered out of
+ * sync, where the fix has to happen at playback time.
+ */
+
 package app.vaulttv;
 
 import androidx.media3.common.audio.AudioProcessor;

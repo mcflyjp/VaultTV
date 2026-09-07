@@ -1,3 +1,11 @@
+/**
+ * Playlists
+ *
+ * Lists the user's playlists and, with an :id, the titles inside one. The
+ * contents view uses the same poster grid as the library so a playlist looks
+ * like any other collection rather than a plain list.
+ */
+
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlaylist } from '../context/PlaylistContext'

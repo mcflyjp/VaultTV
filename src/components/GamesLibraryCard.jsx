@@ -1,3 +1,11 @@
+/**
+ * GamesLibraryCard
+ *
+ * The Games panel on the library screen: ROM folders, how many games were
+ * found, and adding or rescanning a folder. Backed by useGamesLibrary. The
+ * Games section is still marked Beta while it is reworked.
+ */
+
 import { useState } from 'react'
 import { FiFolder, FiRefreshCw, FiPlus, FiTrash2, FiPlay, FiSearch, FiSmartphone, FiImage, FiMonitor } from 'react-icons/fi'
 import { LibraryCard } from './LibraryPanel'

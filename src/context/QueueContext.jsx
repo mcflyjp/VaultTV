@@ -1,3 +1,10 @@
+/**
+ * QueueContext
+ *
+ * The Up Next queue: titles explicitly lined up to watch. Separate from watch
+ * history and from Continue Watching. Local only, stored under 'vt-queue'.
+ */
+
 import { createContext, useContext, useState } from 'react'
 
 const QueueContext = createContext(null)

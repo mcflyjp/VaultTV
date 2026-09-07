@@ -1,3 +1,11 @@
+/**
+ * DashboardContext
+ *
+ * Which shelves appear on the Home screen and in what order. DEFAULT_SECTIONS
+ * is the stock layout; the user's arrangement is stored under 'vt-dashboard'
+ * and synced to Supabase. Edited through DashboardEditor.
+ */
+
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 

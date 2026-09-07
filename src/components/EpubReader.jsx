@@ -1,3 +1,11 @@
+/**
+ * EpubReader
+ *
+ * Full screen reader for EPUB ebooks, wrapping react-reader. Reflows text to
+ * the window rather than paging fixed images, which is what separates it from
+ * ComicReader and PdfReader.
+ */
+
 import { useEffect, useState, useRef } from 'react'
 import { ReactReader } from 'react-reader'
 import { motion, AnimatePresence } from 'framer-motion'

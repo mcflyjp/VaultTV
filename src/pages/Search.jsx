@@ -1,3 +1,10 @@
+/**
+ * Search page
+ *
+ * Title search across TMDB, returning both movies and TV. Results reuse the
+ * standard poster grid, so a result behaves exactly like a library item.
+ */
+
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'

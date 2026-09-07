@@ -1,3 +1,12 @@
+/**
+ * Application entry point
+ *
+ * Mounts React and wraps the app in every context provider. Provider order
+ * matters: auth sits outermost because the cloud synced contexts below it wait
+ * on a session before loading. Also where global styles and the router are
+ * installed.
+ */
+
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter as BrowserRouter } from 'react-router-dom'

@@ -1,3 +1,14 @@
+/**
+ * PlayerContext
+ *
+ * Decides which player opens a title and holds the current playback session.
+ * On FireTV it hands off to a native activity through the bridge, meaning
+ * ExoPlayer by default or VLC when chosen or when ExoPlayer fails. Everywhere
+ * else, including the Android phone app, it sets a session that the in page
+ * VideoPlayer component renders. window.__nativePlayerDone is the return path
+ * from a native player, carrying position back for progress and auto advance.
+ */
+
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
 
 const PlayerContext = createContext(null)

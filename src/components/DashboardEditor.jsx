@@ -1,3 +1,10 @@
+/**
+ * DashboardEditor
+ *
+ * Lets the user choose which shelves appear on Home and reorder them. Reads
+ * and writes DashboardContext; DEFAULT_SECTIONS there defines what is on offer.
+ */
+
 import { useState, useRef, useEffect } from 'react'
 import { useDashboard } from '../context/DashboardContext'
 import { useAddons } from '../context/AddonsContext'

@@ -1,3 +1,15 @@
+/**
+ * Local file scanner and TMDB matcher
+ *
+ * Turns files on disk into library entries. parseFilename pulls a title, year
+ * and season/episode out of a release name, parseQuality scores the resolution
+ * and source, and matchTmdb finds the title on TMDB.
+ *
+ * titleScore ranks candidate matches. It folds accents before comparing, since
+ * deleting them instead makes an accented title share no word with the query,
+ * which is how the real Pokemon series once lost to an unaccented spin off.
+ */
+
 const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.m4v', '.wmv', '.flv', '.webm', '.ts'])
 
 // Subfolder names that contain extras, not the main feature

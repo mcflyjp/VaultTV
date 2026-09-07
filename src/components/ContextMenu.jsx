@@ -1,3 +1,12 @@
+/**
+ * ContextMenu
+ *
+ * The right click menu for a title: add to library or a playlist, rate, mark
+ * watched, view file info. Rendered once at the app root and positioned from
+ * ContextMenuContext, so only one can ever be open. FileInfoModal shows the
+ * underlying local file versions and their quality.
+ */
+
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useContextMenu } from '../context/ContextMenuContext'
@@ -263,6 +272,9 @@ export default function ContextMenu() {
   )
 }
 
+// ── Menu primitives ───────────────────────────────────────────────────────────
+// The small building blocks the menu is assembled from: a group heading, a
+// separator, and the rows themselves further down.
 function MenuSection({ label }) {
   return <p style={{ margin: '0.2rem 0 0.1rem', padding: '0 0.85rem', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' }}>{label}</p>
 }
@@ -271,6 +283,9 @@ function Divider() {
   return <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0.3rem 0' }} />
 }
 
+// ── File info ─────────────────────────────────────────────────────────────────
+// Details of the local file or files behind a title: path, quality and size.
+// A title can have several versions, so each is listed separately.
 function FileInfoModal({ versions, title, onClose }) {
   const [copied, setCopied] = useState(null)
 
@@ -367,6 +382,9 @@ function FileInfoModal({ versions, title, onClose }) {
   )
 }
 
+// ── Edit metadata ─────────────────────────────────────────────────────────────
+// Manual corrections to a title's details, stored as overrides in
+// MetadataContext so a later rescan does not discard them.
 function EditInfoModal({ item, type, existingMeta, onSave, onClose }) {
   const originalTitle = item.title || item.name || ''
   const originalYear  = (item.release_date || item.first_air_date || '').slice(0, 4)
@@ -445,6 +463,8 @@ function EditInfoModal({ item, type, existingMeta, onSave, onClose }) {
   )
 }
 
+// ── Menu row ──────────────────────────────────────────────────────────────────
+// A single clickable entry, with optional icon, accent colour and active tick.
 function MenuItem({ icon, label, onClick, accent, active, muted, suffix }) {
   const [hovered, setHovered] = useState(false)
   return (

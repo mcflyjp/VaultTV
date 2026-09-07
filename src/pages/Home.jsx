@@ -1,3 +1,12 @@
+/**
+ * Home screen
+ *
+ * The dashboard: a hero banner, Continue Watching, and a stack of shelves.
+ * Which shelves appear and in what order comes from DashboardContext, so this
+ * page renders a configured list rather than a fixed layout. SectionShelf
+ * handles TMDB backed rows and TraktShelf the ones sourced from a Trakt list.
+ */
+
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getTrending, getPopular, getTopRated } from '../lib/tmdb'

@@ -1,3 +1,12 @@
+/**
+ * Games library
+ *
+ * ROMs grouped by platform, with box art from IGDB, launching through
+ * RetroArch. Backed by useGamesLibrary. Marked Beta in the heading and the
+ * sidebar while the section is reworked; an ES-DE style presentation is the
+ * planned direction.
+ */
+
 import { useState } from 'react'
 import { FiPlay, FiSmartphone, FiImage, FiRefreshCw, FiX, FiArrowLeft } from 'react-icons/fi'
 import { useGamesLibrary, HAS_ANDROID_BRIDGE } from '../hooks/useGamesLibrary'

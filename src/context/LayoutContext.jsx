@@ -1,3 +1,11 @@
+/**
+ * LayoutContext
+ *
+ * Grid density, meaning how many poster cards fit in a row. Persisted to
+ * localStorage as 'vt-density'. Deliberately device local rather than synced,
+ * since a TV and a phone want different densities.
+ */
+
 import { createContext, useContext, useState } from 'react'
 
 const LayoutContext = createContext(null)

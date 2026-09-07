@@ -1,3 +1,10 @@
+/**
+ * MediaShelf
+ *
+ * A horizontally scrolling shelf of titles with a heading, the building block
+ * of the Home screen. Scrolls with the remote as focus moves along the row.
+ */
+
 import { useRef, useState } from 'react'
 import MediaCard from './MediaCard'
 import { useLayout } from '../context/LayoutContext'

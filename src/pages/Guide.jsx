@@ -1,3 +1,11 @@
+/**
+ * Guide
+ *
+ * The in app help pages: setup walkthroughs and explanations of each feature,
+ * written as static content with screenshots. Purely documentation, with no
+ * app state behind it.
+ */
+
 import { useState } from 'react'
 import { FiCamera, FiExternalLink, FiChevronDown, FiChevronUp, FiCheckCircle, FiAlertTriangle, FiInfo } from 'react-icons/fi'
 

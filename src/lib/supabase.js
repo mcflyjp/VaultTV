@@ -1,3 +1,12 @@
+/**
+ * Supabase client
+ *
+ * The single shared client used for auth and cloud sync. Credentials come from
+ * the build environment normally, or are injected on window by the Media
+ * Server when it serves the app, so a self hosted build does not need them
+ * baked in at compile time.
+ */
+
 import { createClient } from '@supabase/supabase-js'
 
 // When served by VaultTV Server, credentials are injected into window.__

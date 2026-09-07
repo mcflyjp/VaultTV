@@ -1,3 +1,11 @@
+/**
+ * PlaylistContext
+ *
+ * User created playlists, each a named collection of titles. Local only,
+ * stored under 'vt-playlists'. Rendered by the Playlists page using the same
+ * poster cards as the main library grids.
+ */
+
 import { createContext, useContext, useState } from 'react'
 
 const PlaylistContext = createContext(null)

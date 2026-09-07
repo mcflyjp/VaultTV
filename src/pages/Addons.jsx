@@ -1,3 +1,11 @@
+/**
+ * Add-ons page
+ *
+ * Install, remove and reorder Stremio add-ons. Order matters, since streams
+ * are gathered from every add-on and presented in the order they resolve.
+ * Reads and writes AddonsContext.
+ */
+
 import { useState } from 'react'
 import { useAddons } from '../context/AddonsContext'
 import { FiPlus, FiTrash2, FiUpload, FiLink, FiRefreshCw } from 'react-icons/fi'

@@ -1,3 +1,12 @@
+/**
+ * LibraryCard
+ *
+ * The poster card shared by the library grids, Home and playlists, so all
+ * three look identical. Local titles are distinguished by the tile itself
+ * rather than a badge painted over the artwork, which covered the poster and
+ * duplicated what the subtext already said.
+ */
+
 import { FiTrash2, FiHardDrive, FiAlertCircle } from 'react-icons/fi'
 import { useContextMenu } from '../context/ContextMenuContext'
 import { useArtwork } from '../context/ArtworkContext'

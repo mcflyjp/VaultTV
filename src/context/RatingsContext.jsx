@@ -1,3 +1,11 @@
+/**
+ * RatingsContext
+ *
+ * The user's own star ratings, keyed by title, stored under 'vt-ratings'.
+ * setTraktRatingSync lets TraktContext register a callback so a rating is
+ * pushed to Trakt as well, without creating an import cycle between them.
+ */
+
 import { createContext, useContext, useState } from 'react'
 
 const RatingsContext = createContext(null)
