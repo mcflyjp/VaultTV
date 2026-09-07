@@ -1,13 +1,18 @@
+/**
+ * ConsoleIcon
+ *
+ * Stylized per platform badge and tile art for the Games library. Deliberately
+ * original flat shapes, colours and icons rather than photographs of real
+ * console hardware: console photography is trademarked, and bundling or
+ * hotlinking it would be a genuine copyright risk for a self hosted personal
+ * app that may eventually be shared publicly.
+ *
+ * PLATFORM_STYLE below defines the palette and label for each platform.
+ */
+
 import { useState } from 'react'
 import { GiGameConsole, GiGamepad } from 'react-icons/gi'
 
-/**
- * Stylized per-platform badge/tile art for the Games library. Deliberately
- * original flat shapes/colors/icons rather than photos of real console
- * hardware — actual console photography is trademarked, and bundling or
- * hotlinking it would be a real copyright risk for a self-hosted personal
- * app that may eventually be shared publicly.
- */
 const PLATFORM_STYLE = {
   'NES':              { bg: '#c9302c', bg2: '#7a1613', label: 'NES',  handheld: false },
   'SNES':              { bg: '#7c5cbf', bg2: '#4a3878', label: 'SNES', handheld: false },
