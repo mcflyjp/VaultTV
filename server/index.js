@@ -24,6 +24,18 @@ const http         = require('http')
 const zlib         = require('zlib')
 const { spawn }    = require('child_process')
 const os           = require('os')
+const dns          = require('dns')
+
+// ── Outbound DNS ──────────────────────────────────────────────────────────────
+// Resolve IPv4 before IPv6 for every outbound request this server makes.
+//
+// Many VPN clients block IPv6 outright to stop traffic leaking outside the
+// tunnel, which leaves a machine advertising working IPv6 that silently fails.
+// Cloudflare hosts answer with AAAA records first, so fetch picked an IPv6
+// address and failed with a bare "fetch failed" while the same host answered
+// fine over IPv4. That took down relay registration, and would equally affect
+// TMDB, IGDB and add-on requests.
+dns.setDefaultResultOrder('ipv4first')
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 const SERVER_DIR = __dirname
@@ -2801,8 +2813,14 @@ async function startTunnel() {
   })
 }
 
-async function registerWithRelay() {
+// Guards against stacking a second heartbeat timer, and a second retry chain,
+// each time registration is re-attempted (startup, tunnel change, relay claim).
+let relayHeartbeat = null
+let relayRetry     = null
+
+async function registerWithRelay(attempt = 0) {
   if (!config.tunnelUrl || !config.serverToken) return
+  clearTimeout(relayRetry)
   try {
     const res = await fetch(`${RELAY_URL}/api/register`, {
       method: 'POST',
@@ -2811,19 +2829,49 @@ async function registerWithRelay() {
     })
     if (res.ok) {
       console.log(`   Relay: registered ✓`)
-      setInterval(() => {
-        fetch(`${RELAY_URL}/api/heartbeat`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${config.serverToken}` },
-        }).catch(() => {})
+      clearInterval(relayHeartbeat)
+      relayHeartbeat = setInterval(async () => {
+        try {
+          const hb = await fetch(`${RELAY_URL}/api/heartbeat`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${config.serverToken}` },
+          })
+          // A 404 means the relay has forgotten this server, which happens if it
+          // dropped the record while we were offline. Heartbeats alone will never
+          // recover from that, so re-register rather than beat against nothing.
+          if (hb.status === 404) {
+            console.warn('   Relay: heartbeat rejected, re-registering')
+            registerWithRelay()
+          }
+        } catch { /* transient; the next beat tries again */ }
       }, 60_000)
     } else {
       const body = await res.json().catch(() => ({}))
-      console.warn(`   Relay: registration failed — ${body.error || res.status}`)
+      scheduleRelayRetry(attempt, body.error || res.status)
     }
   } catch (e) {
-    console.warn('   Relay: registration failed —', e.message)
+    // fetch() reports every transport failure as the same bare "fetch failed".
+    // The cause carries the detail that actually identifies the problem, such as
+    // ENETUNREACH for a blocked address family or ENOTFOUND for DNS.
+    const c = e.cause || {}
+    scheduleRelayRetry(attempt, `${e.message} (${c.code || 'no code'}${c.message ? ': ' + c.message : ''})`)
   }
+}
+
+/**
+ * Retry registration with backoff.
+ *
+ * Registration used to be attempted once, at startup and on a tunnel change.
+ * A single failure, such as the network not being up yet when the service
+ * starts, therefore left the server unregistered until someone restarted it,
+ * and clients asking the relay where to connect silently found nothing. Backs
+ * off 30s, 1m, 2m, 4m, then every 5 minutes.
+ */
+function scheduleRelayRetry(attempt, reason) {
+  const delay = Math.min(30_000 * 2 ** attempt, 300_000)
+  console.warn(`   Relay: registration failed — ${reason}; retrying in ${Math.round(delay / 1000)}s`)
+  clearTimeout(relayRetry)
+  relayRetry = setTimeout(() => registerWithRelay(attempt + 1), delay)
 }
 
 server.on('error', err => {

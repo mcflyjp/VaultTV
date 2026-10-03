@@ -27,6 +27,18 @@ const IS_SERVER       = !!window.__VAULTTV_SERVER
 //   Authentication → URL Configuration → Redirect URLs → add  vaulttv://auth/callback
 const ELECTRON_REDIRECT = 'vaulttv://auth/callback'
 
+// The relay maps a signed-in user to their own Media Server's current address.
+// It exists because a quick cloudflared tunnel regenerates its *.trycloudflare.com
+// hostname on every launch, so no client can hold a working address for long.
+const RELAY_URL = 'https://vaulttv-relay.jeremypulis.workers.dev'
+
+// Where the companion address lives, and whether we are the ones who set it.
+// A host the user typed themselves is never overwritten; one we adopted from the
+// relay is refreshed whenever the tunnel moves, which is what makes a changed
+// URL self-heal instead of breaking playback until someone re-types it.
+const LS_HOST   = 'vt-companion-host'
+const LS_SOURCE = 'vt-companion-host-source'
+
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null)
   const [loading, setLoading] = useState(true)
@@ -36,6 +48,10 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
+      // Re-check on every launch, not only at sign-in. These apps start with a
+      // session already restored, so SIGNED_IN never fires for them, and the
+      // tunnel may well have moved while the app was closed.
+      if (session && (IS_ELECTRON || IS_ANDROID_APP)) adoptServerFromRelay(session)
     })
 
     // Listen for auth state changes (covers token refresh, sign-out, etc.)
@@ -48,10 +64,56 @@ export function AuthProvider({ children }) {
       if (_event === 'SIGNED_IN' && session && !IS_SERVER && !IS_ELECTRON && !IS_ANDROID_APP) {
         redirectToServer(session)
       }
+      // Electron and the Android app cannot be redirected: they are mid deep-link
+      // callback, and navigating away would interrupt it. They also do not need to
+      // be, since they render their own UI and only need the server's ADDRESS. So
+      // they adopt it instead and keep rendering.
+      if (_event === 'SIGNED_IN' && session && (IS_ELECTRON || IS_ANDROID_APP)) {
+        adoptServerFromRelay(session)
+      }
     })
 
     return () => subscription.unsubscribe()
   }, [])
+
+  // ── Relay server discovery ──────────────────────────────────────────────────
+  // Points this client at the user's own Media Server without them ever typing
+  // an address. Browsers are redirected onto the server's origin instead, by
+  // redirectToServer below; this is the path for clients that keep rendering
+  // their own UI and only need to know where the server lives.
+  async function adoptServerFromRelay(session) {
+    try {
+      const res = await fetch(`${RELAY_URL}/api/connect`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (!res.ok) return
+      const { serverUrl, stale } = await res.json()
+      // A stale record means the server has not sent a heartbeat recently, so
+      // its address is probably dead. Keeping whatever already works beats
+      // replacing it with something that does not.
+      if (!serverUrl || stale) return
+
+      const current = (localStorage.getItem(LS_HOST) || '').trim()
+      const source  = localStorage.getItem(LS_SOURCE)
+      // Never clobber an address the user entered by hand. They may be pointing
+      // at a LAN URL on purpose, which the relay has no way to know about and
+      // which is faster than routing through the tunnel.
+      if (current && source !== 'relay') return
+
+      const next = serverUrl.replace(/\/$/, '')
+      if (current === next) return
+      localStorage.setItem(LS_HOST, next)
+      localStorage.setItem(LS_SOURCE, 'relay')
+      console.log('[relay] server address adopted:', next)
+      // companion.js recomputes its base on every call, so this takes effect
+      // immediately for anything requested from here on. Views already holding
+      // a failed result still need a re-render, hence the event.
+      window.dispatchEvent(new CustomEvent('vt-companion-host-changed', { detail: next }))
+    } catch {
+      // Offline, or the relay is down. The existing address stays in place.
+    }
+  }
 
   async function redirectToServer(session) {
     try {

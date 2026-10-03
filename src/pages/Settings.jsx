@@ -762,6 +762,11 @@ function CompanionHostInput() {
   async function saveAndTest() {
     localStorage.setItem('vt-companion-host',  val.trim())
     localStorage.setItem('vt-companion-token', token.trim())
+    // Mark this as hand entered so relay discovery leaves it alone. Without
+    // this, an address typed here would be silently replaced on the next sign
+    // in by whatever the relay reports, which is wrong when someone has
+    // deliberately pointed at a LAN address instead of the tunnel.
+    localStorage.setItem('vt-companion-host-source', 'manual')
     setStatus('testing')
     const online = await local.recheckCompanion()
     setStatus(online ? 'online' : 'offline')
