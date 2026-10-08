@@ -495,11 +495,36 @@ app.get('/api/remote-access', (req, res) => {
  * what caused casting to buffer even though the TV sits on the same switch as
  * the server.
  */
+// Interfaces that are not the local network, however much they look like it.
+// A VPN's virtual adapter holds a perfectly ordinary private address and often
+// enumerates FIRST, so taking the first non-internal IPv4 handed out the VPN's
+// address as the LAN one. Cast receivers are given this URL to pull from, and a
+// TV cannot reach the far end of a VPN tunnel, so casting simply failed.
+const VIRTUAL_NIC = /wireguard|surfshark|openvpn|nordlynx|proton|tailscale|zerotier|tap-|tun[0-9]|vethernet|hyper-v|virtualbox|vmware|loopback|bluetooth/i
+
+/**
+ * This machine's address on the local network.
+ *
+ * Prefers 192.168/16, then 172.16/12, then 10/8: home routers almost always
+ * hand out the first, while 10/8 is what VPNs most often use, so it is the
+ * least trustworthy of the three even after the name filter.
+ */
 function lanBaseUrl() {
-  for (const nic of Object.values(os.networkInterfaces()).flat()) {
-    if (nic && nic.family === 'IPv4' && !nic.internal) return `http://${nic.address}:${PORT}`
+  const candidates = []
+  for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
+    if (VIRTUAL_NIC.test(name)) continue
+    for (const nic of addrs || []) {
+      if (!nic || nic.family !== 'IPv4' || nic.internal) continue
+      const rank = nic.address.startsWith('192.168.') ? 0
+                 : /^172\.(1[6-9]|2\d|3[01])\./.test(nic.address) ? 1
+                 : nic.address.startsWith('10.') ? 2
+                 : 3
+      candidates.push({ address: nic.address, rank })
+    }
   }
-  return ''
+  if (!candidates.length) return ''
+  candidates.sort((a, b) => a.rank - b.rank)
+  return `http://${candidates[0].address}:${PORT}`
 }
 
 // ── SSE: live folder-change events ───────────────────────────────────────────
