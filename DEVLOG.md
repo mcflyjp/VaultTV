@@ -34,7 +34,7 @@
 - [x] TMDB lib — getTrending, getPopular, getTopRated, search, getDetail, getSeason, getSimilar, getVideos, getCertification, pickTrailer, pickTheme.
 
 ### TMDB API Key
-- Key: `6b8aaebf469a696de174799027e8a0ee` (mcflyjp account, free developer plan)
+- Key: stored in `.env` only, never committed (mcflyjp account, free developer plan)
 - Stored in `.env` as `VITE_TMDB_KEY`
 
 ---

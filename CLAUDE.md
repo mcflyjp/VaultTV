@@ -14,7 +14,7 @@ npm run dev          # starts on http://localhost:5174
 
 `.env` must contain:
 ```
-VITE_TMDB_KEY=6b8aaebf469a696de174799027e8a0ee
+VITE_TMDB_KEY=your_tmdb_v3_api_key
 ```
 
 ---
