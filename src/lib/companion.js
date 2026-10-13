@@ -305,6 +305,22 @@ export async function setSaveSync(enabled, regenerate = false) {
   return romsJson(r, 'Failed to update save sync settings')
 }
 
+/**
+ * Write the cloud sync settings straight into this machine's retroarch.cfg.
+ *
+ * Only possible on the machine running the Media Server, since that is the
+ * only RetroArch install it can reach. Other devices still follow the printed
+ * steps.
+ */
+export async function configureRetroarchSync() {
+  const r = await fetch(`${BASE}/saves/configure-retroarch`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  })
+  return romsJson(r, 'Failed to configure RetroArch')
+}
+
 /** What the server is actually holding, so the user can see sync working. */
 export async function listSyncedSaves() {
   const r = await fetch(`${BASE}/saves/list`, { credentials: 'include', headers: authHeaders() })

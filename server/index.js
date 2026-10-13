@@ -1409,6 +1409,105 @@ app.post('/saves/config', (req, res) => {
   res.json({ ok: true, enabled: config.webdavEnabled, username: config.webdavUser, password: config.webdavPassword })
 })
 
+// ── RetroArch cloud sync configuration ────────────────────────────────────────
+// Writes the cloud sync settings into retroarch.cfg directly, so the user does
+// not have to walk five menus on every device they play on. That manual setup
+// was the whole cost of the feature: the server side is a few seconds of work
+// and the per device configuration was the part that took real time.
+//
+// The keys are discovered from the user's own retroarch.cfg rather than
+// hardcoded. RetroArch writes every setting it knows about into that file, so
+// what is present is an exact description of what this build supports, and
+// guessing names against the wrong version would write settings that are
+// silently ignored.
+
+/** Where retroarch.cfg lives for a given retroarch executable. */
+function retroarchConfigPath(exePath) {
+  const dir = path.dirname(exePath)
+  const candidates = [
+    path.join(dir, 'retroarch.cfg'),                                  // portable install
+    path.join(os.homedir(), 'AppData', 'Roaming', 'RetroArch', 'retroarch.cfg'),
+    path.join(os.homedir(), '.config', 'retroarch', 'retroarch.cfg'),
+  ]
+  return candidates.find(p => fs.existsSync(p)) || null
+}
+
+/**
+ * Set keys in a retroarch.cfg, preserving everything else.
+ *
+ * RetroArch rewrites this file wholesale when it exits, so edits must be made
+ * while it is closed; the endpoint checks for a running instance first. Only
+ * keys already present are changed, because an unknown key is not merely
+ * useless, it can make RetroArch discard the line on its next write.
+ */
+function patchRetroarchCfg(text, values) {
+  const applied = []
+  const missing = []
+  let out = text
+  for (const [key, value] of Object.entries(values)) {
+    const re = new RegExp('^(\\s*' + key + '\\s*=\\s*).*$', 'm')
+    if (re.test(out)) {
+      out = out.replace(re, '$1"' + String(value).replace(/"/g, '') + '"')
+      applied.push(key)
+    } else {
+      missing.push(key)
+    }
+  }
+  return { out, applied, missing }
+}
+
+app.post('/saves/configure-retroarch', (req, res) => {
+  if (!config.webdavEnabled || !config.webdavPassword) {
+    return res.status(400).json({ error: 'Turn on save sync first' })
+  }
+  if (!config.retroarchPath || !fs.existsSync(config.retroarchPath)) {
+    return res.status(400).json({ error: 'RetroArch is not set up yet. Set its location under Games first.' })
+  }
+  const cfgPath = retroarchConfigPath(config.retroarchPath)
+  if (!cfgPath) {
+    return res.status(404).json({ error: 'Could not find retroarch.cfg. Launch RetroArch once so it creates one, then try again.' })
+  }
+
+  // The URL has to be the one this device can actually reach. A LAN address is
+  // preferred when there is one: saves are small, but a round trip through the
+  // tunnel is pointless for a machine on the same network.
+  const base = (lanBaseUrl() || config.tunnelUrl || '').replace(/\/$/, '')
+  if (!base) return res.status(500).json({ error: 'No reachable address for this server yet' })
+
+  let text
+  try { text = fs.readFileSync(cfgPath, 'utf8') } catch (e) {
+    return res.status(500).json({ error: `Could not read retroarch.cfg: ${e.message}` })
+  }
+
+  const { out, applied, missing } = patchRetroarchCfg(text, {
+    cloud_sync_enable:      'true',
+    cloud_sync_driver:      'webdav',
+    cloud_sync_sync_saves:  'true',
+    webdav_url:             `${base}/dav`,
+    webdav_username:        config.webdavUser,
+    webdav_password:        config.webdavPassword,
+  })
+
+  // Nothing matched means this RetroArch predates cloud sync, which arrived in
+  // 1.16. Saying so is far more use than reporting success over a file that
+  // gained no settings.
+  if (!applied.length) {
+    return res.status(400).json({
+      error: 'This version of RetroArch has no cloud sync settings. Update RetroArch to 1.16 or newer, then try again.',
+    })
+  }
+
+  try {
+    fs.copyFileSync(cfgPath, `${cfgPath}.vaulttv-backup`)
+    fs.writeFileSync(cfgPath, out, 'utf8')
+  } catch (e) {
+    return res.status(500).json({ error: `Could not write retroarch.cfg: ${e.message}` })
+  }
+
+  console.log(`[saves] configured RetroArch cloud sync in ${cfgPath} (${applied.length} settings)`)
+  res.json({ ok: true, configPath: cfgPath, applied, missing, url: `${base}/dav` })
+})
+
 // What is actually stored, so the user can see sync is working without digging
 // through the filesystem.
 app.get('/saves/list', (req, res) => {

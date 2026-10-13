@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { fetchRemoteAccess, getSaveSync, setSaveSync, listSyncedSaves } from '../lib/companion'
+import { fetchRemoteAccess, getSaveSync, setSaveSync, listSyncedSaves, configureRetroarchSync } from '../lib/companion'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
 const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
@@ -700,6 +700,7 @@ function GameSaveSyncCard() {
   const [saves,  setSaves]  = useState(null)
   const [copied, setCopied] = useState('')
   const [showPw, setShowPw] = useState(false)
+  const [auto,   setAuto]   = useState('')
 
   useEffect(() => { refresh() }, [])
 
@@ -724,6 +725,15 @@ function GameSaveSyncCard() {
 
   async function loadSaves() {
     try { setSaves(await listSyncedSaves()) } catch { /* informational only */ }
+  }
+
+  async function autoConfigure() {
+    setBusy(true); setErr(''); setAuto('')
+    try {
+      const r = await configureRetroarchSync()
+      setAuto(`Done. ${r.applied.length} settings written to retroarch.cfg. Close RetroArch first if it is open, then start a game.`)
+    } catch (e) { setErr(e.message) }
+    finally { setBusy(false) }
   }
 
   function copy(label, value) {
@@ -793,6 +803,11 @@ function GameSaveSyncCard() {
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Does step 1 to 4 for the machine running the server. The printed
+                steps remain for every other device, which this cannot reach. */}
+            <button onClick={autoConfigure} disabled={busy} className="btn-accent" style={{ fontSize: '0.8rem' }}>
+              Set up RetroArch on this machine
+            </button>
             <button onClick={loadSaves} className="btn-ghost" style={{ fontSize: '0.8rem' }}>Check what is synced</button>
             <button onClick={regenerate} disabled={busy} className="btn-ghost" style={{ fontSize: '0.8rem' }}>New password</button>
             {saves && (
@@ -803,6 +818,10 @@ function GameSaveSyncCard() {
               </span>
             )}
           </div>
+
+          {auto && (
+            <p style={{ margin: '0.6rem 0 0', fontSize: '0.8rem', color: '#4ade80' }}>{auto}</p>
+          )}
 
           {saves?.files?.length > 0 && (
             <ul style={{ margin: '0.6rem 0 0', paddingLeft: '1.1rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
