@@ -263,17 +263,24 @@ function requireAuth(req, res, next) {
 
   const token = req.cookies?.vt_session
   if (!token || !verifyToken(token)) {
-    // Media routes must never redirect. A player following a redirect to
-    // /__login receives the login page with a 200, has nothing to decode and
-    // simply stops — a black screen with no error surfaced anywhere. That is
-    // exactly how an untokened /stream failed on FireTV's ExoPlayer, which
-    // sends `Accept: */*` and so satisfied req.accepts('html'). Fail loudly
-    // with a 401 instead so the client can report something useful.
-    const isMedia = /^\/(stream|transcode|probe|reading\/file|roms\/file)/.test(req.path)
-    // API routes return 401 JSON; page routes redirect to login
-    if (!isMedia && (req.path.startsWith('/auth') || req.accepts('html'))) {
-      return res.redirect('/__login')
-    }
+    // Only a browser actually navigating to a page should be redirected to the
+    // login screen. Everything else needs a 401 it can report.
+    //
+    // req.accepts('html') is true for `Accept: */*`, which is what fetch() and
+    // every media player send, so testing it redirected API calls and media
+    // requests too. A player then received the login page with a 200, had
+    // nothing to decode and stopped: a black screen with no error anywhere.
+    // A fetch fared no better, following the redirect to HTML and failing to
+    // parse it, which surfaced to the user as "Failed to fetch" rather than
+    // "you are not signed in".
+    //
+    // Sec-Fetch-Mode is sent by every current browser and says plainly whether
+    // this is a document navigation. The Accept check is kept as a fallback for
+    // clients that do not send it, but now requires html to be asked for
+    // explicitly rather than matched by a wildcard.
+    const isNavigation = req.headers['sec-fetch-mode'] === 'navigate'
+      || (!req.headers['sec-fetch-mode'] && /text\/html/.test(req.headers.accept || ''))
+    if (isNavigation) return res.redirect('/__login')
     return res.status(401).json({ error: 'Not authenticated' })
   }
   next()

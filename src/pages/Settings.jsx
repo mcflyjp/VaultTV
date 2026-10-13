@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { fetchRemoteAccess } from '../lib/companion'
+import { fetchRemoteAccess, getSaveSync, setSaveSync, listSyncedSaves } from '../lib/companion'
 
 const IS_ELECTRON = !!window.electronAPI?.isElectron
 const IS_FIRETV   = /VaultTV-FireTV/i.test(navigator.userAgent)
@@ -296,6 +296,8 @@ export default function Settings() {
       </Card>
 
       {/* Local Library */}
+      <GameSaveSyncCard />
+
       <Card title="Local Library" icon={<FiHardDrive />}>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 1.25rem', lineHeight: 1.6 }}>
           Add folders for your local media. Separate your Movies and TV Shows so VaultTV matches
@@ -681,6 +683,154 @@ export default function Settings() {
           Detected as Android: {String(/android/i.test(navigator.userAgent))}
         </p>
       </Card>
+    </div>
+  )
+}
+
+// ── Game save sync ────────────────────────────────────────────────────────────
+// Turns on the WebDAV share that RetroArch's Cloud Sync writes to, and shows
+// the exact values to enter on each device. The instructions are as much the
+// feature as the toggle is: RetroArch's cloud sync is buried several menus deep
+// and nobody finds it unaided, so the card spells out every step and lets each
+// value be copied rather than retyped.
+function GameSaveSyncCard() {
+  const [cfg,    setCfg]    = useState(null)
+  const [busy,   setBusy]   = useState(false)
+  const [err,    setErr]    = useState('')
+  const [saves,  setSaves]  = useState(null)
+  const [copied, setCopied] = useState('')
+  const [showPw, setShowPw] = useState(false)
+
+  useEffect(() => { refresh() }, [])
+
+  async function refresh() {
+    try { setCfg(await getSaveSync()); setErr('') }
+    catch (e) { setErr(e.message) }
+  }
+
+  async function toggle(next) {
+    setBusy(true)
+    try { await setSaveSync(next); await refresh(); if (next) loadSaves(); setErr('') }
+    catch (e) { setErr(e.message) }
+    finally { setBusy(false) }
+  }
+
+  async function regenerate() {
+    setBusy(true)
+    try { await setSaveSync(true, true); await refresh(); setErr('') }
+    catch (e) { setErr(e.message) }
+    finally { setBusy(false) }
+  }
+
+  async function loadSaves() {
+    try { setSaves(await listSyncedSaves()) } catch { /* informational only */ }
+  }
+
+  function copy(label, value) {
+    navigator.clipboard?.writeText(value)
+      .then(() => { setCopied(label); setTimeout(() => setCopied(''), 1500) })
+      .catch(() => {})
+  }
+
+  const on = !!cfg?.enabled
+
+  return (
+    <Card title="Game Save Sync" icon={<FiHardDrive />}>
+      <p style={{ margin: '0 0 0.9rem', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        Keeps game saves in step across your devices. RetroArch copies a save down
+        before you play and pushes it back afterwards, so you always play against
+        the file on the device in your hands, and nothing breaks when this server
+        is switched off.
+      </p>
+
+      {err && <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: '#f87171' }}>{err}</p>}
+
+      <button
+        onClick={() => toggle(!on)}
+        disabled={busy || !cfg}
+        className={on ? 'btn-ghost' : 'btn-accent'}
+        style={{ fontSize: '0.85rem', marginBottom: on ? '1rem' : 0 }}
+      >
+        {busy ? 'Working…' : on ? 'Turn off save sync' : 'Turn on save sync'}
+      </button>
+
+      {on && cfg && (
+        <>
+          <div style={{ display: 'grid', gap: '0.5rem', marginBottom: '1rem' }}>
+            <CopyRow label="Server URL" value={cfg.url} onCopy={copy} copied={copied} />
+            {cfg.lanUrl && cfg.lanUrl !== cfg.url && (
+              <CopyRow label="On your network" value={cfg.lanUrl} onCopy={copy} copied={copied} />
+            )}
+            <CopyRow label="Username" value={cfg.username} onCopy={copy} copied={copied} />
+            <CopyRow
+              label="Password"
+              value={showPw ? cfg.password : '•'.repeat(Math.min(cfg.password?.length || 0, 24))}
+              copyValue={cfg.password}
+              onCopy={copy}
+              copied={copied}
+              extra={
+                <button onClick={() => setShowPw(v => !v)} className="btn-ghost" style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
+                  {showPw ? 'Hide' : 'Show'}
+                </button>
+              }
+            />
+          </div>
+
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.85rem 1rem', marginBottom: '0.9rem' }}>
+            <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '0.85rem' }}>Set this up on each device</p>
+            <ol style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+              <li>In RetroArch, open <strong>Settings → Saving → Cloud Sync</strong></li>
+              <li>Turn on <strong>Cloud Sync Enable</strong> and <strong>Sync Save Files</strong></li>
+              <li>Set <strong>Cloud Sync Destination</strong> to <strong>webdav</strong></li>
+              <li>Paste in the Server URL, Username and Password above</li>
+              <li>Repeat on every device you play on, using the same values</li>
+            </ol>
+            <p style={{ margin: '0.6rem 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              Leave <strong>Sync Save States</strong> off unless you specifically want
+              it. Save states are tied to the exact emulator core version, so one
+              made on one device may not load on another.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={loadSaves} className="btn-ghost" style={{ fontSize: '0.8rem' }}>Check what is synced</button>
+            <button onClick={regenerate} disabled={busy} className="btn-ghost" style={{ fontSize: '0.8rem' }}>New password</button>
+            {saves && (
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {saves.total === 0
+                  ? 'Nothing synced yet — play a game, then exit RetroArch'
+                  : `${saves.total} file${saves.total === 1 ? '' : 's'} stored`}
+              </span>
+            )}
+          </div>
+
+          {saves?.files?.length > 0 && (
+            <ul style={{ margin: '0.6rem 0 0', paddingLeft: '1.1rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              {saves.files.slice(0, 5).map(f => (
+                <li key={f.path}>{f.path} <span style={{ opacity: 0.6 }}>({Math.max(1, Math.round(f.size / 1024))} KB)</span></li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
+
+// One labelled, copyable value. Credentials typed by hand get mistyped, and a
+// wrong password here surfaces much later as "sync silently does nothing".
+function CopyRow({ label, value, copyValue, onCopy, copied, extra }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', minWidth: 120 }}>{label}</span>
+      <code style={{
+        flex: 1, fontSize: '0.78rem', background: 'rgba(0,0,0,0.25)', borderRadius: 5,
+        padding: '0.3rem 0.5rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>{value}</code>
+      {extra}
+      <button onClick={() => onCopy(label, copyValue ?? value)} className="btn-ghost" style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>
+        {copied === label ? 'Copied' : 'Copy'}
+      </button>
     </div>
   )
 }

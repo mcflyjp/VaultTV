@@ -282,6 +282,35 @@ export async function rescanGameArtwork({ platform, name, query }) {
   return romsJson(r, 'Failed to rescan box art')
 }
 
+// ── Game save sync ────────────────────────────────────────────────────────────
+// RetroArch's own Cloud Sync writes to the Media Server over WebDAV. VaultTV
+// only turns the share on and shows the user what to type into RetroArch; the
+// syncing itself is RetroArch's job, which is also the only way it can work on
+// Android, where scoped storage hides one app's files from another.
+
+/** Current save-sync state: whether it is on, and the credentials to use. */
+export async function getSaveSync() {
+  const r = await fetch(`${BASE}/saves/config`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to read save sync settings')
+}
+
+/** Turn save sync on or off. `regenerate` issues a fresh password. */
+export async function setSaveSync(enabled, regenerate = false) {
+  const r = await fetch(`${BASE}/saves/config`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ enabled, regenerate }),
+  })
+  return romsJson(r, 'Failed to update save sync settings')
+}
+
+/** What the server is actually holding, so the user can see sync working. */
+export async function listSyncedSaves() {
+  const r = await fetch(`${BASE}/saves/list`, { credentials: 'include', headers: authHeaders() })
+  return romsJson(r, 'Failed to list synced saves')
+}
+
 /** Check whether IGDB credentials are configured (never returns the secret itself). */
 export async function getIgdbKeyStatus() {
   const r = await fetch(`${BASE}/roms/igdb-key`, { credentials: 'include', headers: authHeaders() })
