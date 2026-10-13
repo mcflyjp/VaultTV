@@ -770,7 +770,7 @@ app.get('/roms/folders/:id/scan', (req, res) => {
 let igdbQuotaExceededAt = null // set when IGDB starts returning 429s, read by /roms/igdb-key
 
 app.post('/roms/artwork/scrape-all', (req, res) => {
-  if (!config.igdbClientId || !config.igdbClientSecret) return res.status(400).json({ error: 'IGDB credentials not configured' })
+  if (!igdbCreds().ok) return res.status(400).json({ error: 'IGDB credentials not configured' })
   const allGames = romFolders.flatMap(f => {
     try { return scanRomDir(f.folderPath) } catch { return [] }
   })
@@ -789,7 +789,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 class ArtworkApiError extends Error {}
 
 async function scrapeMissingArtwork(games, limit = IGDB_SCRAPE_BATCH_LIMIT) {
-  if (!config.igdbClientId || !config.igdbClientSecret) return { scraped: 0, total: 0 }
+  if (!igdbCreds().ok) return { scraped: 0, total: 0 }
   const unscraped = games.filter(g => {
     const key = `${g.platform}::${normalizeGameTitle(g.name)}`
     return !Object.prototype.hasOwnProperty.call(romArtwork, key)
@@ -838,8 +838,8 @@ let igdbToken = null // { accessToken, expiresAt }
 async function getIgdbToken() {
   if (igdbToken && igdbToken.expiresAt > Date.now() + 60_000) return igdbToken.accessToken
   const params = new URLSearchParams({
-    client_id:     config.igdbClientId,
-    client_secret: config.igdbClientSecret,
+    client_id:     igdbCreds().id,
+    client_secret: igdbCreds().secret,
     grant_type:    'client_credentials',
   })
   const res = await fetch(`https://id.twitch.tv/oauth2/token?${params}`, { method: 'POST' })
@@ -866,7 +866,7 @@ async function igdbSearch(gameName, platformId, token) {
   const res = await fetch('https://api.igdb.com/v4/games', {
     method: 'POST',
     headers: {
-      'Client-ID':     config.igdbClientId,
+      'Client-ID':     igdbCreds().id,
       'Authorization': `Bearer ${token}`,
       'Content-Type':  'text/plain',
     },
@@ -940,7 +940,7 @@ app.post('/roms/artwork', (req, res) => {
 app.post('/roms/artwork/rescan', async (req, res) => {
   const { platform, name, query } = req.body || {}
   if (!platform || !name) return res.status(400).json({ error: 'platform and name are required' })
-  if (!config.igdbClientId || !config.igdbClientSecret) return res.status(400).json({ error: 'IGDB credentials not configured' })
+  if (!igdbCreds().ok) return res.status(400).json({ error: 'IGDB credentials not configured' })
   try {
     const url = await fetchBoxArt((query || '').trim() || normalizeGameTitle(name), platform)
     const cacheKey = `${platform}::${normalizeGameTitle(name)}`
@@ -957,7 +957,7 @@ app.get('/roms/igdb-key', (req, res) => {
   // quota), so only report it as "exceeded" if it happened very recently —
   // otherwise it'd falsely show as permanently blocked after one blip.
   const recentQuotaHit = igdbQuotaExceededAt && (Date.now() - igdbQuotaExceededAt) < 30_000
-  res.json({ hasKey: !!(config.igdbClientId && config.igdbClientSecret), quotaExceededAt: recentQuotaHit ? igdbQuotaExceededAt : null })
+  res.json({ hasKey: igdbCreds().ok, userSupplied: !!(config.igdbClientId && config.igdbClientSecret), quotaExceededAt: recentQuotaHit ? igdbQuotaExceededAt : null })
 })
 
 app.post('/roms/igdb-key', (req, res) => {
@@ -1157,7 +1157,7 @@ app.post('/reading/artwork/rescan', async (req, res) => {
 
 app.get('/reading/comicvine-key', (req, res) => {
   const recentQuotaHit = readingQuotaExceededAt && (Date.now() - readingQuotaExceededAt) < 30_000
-  res.json({ hasKey: !!config.comicVineApiKey, quotaExceededAt: recentQuotaHit ? readingQuotaExceededAt : null })
+  res.json({ hasKey: !!comicVineKey(), userSupplied: !!config.comicVineApiKey, quotaExceededAt: recentQuotaHit ? readingQuotaExceededAt : null })
 })
 
 app.post('/reading/comicvine-key', (req, res) => {
@@ -1215,7 +1215,7 @@ async function scrapeMissingReadingArt(items, limit = READING_SCRAPE_BATCH_LIMIT
 // the UI); Open Library results always have publisher: null since grouping
 // by publisher was only requested for comics, not novels.
 async function fetchReadingArt(title, kind, year, issueNumber) {
-  if (kind === 'comic' && config.comicVineApiKey) {
+  if (kind === 'comic' && comicVineKey()) {
     try {
       const result = await fetchComicVineCover(title, year, issueNumber)
       if (result?.cover) return result
@@ -1298,7 +1298,7 @@ function confidentMatch(candidates, target, getTitle, year, getYear) {
 
 async function fetchComicVineCover(title, year, issueNumber) {
   const params = new URLSearchParams({
-    api_key: config.comicVineApiKey,
+    api_key: comicVineKey(),
     format:  'json',
     query:   title,
     resources: 'volume', // series-level search — much less noisy than individual issues
@@ -1337,7 +1337,7 @@ async function fetchComicVineCover(title, year, issueNumber) {
 
 async function fetchComicVineIssueCover(volumeId, issueNumber) {
   const params = new URLSearchParams({
-    api_key: config.comicVineApiKey,
+    api_key: comicVineKey(),
     format:  'json',
     filter:  `volume:${volumeId},issue_number:${issueNumber}`,
     field_list: 'image,issue_number',
@@ -3073,6 +3073,28 @@ const BUNDLED_DEFAULTS = (() => {
  * quota can. An environment variable comes next, which is how a self hosted or
  * development run supplies one without a build.
  */
+/**
+ * IGDB credentials, used server side only to scrape game box art.
+ *
+ * Bundled for the same reason as the TMDB key: registering a Twitch developer
+ * application is a long way to go for cover images, and without credentials the
+ * games library simply shows blank tiles with nothing explaining why.
+ *
+ * A user's own credentials still win. IGDB allows roughly four requests a
+ * second per application, shared by everyone using the bundled pair, so anyone
+ * scraping a very large collection may prefer their own.
+ */
+function igdbCreds() {
+  const id     = config.igdbClientId     || process.env.VAULTTV_IGDB_CLIENT_ID     || BUNDLED_DEFAULTS.igdbClientId     || ''
+  const secret = config.igdbClientSecret || process.env.VAULTTV_IGDB_CLIENT_SECRET || BUNDLED_DEFAULTS.igdbClientSecret || ''
+  return { id, secret, ok: !!(id && secret) }
+}
+
+/** ComicVine key for comic covers. Optional: Open Library covers most books. */
+function comicVineKey() {
+  return config.comicVineApiKey || process.env.VAULTTV_COMICVINE_KEY || BUNDLED_DEFAULTS.comicVineApiKey || ''
+}
+
 function tmdbKey() {
   return config.tmdbKey || process.env.VAULTTV_TMDB_KEY || BUNDLED_DEFAULTS.tmdbKey || ''
 }

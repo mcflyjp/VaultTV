@@ -24,7 +24,12 @@ const OUT_FILE = path.join(ROOT, 'server', 'defaults.json')
 
 // Only these are copied. Anything else in .env stays out of the shipped file,
 // so adding a secret there later cannot leak into an installer by accident.
-const COPY = { VITE_TMDB_KEY: 'tmdbKey' }
+const COPY = {
+  VITE_TMDB_KEY:      'tmdbKey',
+  IGDB_CLIENT_ID:     'igdbClientId',
+  IGDB_CLIENT_SECRET: 'igdbClientSecret',
+  COMICVINE_API_KEY:  'comicVineApiKey',
+}
 
 function parseEnv(text) {
   const out = {}

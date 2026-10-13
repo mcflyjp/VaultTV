@@ -1,7 +1,7 @@
 {
   "name": "vaulttv",
   "private": true,
-  "version": "1.2.34",
+  "version": "1.2.35",
   "description": "Personal streaming frontend powered by your Stremio add-ons and local library",
   "author": "VaultTV",
   "type": "module",
@@ -18,7 +18,8 @@
     "server:build": "npm run defaults && npm run build && electron-builder --win --config server-builder.config.cjs",
     "server:dev": "electron server/tray.cjs",
     "icons": "node scripts/generate-icons.js",
-    "defaults": "node scripts/make-defaults.cjs"
+    "defaults": "node scripts/make-defaults.cjs",
+    "seed-env": "node scripts/seed-env-from-config.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
