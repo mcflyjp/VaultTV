@@ -1,7 +1,7 @@
 {
   "name": "vaulttv",
   "private": true,
-  "version": "1.2.32",
+  "version": "1.2.33",
   "description": "Personal streaming frontend powered by your Stremio add-ons and local library",
   "author": "VaultTV",
   "type": "module",
@@ -15,9 +15,10 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5174 && npm run electron\"",
     "electron:build": "npm run build && electron-builder --config electron-builder.config.cjs",
     "electron:build:win": "npm run build && electron-builder --win --config electron-builder.config.cjs",
-    "server:build": "npm run build && electron-builder --win --config server-builder.config.cjs",
+    "server:build": "npm run defaults && npm run build && electron-builder --win --config server-builder.config.cjs",
     "server:dev": "electron server/tray.cjs",
-    "icons": "node scripts/generate-icons.js"
+    "icons": "node scripts/generate-icons.js",
+    "defaults": "node scripts/make-defaults.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",

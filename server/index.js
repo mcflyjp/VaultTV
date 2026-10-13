@@ -586,7 +586,7 @@ app.get('/api/health', (req, res) => {
     version: '1.0.0',
     watching: watchedFolders.length,
     uptime:  Math.floor(process.uptime()),
-    tmdbKey: !!config.tmdbKey,
+    tmdbKey: !!tmdbKey(),
   })
 })
 
@@ -2059,7 +2059,7 @@ function serveApp(res) {
   // without needing VITE_TMDB_KEY baked into the build
   const inject = `<script>
     window.__VAULTTV_SERVER = true;
-    window.__TMDB_KEY = ${JSON.stringify(config.tmdbKey || '')};
+    window.__TMDB_KEY = ${JSON.stringify(tmdbKey())};
     window.__COMPANION_ONLINE = true;
     window.__SUPABASE_URL = ${JSON.stringify(config.supabaseUrl || '')};
     window.__SUPABASE_ANON_KEY = ${JSON.stringify(config.supabaseAnonKey || '')};
@@ -2403,10 +2403,10 @@ function adminPage() {
     <div class="stat-row">
       <div class="stat"><div class="stat-val" id="s-folders">${folders.length}</div><div class="stat-lbl">Media folders</div></div>
       <div class="stat"><div class="stat-val" id="s-uptime">—</div><div class="stat-lbl">Uptime</div></div>
-      <div class="stat"><div class="stat-val" style="color:${config.tmdbKey ? '#34d399' : '#f87171'}">${config.tmdbKey ? '✓' : '✗'}</div><div class="stat-lbl">TMDB key</div></div>
+      <div class="stat"><div class="stat-val" style="color:${tmdbKey() ? '#34d399' : '#f87171'}">${tmdbKey() ? '✓' : '✗'}</div><div class="stat-lbl">TMDB ${config.tmdbKey ? 'key' : 'built in'}</div></div>
     </div>
     <div style="margin-top:1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-      <button class="btn btn-primary" id="rescan-btn" onclick="triggerRescan()" ${config.tmdbKey ? '' : 'disabled title="Add a TMDB key first"'}>Rescan Library</button>
+      <button class="btn btn-primary" id="rescan-btn" onclick="triggerRescan()" ${tmdbKey() ? '' : 'disabled title="No TMDB key available"'}>Rescan Library</button>
       <span id="rescan-status" style="font-size:.82rem;color:rgba(255,255,255,.5)"></span>
     </div>
   </div>
@@ -2444,7 +2444,7 @@ function adminPage() {
     </div>
     <div class="field">
       <label>TMDB API key</label>
-      <input type="text" id="tmdbKey" value="${escHtml(config.tmdbKey || '')}" placeholder="Paste your TMDB v3 API key">
+      <input type="text" id="tmdbKey" value="${escHtml(config.tmdbKey || '')}" placeholder="Optional — leave blank to use the built-in key">
     </div>
     <div class="field">
       <label>Session length (days)</label>
@@ -2868,7 +2868,7 @@ let rescanLastResult = null // { total, matched, durationMs }
 
 async function rescanAllFolders() {
   if (rescanRunning) return
-  if (!config.tmdbKey) { console.warn('[rescan] No TMDB key configured — skipping'); return }
+  if (!tmdbKey()) { console.warn('[rescan] No TMDB key available — skipping'); return }
   rescanRunning = true
   rescanCancelled = false
   const startMs = Date.now()
@@ -2910,7 +2910,7 @@ async function rescanAllFolders() {
 
         const parsed = parseFilename(name)
         const titleForTmdb = folder.type === 'tv' && rootFolder ? cleanFolderName(rootFolder) : parsed.title
-        const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: folder.type === 'tv' }, config.tmdbKey, folder.type)
+        const match = await matchTmdb({ ...parsed, title: titleForTmdb, isTV: folder.type === 'tv' }, tmdbKey(), folder.type)
         const quality = parseQuality(name)
 
         results.push({
@@ -3023,9 +3023,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('\n   ⚡ First run — open the URL above and set your admin password.\n')
   } else {
     console.log(`   Watching ${watchedFolders.length} folder(s)`)
-    console.log(`   TMDB key: ${config.tmdbKey ? 'configured ✓' : 'NOT SET — add tmdbKey to config.json'}`)
+    console.log(`   TMDB key: ${config.tmdbKey ? 'user supplied ✓' : (tmdbKey() ? 'built in ✓' : 'NOT AVAILABLE')}`)
     console.log()
-    if (config.tmdbKey && watchedFolders.length) {
+    if (tmdbKey() && watchedFolders.length) {
       setTimeout(() => rescanAllFolders(), 5000)
       setInterval(() => rescanAllFolders(), 24 * 60 * 60 * 1000)
     }
@@ -3036,6 +3036,47 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 
 const RELAY_URL       = 'https://vaulttv-relay.jeremypulis.workers.dev'
 // Bundled Supabase credentials — same project used by the VaultTV apps
+// ── Bundled API defaults ──────────────────────────────────────────────────────
+// Shared keys that make a fresh install work without the user registering their
+// own developer accounts, the same way the bundled Supabase credentials below
+// let sign in work.
+//
+// This mattered more than it looks. The server's TMDB matcher returns null
+// without a key, so a new install could scan an entire library, match nothing,
+// and show no reason for it. The user had to discover on their own that a TMDB
+// account was the missing piece.
+//
+// The file is generated at build time by scripts/make-defaults.cjs from .env,
+// and both are gitignored: the value reaches users only inside an installer,
+// never through the repository. A build without it simply falls back to asking
+// the user for their own key, exactly as before.
+const BUNDLED_DEFAULTS = (() => {
+  const candidates = [
+    process.env.VAULTTV_DEFAULTS,
+    path.join(SERVER_DIR, 'defaults.json'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'defaults.json') : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'app', 'server', 'defaults.json') : null,
+    path.join(CONFIG_DIR, 'defaults.json'),
+  ].filter(Boolean)
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'))
+    } catch { /* malformed file is the same as no file */ }
+  }
+  return {}
+})()
+
+/**
+ * The TMDB key to use.
+ *
+ * A key the user entered always wins, so anyone who would rather use their own
+ * quota can. An environment variable comes next, which is how a self hosted or
+ * development run supplies one without a build.
+ */
+function tmdbKey() {
+  return config.tmdbKey || process.env.VAULTTV_TMDB_KEY || BUNDLED_DEFAULTS.tmdbKey || ''
+}
+
 const SUPABASE_URL     = 'https://hbxxdachzhmowlcrbacb.supabase.co'
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhieHhkYWNoemhtb3dsY3JiYWNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NTQwNDYsImV4cCI6MjA5NjQzMDA0Nn0.vs-9QrL_mSAf9UTjshlT-5UT-9wXXc77VQ1kE1jgnTk'
 

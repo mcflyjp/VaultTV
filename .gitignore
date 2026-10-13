@@ -40,3 +40,6 @@ release/
 # Locally-built installers (published to GitHub Releases, not the repo)
 VaultTV*Setup*.exe
 *.blockmap
+
+# Generated at build time from .env — never commit (contains shared API keys)
+server/defaults.json
