@@ -25,6 +25,7 @@ const zlib         = require('zlib')
 const { spawn }    = require('child_process')
 const os           = require('os')
 const dns          = require('dns')
+const dav          = require('./webdav')
 
 // ── Outbound DNS ──────────────────────────────────────────────────────────────
 // Resolve IPv4 before IPv6 for every outbound request this server makes.
@@ -83,6 +84,12 @@ let config = {
   igdbClientSecret: '', // Both used server-side only (never exposed to the client) to scrape box art.
   comicVineApiKey: '', // Optional — comics/ebook covers work with zero keys via Open Library by
                         // default; this just improves comic-specific cover accuracy if set.
+  // RetroArch Cloud Sync share. Enabled explicitly rather than by default: it
+  // is reachable through the public tunnel, so it should only exist once the
+  // user has asked for it and has a password generated for it.
+  webdavEnabled:  false,
+  webdavUser:     'vaulttv',
+  webdavPassword: '',
 }
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -299,6 +306,133 @@ app.use(cors({ origin: true, credentials: true }))
 // the same mime-db this middleware checks, so Range-request streaming is
 // untouched.
 app.use(compression())
+
+// ── RetroArch save sync (WebDAV) ──────────────────────────────────────────────
+// A small WebDAV share that RetroArch's own Cloud Sync pushes saves to, so a
+// game resumes on whichever device is picked up next. See server/webdav.js for
+// why RetroArch does the syncing rather than VaultTV copying files itself.
+const SAVES_DIR = path.join(DATA_DIR, 'cloud-saves')
+
+function webdavRouter() {
+  const router = express.Router()
+
+  // Basic auth. RetroArch's WebDAV driver sends credentials this way, and this
+  // share is reachable over the public tunnel, so it is never left open: if no
+  // password has been generated the share behaves as if it does not exist.
+  router.use((req, res, next) => {
+    if (!config.webdavEnabled || !config.webdavPassword) return res.status(404).end()
+    const header = req.headers.authorization || ''
+    if (header.startsWith('Basic ')) {
+      const [user, ...rest] = Buffer.from(header.slice(6), 'base64').toString('utf8').split(':')
+      if (user === config.webdavUser && rest.join(':') === config.webdavPassword) {
+        try { fs.mkdirSync(SAVES_DIR, { recursive: true }) } catch {}
+        return next()
+      }
+    }
+    res.set('WWW-Authenticate', 'Basic realm="VaultTV saves"').status(401).end()
+  })
+
+  const resolve = req => dav.safeResolve(SAVES_DIR, req.path)
+
+  router.options('/*', (req, res) => {
+    res.set('DAV', '1, 2')
+    res.set('Allow', 'OPTIONS, PROPFIND, GET, HEAD, PUT, MKCOL, DELETE, MOVE')
+    res.status(200).end()
+  })
+
+  // PROPFIND is how RetroArch discovers what the server already holds, and so
+  // what it needs to pull. Depth 1 lists a directory's children; Depth 0 is the
+  // resource alone.
+  router.propfind('/*', (req, res) => {
+    const target = resolve(req)
+    if (!target || !fs.existsSync(target)) return res.status(404).end()
+    const base  = req.baseUrl.replace(/\/$/, '')
+    const stat  = fs.statSync(target)
+    const depth = req.headers.depth === '0' ? 0 : 1
+    const parts = [dav.propfindEntry(`${base}${dav.encodeHref(req.path)}`, stat, stat.isDirectory())]
+
+    if (depth === 1 && stat.isDirectory()) {
+      for (const name of fs.readdirSync(target)) {
+        try {
+          const childStat = fs.statSync(path.join(target, name))
+          const childPath = path.posix.join(req.path, name)
+          parts.push(dav.propfindEntry(`${base}${dav.encodeHref(childPath)}`, childStat, childStat.isDirectory()))
+        } catch { /* vanished between readdir and stat */ }
+      }
+    }
+    res.status(207).type('application/xml; charset=utf-8')
+       .send(`<?xml version="1.0" encoding="utf-8"?>
+<D:multistatus xmlns:D="DAV:">
+${parts.join('\n')}
+</D:multistatus>`)
+  })
+
+  router.get('/*', (req, res) => {
+    const target = resolve(req)
+    if (!target || !fs.existsSync(target) || fs.statSync(target).isDirectory()) return res.status(404).end()
+    res.sendFile(target)
+  })
+
+  router.head('/*', (req, res) => {
+    const target = resolve(req)
+    if (!target || !fs.existsSync(target)) return res.status(404).end()
+    const stat = fs.statSync(target)
+    res.set('Content-Length', String(stat.size)).set('Last-Modified', stat.mtime.toUTCString()).status(200).end()
+  })
+
+  // Written to a temp file and renamed, so an interrupted upload cannot leave a
+  // half written save in place of a good one. A save is the one file a user
+  // cannot regenerate.
+  router.put('/*', (req, res) => {
+    const target = resolve(req)
+    if (!target) return res.status(403).end()
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      const tmp = `${target}.part-${Date.now()}`
+      const out = fs.createWriteStream(tmp)
+      req.pipe(out)
+      out.on('finish', () => {
+        try { fs.renameSync(tmp, target); res.status(201).end() }
+        catch (e) { try { fs.unlinkSync(tmp) } catch {} ; res.status(500).end() }
+      })
+      out.on('error', () => { try { fs.unlinkSync(tmp) } catch {} ; res.status(500).end() })
+    } catch { res.status(500).end() }
+  })
+
+  router.mkcol('/*', (req, res) => {
+    const target = resolve(req)
+    if (!target) return res.status(403).end()
+    if (fs.existsSync(target)) return res.status(405).end()
+    try { fs.mkdirSync(target, { recursive: true }); res.status(201).end() } catch { res.status(500).end() }
+  })
+
+  router.delete('/*', (req, res) => {
+    const target = resolve(req)
+    if (!target || !fs.existsSync(target)) return res.status(404).end()
+    try { fs.rmSync(target, { recursive: true, force: true }); res.status(204).end() } catch { res.status(500).end() }
+  })
+
+  router.move('/*', (req, res) => {
+    const from = resolve(req)
+    let dest = req.headers.destination || ''
+    try { dest = new URL(dest).pathname.replace(req.baseUrl, '') } catch { /* already a path */ }
+    const to = dav.safeResolve(SAVES_DIR, dest)
+    if (!from || !to || !fs.existsSync(from)) return res.status(404).end()
+    try {
+      fs.mkdirSync(path.dirname(to), { recursive: true })
+      fs.renameSync(from, to)
+      res.status(201).end()
+    } catch { res.status(500).end() }
+  })
+
+  return router
+}
+
+// Mounted before the JSON body parser on purpose: a PUT here carries a raw save
+// file, and anything that consumes the request stream first leaves nothing to
+// write to disk.
+app.use('/dav', webdavRouter())
+
 app.use(express.json({ limit: '50mb' }))
 app.use(cookieParser())
 
@@ -1240,6 +1374,53 @@ app.get('/reading/file', (req, res) => {
   if (!inFolder) return res.status(403).json({ error: 'Path is outside configured reading folders' })
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' })
   res.sendFile(filePath)
+})
+
+// ── Save sync settings ────────────────────────────────────────────────────────
+// Turning this on generates a password rather than asking for one: these
+// credentials are typed into RetroArch once per device and never recalled, so
+// a memorable password buys nothing and a weak one is exposed on the tunnel.
+app.get('/saves/config', (req, res) => {
+  res.json({
+    enabled:  !!config.webdavEnabled,
+    username: config.webdavUser,
+    password: config.webdavPassword || '',
+    url:      `${config.tunnelUrl || lanBaseUrl()}/dav`,
+    lanUrl:   `${lanBaseUrl()}/dav`,
+  })
+})
+
+app.post('/saves/config', (req, res) => {
+  const { enabled, regenerate } = req.body || {}
+  if (enabled !== undefined) config.webdavEnabled = !!enabled
+  if (config.webdavEnabled && (!config.webdavPassword || regenerate)) {
+    config.webdavPassword = generateSecret().slice(0, 24)
+  }
+  saveConfig()
+  try { fs.mkdirSync(SAVES_DIR, { recursive: true }) } catch {}
+  console.log(`[saves] WebDAV sync ${config.webdavEnabled ? 'enabled' : 'disabled'}`)
+  res.json({ ok: true, enabled: config.webdavEnabled, username: config.webdavUser, password: config.webdavPassword })
+})
+
+// What is actually stored, so the user can see sync is working without digging
+// through the filesystem.
+app.get('/saves/list', (req, res) => {
+  const out = []
+  const walk = (dir, rel) => {
+    let entries = []
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      const full = path.join(dir, e.name)
+      const r    = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) walk(full, r)
+      else {
+        try { const st = fs.statSync(full); out.push({ path: r, size: st.size, modified: st.mtime }) } catch {}
+      }
+    }
+  }
+  walk(SAVES_DIR, '')
+  out.sort((a, b) => new Date(b.modified) - new Date(a.modified))
+  res.json({ files: out.slice(0, 200), total: out.length })
 })
 
 app.get('/roms/retroarch', (req, res) => {
