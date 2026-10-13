@@ -26,6 +26,7 @@ const { spawn }    = require('child_process')
 const os           = require('os')
 const dns          = require('dns')
 const dav          = require('./webdav')
+const plat         = require('./platforms')
 
 // ── Outbound DNS ──────────────────────────────────────────────────────────────
 // Resolve IPv4 before IPv6 for every outbound request this server makes.
@@ -164,26 +165,8 @@ const MIME_TYPES = {
 // no reliable way to tell them apart from the filename alone) and disambiguates
 // .bin in favor of Genesis/Mega Drive over PS1 (PS1 dumps are matched via
 // .cue/.chd/.pbp instead, which are unambiguous).
-const ROM_PLATFORMS = {
-  '.nes':          { platform: 'NES',            core: 'nestopia_libretro.dll' },
-  '.sfc':          { platform: 'SNES',           core: 'snes9x_libretro.dll' },
-  '.smc':          { platform: 'SNES',           core: 'snes9x_libretro.dll' },
-  '.n64':          { platform: 'N64',            core: 'mupen64plus_next_libretro.dll' },
-  '.z64':          { platform: 'N64',            core: 'mupen64plus_next_libretro.dll' },
-  '.v64':          { platform: 'N64',            core: 'mupen64plus_next_libretro.dll' },
-  '.gb':           { platform: 'Game Boy',       core: 'gambatte_libretro.dll' },
-  '.gbc':          { platform: 'Game Boy Color', core: 'gambatte_libretro.dll' },
-  '.gba':          { platform: 'Game Boy Advance', core: 'mgba_libretro.dll' },
-  '.md':           { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
-  '.gen':          { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
-  '.smd':          { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
-  '.bin':          { platform: 'Genesis',        core: 'genesis_plus_gx_libretro.dll' },
-  '.cue':          { platform: 'PlayStation',    core: 'pcsx_rearmed_libretro.dll' },
-  '.chd':          { platform: 'PlayStation',    core: 'pcsx_rearmed_libretro.dll' },
-  '.pbp':          { platform: 'PlayStation',    core: 'pcsx_rearmed_libretro.dll' },
-  '.a26':          { platform: 'Atari 2600',     core: 'stella_libretro.dll' },
-}
-const ROM_EXTS = new Set(Object.keys(ROM_PLATFORMS))
+// Platform definitions now live in server/platforms.js, shared by the scanner
+// and the launcher so the mapping exists in exactly one place.
 
 // IGDB platform IDs for our supported platform names — used to scope box-art
 // search results to the right console when scraping. (IGDB's own IDs, not
@@ -980,26 +963,43 @@ app.post('/roms/igdb-key', (req, res) => {
   res.json({ ok: true })
 })
 
-function scanRomDir(dir, depth = 0, results = []) {
+/**
+ * Walk a ROM folder, carrying the platform down from the folder that names it.
+ *
+ * `inherited` is the platform established by an ancestor directory, which is
+ * what lets a disc image be identified at all: .iso says nothing on its own,
+ * but an .iso under a folder called PS2 plainly is one. A file whose platform
+ * cannot be established either way is left out rather than guessed at, so an
+ * emulator's own directory or a folder of PC games does not become library
+ * content.
+ */
+function scanRomDir(dir, depth = 0, results = [], inherited = null) {
   if (depth > 6) return results
   let entries
   try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) { console.warn(`[roms] cannot read dir: ${dir} — ${e.message}`); return results }
   for (const e of entries) {
     const full = path.join(dir, e.name)
     if (e.isDirectory()) {
-      scanRomDir(full, depth + 1, results)
+      // A directory naming a console sets the platform for everything beneath
+      // it; otherwise whatever an ancestor established carries on down.
+      scanRomDir(full, depth + 1, results, plat.platformFromFolder(e.name) || inherited)
     } else if (e.isFile()) {
       const ext = path.extname(e.name).toLowerCase()
-      const meta = ROM_PLATFORMS[ext]
-      if (meta) {
-        results.push({
-          name: path.basename(e.name, ext),
-          filename: e.name,
-          path: full,
-          ext,
-          platform: meta.platform,
-        })
-      }
+      if (!plat.isGameExt(ext)) continue
+      // The folder wins over the extension: a .bin under PlayStation is a disc
+      // track, the same .bin under Genesis is a cartridge dump.
+      const platform = inherited || plat.platformFromExt(ext)
+      if (!platform) continue
+      results.push({
+        name: path.basename(e.name, ext),
+        filename: e.name,
+        path: full,
+        ext,
+        platform: platform.name,
+        platformId: platform.id,
+        core: platform.core || null,
+        emulator: platform.emulator || null,
+      })
     }
   }
   return results
@@ -1442,24 +1442,36 @@ app.get('/roms/retroarch/detect', (req, res) => {
 })
 
 app.post('/roms/launch', (req, res) => {
-  const { romPath, ext } = req.body || {}
+  const { romPath, ext, platformId } = req.body || {}
   if (!romPath || !ext) return res.status(400).json({ error: 'romPath and ext are required' })
   if (!config.retroarchPath) return res.status(400).json({ error: 'RetroArch path not configured' })
   if (!fs.existsSync(config.retroarchPath)) return res.status(404).json({ error: 'Configured RetroArch executable not found' })
   if (!fs.existsSync(romPath)) return res.status(404).json({ error: 'ROM file not found' })
-  const meta = ROM_PLATFORMS[ext.toLowerCase()]
-  if (!meta) return res.status(400).json({ error: `Unsupported ROM extension: ${ext}` })
+
+  // Prefer the platform the scan established from the folder. Falling back to
+  // the extension would pick the wrong core for a disc image, where the same
+  // .iso is a GameCube, PS2, Saturn or PSP game depending only on where it sits.
+  const meta = (platformId && plat.PLATFORMS.find(p => p.id === platformId)) || plat.platformFromExt(ext)
+  if (!meta) return res.status(400).json({ error: `Unrecognised game file: ${ext}` })
+
+  // Catalogued but not playable here. Saying which emulator does play it is far
+  // more use than a missing-core error about a core that will never exist.
+  if (!meta.core) {
+    return res.status(400).json({
+      error: `${meta.name} games need ${meta.emulator}, which RetroArch cannot run. VaultTV can list these but not launch them yet.`,
+    })
+  }
 
   const coreDir = path.join(path.dirname(config.retroarchPath), 'cores')
   const corePath = path.join(coreDir, meta.core)
   if (!fs.existsSync(corePath)) {
-    return res.status(404).json({ error: `Core not found: ${meta.core} (expected in ${coreDir}). Install it via RetroArch's Core Downloader.` })
+    return res.status(404).json({ error: `${meta.name} needs the ${meta.core} core, which is not installed in ${coreDir}. Add it via RetroArch's Core Downloader.` })
   }
 
   try {
     const child = spawn(config.retroarchPath, ['-L', corePath, romPath], { detached: true, stdio: 'ignore' })
     child.unref()
-    console.log(`[roms] Launched ${path.basename(romPath)} (${meta.platform}) via RetroArch`)
+    console.log(`[roms] Launched ${path.basename(romPath)} (${meta.name}) via RetroArch`)
     res.json({ ok: true })
   } catch (e) {
     console.error('[roms] Launch failed:', e.message)
