@@ -149,6 +149,38 @@ function startServer() {
       fs.appendFileSync(SERVER_LOG_FILE, line)
     } catch {}
   }
+// ── Native folder picker for the server process ──────────────────────────────
+// The server runs as a utilityProcess, which has no access to Electron's dialog
+// module: that lives only in the main process. So it asks here instead, over the
+// parent port, and this shows the real Windows folder chooser.
+//
+// Worth the round trip because typing a path by hand is the worst remaining
+// part of setup, and the paths involved are exactly the kind people get wrong:
+// UNC shares, drive letters that moved, folders whose names contain spaces.
+serverProc.on('message', async (msg) => {
+  if (!msg || msg.type !== 'pick-folder') return
+  let result = null
+  try {
+    // No parent window: the tray app has no window of its own, and passing a
+    // destroyed one makes the dialog refuse to open. A parentless dialog still
+    // appears in front, which is what matters when it was triggered from a
+    // browser on another device.
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: msg.title || 'Select Folder',
+      buttonLabel: 'Use This Folder',
+    })
+    if (!canceled && filePaths.length) {
+      result = { path: filePaths[0], name: path.basename(filePaths[0]) }
+    }
+  } catch (e) {
+    console.error('[tray] folder picker failed:', e.message)
+  }
+  // The id ties the answer back to the waiting request: two browsers could ask
+  // at once, and a bare reply would resolve the wrong one.
+  try { serverProc.postMessage({ type: 'pick-folder-result', id: msg.id, result }) } catch {}
+})
+
   serverProc.stdout?.on('data', d => logServerLine('out', d))
   serverProc.stderr?.on('data', d => logServerLine('err', d))
   serverProc.on('exit', (code) => {

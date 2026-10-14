@@ -1383,6 +1383,60 @@ app.get('/reading/file', (req, res) => {
   res.sendFile(filePath)
 })
 
+// ── Native folder picker ──────────────────────────────────────────────────────
+// Opens the real Windows folder chooser so paths never have to be typed. That
+// typing was the worst of what remained in setup, and the paths involved are
+// exactly the kind people get wrong: UNC shares, drive letters that have moved,
+// names containing spaces.
+//
+// The dialog appears on the machine running the Media Server, wherever the
+// request came from. During setup that is the machine the user is sitting at,
+// which is the case worth optimising; a browser on another device is told to
+// type the path instead, since a dialog it cannot see would simply hang.
+//
+// The server is a utilityProcess and has no dialog module of its own, so it
+// asks the tray process over the parent port. Outside Electron, for instance
+// during `node server/index.js` in development, there is no parent to ask and
+// the endpoint reports that rather than hanging.
+const pendingPicks = new Map()
+let pickSeq = 0
+
+if (process.parentPort) {
+  process.parentPort.on('message', (e) => {
+    const msg = e?.data
+    if (!msg || msg.type !== 'pick-folder-result') return
+    const resolve = pendingPicks.get(msg.id)
+    if (resolve) { pendingPicks.delete(msg.id); resolve(msg.result) }
+  })
+}
+
+app.post('/pick-folder', async (req, res) => {
+  if (!process.parentPort) {
+    return res.status(501).json({ error: 'Folder picker is only available when the Media Server app is running' })
+  }
+  const id = ++pickSeq
+  const title = typeof req.body?.title === 'string' ? req.body.title.slice(0, 80) : 'Select Folder'
+
+  const result = await new Promise((resolve) => {
+    pendingPicks.set(id, resolve)
+    try {
+      process.parentPort.postMessage({ type: 'pick-folder', id, title })
+    } catch {
+      pendingPicks.delete(id)
+      return resolve(null)
+    }
+    // A dialog left open forever would hold this request, and with it a socket,
+    // until the user noticed. Five minutes is long enough to find a folder on a
+    // slow network share and short enough not to leak.
+    setTimeout(() => {
+      if (pendingPicks.has(id)) { pendingPicks.delete(id); resolve(null) }
+    }, 5 * 60_000)
+  })
+
+  if (!result) return res.json({ canceled: true })
+  res.json({ canceled: false, path: result.path, name: result.name })
+})
+
 // ── Save sync settings ────────────────────────────────────────────────────────
 // Turning this on generates a password rather than asking for one: these
 // credentials are typed into RetroArch once per device and never recalled, so
@@ -2421,7 +2475,7 @@ function adminPage() {
     <div class="row" style="align-items:flex-end;margin-top:.75rem">
       <div class="field" style="flex:1;margin:0">
         <label>Folder path</label>
-        <input type="text" id="new-path" placeholder="D:\\Movies">
+        <div style="display:flex;gap:6px"><input type="text" id="new-path" placeholder="D:\\Movies" style="flex:1"><button class="btn" type="button" onclick="browseFolder('new-path')">Browse...</button></div>
       </div>
       <div class="field" style="margin:0">
         <label>Type</label>
@@ -2541,6 +2595,35 @@ function adminPage() {
     }).catch(()=>{})
   }
   updateRescanStatus()
+
+  // Opens the native folder chooser on the machine running the Media Server and
+  // drops the chosen path into the field, so UNC shares and paths with spaces
+  // never have to be typed. A browser on another device gets told to type it,
+  // because the dialog would open on a screen the user is not looking at.
+  async function browseFolder(targetId){
+    const btn = event && event.target
+    if (btn) { btn.disabled = true; btn.textContent = 'Choose...' }
+    try {
+      const r = await fetch('/pick-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ title: 'Select a media folder' }),
+      })
+      const d = await r.json()
+      if (!r.ok) { alert(d.error || 'Folder picker unavailable'); return }
+      if (d.canceled) return
+      const el = document.getElementById(targetId)
+      el.value = d.path
+      // Pre-fill the name from the folder so the common case needs no typing.
+      const nameEl = document.getElementById('new-name')
+      if (nameEl && !nameEl.value) nameEl.value = d.name
+    } catch (e) {
+      alert('Could not open the folder picker: ' + e.message)
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Browse...' }
+    }
+  }
 
   async function triggerRescan(){
     const {ok,data}=await api('POST','/__admin/rescan')
