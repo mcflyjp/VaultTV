@@ -77,6 +77,7 @@ export default function Detail() {
   const { getMetadata } = useMetadata()
   const { audioLang } = useLanguage()
   const episodesRef = useRef(null)
+  const pendingEpisodeFocus = useRef(false)
   const [artPicker, setArtPicker]     = useState(null) // null | 'poster' | 'backdrop'
   const [posterHovered, setPosterHovered] = useState(false)
   const [streams, setStreams]         = useState(null)
@@ -131,6 +132,28 @@ export default function Detail() {
     queryFn: () => getSeason(id, selectedSeason),
     enabled: type === 'tv',
   })
+
+  // Hand focus to the first episode once a chosen season's list has rendered.
+  //
+  // The TV's spatial navigation can only consider elements that are on screen,
+  // so pressing Down while the episodes were still loading skipped straight
+  // past them to whatever was already rendered below, usually More Like This.
+  // Moving focus deliberately also scrolls the episode list into view, which is
+  // what the user was reaching for by pressing Down in the first place.
+  //
+  // Only after the user picks a season, never on first load: yanking focus out
+  // of the hero on arrival would be worse than the problem being fixed.
+  useEffect(() => {
+    if (!pendingEpisodeFocus.current) return
+    if (!season?.episodes?.length) return
+    pendingEpisodeFocus.current = false
+    requestAnimationFrame(() => {
+      const first = episodesRef.current?.querySelector('[data-ep-btn]')
+      if (!first) return
+      first.focus({ preventScroll: true })
+      first.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
+  }, [season])
 
   const { data: similar } = useQuery({
     queryKey: ['similar', type, id],
@@ -804,7 +827,7 @@ export default function Detail() {
                     <button
                       key={i+1}
                       data-season-btn
-                      onClick={() => { setSelectedSeason(i+1); setStreamEp(null); setStreams(null) }}
+                      onClick={() => { pendingEpisodeFocus.current = true; setSelectedSeason(i+1); setStreamEp(null); setStreams(null) }}
                       style={{
                         background: selectedSeason === i+1 ? 'var(--accent)' : 'var(--bg-card)',
                         border: `1px solid ${selectedSeason === i+1 ? 'var(--accent)' : 'var(--border)'}`,

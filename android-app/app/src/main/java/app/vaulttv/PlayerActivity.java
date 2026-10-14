@@ -53,6 +53,7 @@ public class PlayerActivity extends Activity {
     private static final long UNKNOWN_DUR_BANNER_MS = 30 * 60_000L;
     private static final long DIM_DELAY_MS          = 5 * 60_000L;
     private static final long HUD_DURATION_MS       = 2_500;
+    private static final long SEEK_STEP_MS          = 10_000;
 
     private ExoPlayer            player;
     private PlayerView           playerView;
@@ -337,6 +338,29 @@ public class PlayerActivity extends Activity {
         }, 250);
     }
 
+    /**
+     * Skip forward or back, clamped to the media. Held keys repeat, so each
+     * press is a modest step rather than a jump: a remote's auto-repeat turns
+     * ten seconds into a fast scrub, while thirty would overshoot constantly.
+     */
+    private void seekBy(long deltaMs) {
+        if (player == null) return;
+        long dur = player.getDuration();
+        long pos = player.getCurrentPosition() + deltaMs;
+        if (pos < 0) pos = 0;
+        if (dur != C.TIME_UNSET && pos > dur) pos = dur;
+        player.seekTo(pos);
+        playerView.showController();
+        showHud((deltaMs > 0 ? "⏩  " : "⏪  ") + fmtTime(pos)
+                + (dur != C.TIME_UNSET ? " / " + fmtTime(dur) : ""));
+    }
+
+    private static String fmtTime(long ms) {
+        long t = ms / 1000, h = t / 3600, m = (t % 3600) / 60, sec = t % 60;
+        return h > 0 ? String.format(java.util.Locale.US, "%d:%02d:%02d", h, m, sec)
+                     : String.format(java.util.Locale.US, "%d:%02d", m, sec);
+    }
+
     private void adjustAudioDelay(long deltaUs) {
         delayAudioProcessor.setDelayUs(delayAudioProcessor.getDelayUs() + deltaUs);
         long ms = delayAudioProcessor.getDelayUs() / 1000;
@@ -506,6 +530,19 @@ public class PlayerActivity extends Activity {
                     toggleSubtitles();
                 }
                 lastMenuPressMs = now;
+                return true;
+            }
+
+            // Seek. Left and right were not handled at all, and the transport
+            // controls could not be reached with the D-pad either, so there was
+            // no way to skip forward or back from the remote. Handling the keys
+            // directly does not depend on anything holding focus.
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
+                seekBy(-SEEK_STEP_MS);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                seekBy(+SEEK_STEP_MS);
                 return true;
             }
 
