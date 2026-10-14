@@ -297,10 +297,45 @@ public class VlcPlayerActivity extends Activity {
             return true;
         }
 
+        // Subtitles, on the same button as the other player. Which player opened
+        // a file is an implementation detail the viewer should not have to know,
+        // and until now one of them had no subtitle key at all: the only route
+        // was raising the bar and arrowing across to Subs, which nobody finds.
+        if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_CAPTIONS
+                || keyCode == KeyEvent.KEYCODE_INFO || keyCode == KeyEvent.KEYCODE_SETTINGS) {
+            showControls(true);
+            highlight(IDX_SUBS);
+            activateControl(IDX_SUBS);
+            return true;
+        }
+
         // Controls hidden
+        //
+        // Down opens the control bar and highlights it, which is what every TV
+        // player does and what anyone will try first. It used to nudge the audio
+        // delay instead: a power feature bound to the most obvious key, doing
+        // something nearly invisible, while the way to reach subtitles was
+        // undiscoverable. Audio delay now lives on the Audio control, where it
+        // is labelled.
         if (!controlsVisible) {
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP)   { adjustAudioDelay(+AUDIO_STEP_US); return true; }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) { adjustAudioDelay(-AUDIO_STEP_US); return true; }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                showControls(true);
+                highlight(IDX_PLAYPAUSE);
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                showControls(true);
+                highlight(IDX_SEEKBAR);
+                return true;
+            }
+            // Seeking straight from a hidden bar saves raising it first, and the
+            // bar appears anyway so the new position is visible.
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
+                showControls(true); highlight(IDX_SEEKBAR); seekBy(-SEEK_HOLD_MS); return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                showControls(true); highlight(IDX_SEEKBAR); seekBy(+SEEK_HOLD_MS); return true;
+            }
             showControls(true);
             return true;
         }
@@ -326,17 +361,20 @@ public class VlcPlayerActivity extends Activity {
                 resetHideTimer();
                 return true;
 
+            // Up and Down move between the scrub bar and the row of buttons,
+            // which is what the layout looks like and so what people expect.
+            // The exception is the Audio control: with that highlighted they
+            // tune the audio delay, so the feature keeps a home and one that
+            // says what it does.
             case KeyEvent.KEYCODE_DPAD_UP:
-                if (focusedControl != IDX_SEEKBAR) {
-                    adjustAudioDelay(+AUDIO_STEP_US);
-                }
+                if (focusedControl == IDX_AUDIO) adjustAudioDelay(+AUDIO_STEP_US);
+                else                             highlight(IDX_SEEKBAR);
                 resetHideTimer();
                 return true;
 
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                if (focusedControl != IDX_SEEKBAR) {
-                    adjustAudioDelay(-AUDIO_STEP_US);
-                }
+                if (focusedControl == IDX_AUDIO)      adjustAudioDelay(-AUDIO_STEP_US);
+                else if (focusedControl == IDX_SEEKBAR) highlight(IDX_PLAYPAUSE);
                 resetHideTimer();
                 return true;
 
