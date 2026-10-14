@@ -254,6 +254,68 @@ public class PlayerActivity extends Activity {
         handler.postDelayed(hideHud, HUD_DURATION_MS);
     }
 
+    /**
+     * Report what the player actually holds, rather than what we assume.
+     *
+     * Two subtitle fixes have now failed to change the symptom, which means the
+     * model is wrong somewhere rather than the next patch being the right one.
+     * This answers the three questions that distinguish the possibilities: did
+     * the key arrive at all, does a text track exist, and did the selection
+     * actually change. Goes to the on screen HUD as well as the companion,
+     * because a television has no reachable devtools and the person holding the
+     * remote is the one who can see it.
+     */
+    private String describeTextTracks() {
+        if (player == null) return "no player";
+        int groups = 0, selected = 0;
+        StringBuilder langs = new StringBuilder();
+        try {
+            for (Tracks.Group g : player.getCurrentTracks().getGroups()) {
+                if (g.getType() != C.TRACK_TYPE_TEXT) continue;
+                groups++;
+                for (int i = 0; i < g.length; i++) {
+                    if (g.isTrackSelected(i)) selected++;
+                    String lang = g.getTrackFormat(i).language;
+                    String mime = g.getTrackFormat(i).sampleMimeType;
+                    if (langs.length() > 0) langs.append(",");
+                    langs.append(lang == null ? "und" : lang).append("/").append(mime == null ? "?" : mime);
+                }
+            }
+        } catch (Exception e) {
+            return "track read failed: " + e.getMessage();
+        }
+        return "textGroups=" + groups + " selected=" + selected + " [" + langs + "]";
+    }
+
+    /** POST a short diagnostic line to the companion's /clientlog. */
+    private void reportDiag(String at, String detail) {
+        if (url == null || url.isEmpty()) return;
+        if (!url.contains("/stream") && !url.contains("/transcode")) return;
+        final String base;
+        try {
+            java.net.URL u = new java.net.URL(url);
+            base = u.getProtocol() + "://" + u.getAuthority();
+        } catch (Exception e) { return; }
+        final String payload = detail;
+        new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c =
+                        (java.net.HttpURLConnection) new java.net.URL(base + "/clientlog").openConnection();
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setDoOutput(true);
+                c.setConnectTimeout(4000);
+                c.setReadTimeout(4000);
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("at", at);
+                o.put("detail", payload);
+                o.put("build", "subs-diag-1");
+                c.getOutputStream().write(o.toString().getBytes("UTF-8"));
+                c.getInputStream().close();
+            } catch (Exception ignored) { }
+        }).start();
+    }
+
     private void toggleSubtitles() {
         subsEnabled = !subsEnabled;
         // setRendererDisabled takes a renderer INDEX, not a track type.
@@ -262,10 +324,17 @@ public class PlayerActivity extends Activity {
         // renderer while subtitles carried on rendering — the HUD said OFF and
         // the text stayed on screen. setTrackTypeDisabled is the type-based
         // API this always wanted.
+        String before = describeTextTracks();
         trackSelector.setParameters(trackSelector.buildUponParameters()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subsEnabled)
                 .build());
-        showHud("Subtitles: " + (subsEnabled ? "ON" : "OFF") + "   |   2x ☰ → VLC");
+        // Read back rather than trusting the call: the previous two attempts
+        // both reported success over subtitles that were still on screen.
+        handler.postDelayed(() -> {
+            String after = describeTextTracks();
+            showHud("Subtitles: " + (subsEnabled ? "ON" : "OFF") + "\n" + after);
+            reportDiag("subs.toggle", "want=" + (subsEnabled ? "ON" : "OFF") + " | before: " + before + " | after: " + after);
+        }, 250);
     }
 
     private void adjustAudioDelay(long deltaUs) {
@@ -420,7 +489,14 @@ public class PlayerActivity extends Activity {
                 return true;
             }
 
-            if (keyCode == KeyEvent.KEYCODE_MENU) {
+            // Every key, once, so we can tell "the button does nothing" apart
+            // from "the button never arrived". Fire TV remotes differ in what
+            // their menu button actually sends, and assuming KEYCODE_MENU is
+            // exactly the kind of guess that has already cost two attempts.
+            reportDiag("key", "code=" + keyCode + " name=" + KeyEvent.keyCodeToString(keyCode));
+
+            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_CAPTIONS
+                    || keyCode == KeyEvent.KEYCODE_INFO || keyCode == KeyEvent.KEYCODE_SETTINGS) {
                 long now = System.currentTimeMillis();
                 if (now - lastMenuPressMs < 1500) {
                     // Double-tap MENU → switch to VLC
