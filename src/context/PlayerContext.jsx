@@ -71,6 +71,16 @@ export function PlayerProvider({ children }) {
             window.vaulttvBridge.playVideoVlc(url, opts.title || '', opts.startTime || 0)
             return
           }
+          // Vimu is built for televisions rather than adapted to them, and
+          // handles container and codec combinations the bundled players
+          // refuse. Offered only when installed, since launching a missing app
+          // looks identical to a broken stream from here.
+          if (defaultPlayer === 'vimu' && typeof window.vaulttvBridge.playVideoVimu === 'function') {
+            const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
+            const sub    = tracks.find(t => /^en/i.test(t.lang || '') || /english/i.test(t.label || '')) || tracks[0] || null
+            window.vaulttvBridge.playVideoVimu(url, opts.title || '', opts.startTime || 0, sub?.url || '')
+            return
+          }
           if (defaultPlayer === 'mxplayer' && typeof window.vaulttvBridge.playVideoMx === 'function') {
             // MX Player supports multiple subtitle tracks (its own array-based
             // API), unlike ExoPlayer's single subtitleUrl param below.

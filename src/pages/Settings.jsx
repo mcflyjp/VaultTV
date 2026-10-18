@@ -43,9 +43,13 @@ export default function Settings() {
   // Checked once on mount — isMxPlayerInstalled() only exists in the native
   // Android bridge, so this is always false on web/Electron.
   const [hasMxPlayer, setHasMxPlayer] = useState(false)
+  const [hasVimu,     setHasVimu]     = useState(false)
   useEffect(() => {
     if (typeof window.vaulttvBridge?.isMxPlayerInstalled === 'function') {
       setHasMxPlayer(window.vaulttvBridge.isMxPlayerInstalled())
+      // Offered only when installed: launching an app that is not there looks
+      // from the web side exactly like a stream that will not play.
+      if (typeof window.vaulttvBridge.hasVimu === 'function') setHasVimu(window.vaulttvBridge.hasVimu())
     }
   }, [])
 
@@ -652,6 +656,7 @@ export default function Settings() {
             {[
               ['exoplayer', 'ExoPlayer', 'Recommended — hardware decoding, best for most files'],
               ['vlc', 'VLC', 'Better for audio sync issues or manual audio delay control'],
+              ...(hasVimu ? [['vimu', 'Vimu', 'Built for TVs rather than adapted to them, and handles formats the others refuse']] : []),
               ...(hasMxPlayer ? [['mxplayer', 'MX Player', 'Uses your existing MX Player app, with resume position handled by VaultTV']] : []),
             ].map(([value, label, sub]) => (
               <button

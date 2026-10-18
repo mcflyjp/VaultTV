@@ -459,6 +459,63 @@ public class MainActivity extends Activity {
          * @param subtitleUrls   JSON array string of subtitle URLs (non-blob, direct HTTP only)
          * @param subtitleLabels JSON array string of matching labels, same length/order
          */
+        /**
+         * Launch Vimu Media Player.
+         *
+         * Vimu is built for televisions rather than adapted to them, and handles
+         * container and codec combinations the bundled players refuse, so it is
+         * offered alongside them rather than as a fallback.
+         *
+         * Its intent extras differ from MX Player's: forcename carries the title
+         * and forcedirect asks it not to re-probe a URL the server already
+         * resolved. Subtitles are passed as a single URL, since Vimu takes one
+         * rather than MX Player's parallel arrays.
+         */
+        @JavascriptInterface
+        public void playVideoVimu(String url, String title, double startTimeSec, String subtitleUrl) {
+            mainHandler.post(() -> {
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(Uri.parse(url), "video/*");
+                intent.putExtra("forcename",   title);
+                intent.putExtra("forcedirect", true);
+                intent.putExtra("forceresume", startTimeSec > 0);
+                if (startTimeSec > 0) intent.putExtra("position", (int)(startTimeSec * 1000));
+                if (subtitleUrl != null && !subtitleUrl.isEmpty() && !subtitleUrl.startsWith("blob:")) {
+                    intent.putExtra("subtitles", subtitleUrl);
+                }
+
+                // Vimu ships under two package names depending on how it was
+                // installed, and only one of them exists on any given device.
+                for (String pkg : new String[]{ "net.gtvbox.videoplayer", "net.gtvbox.vimuhd" }) {
+                    intent.setPackage(pkg);
+                    try {
+                        startActivityForResult(intent, REQUEST_PLAY_VIDEO);
+                        return;
+                    } catch (Exception ignored) {
+                        // Not this package — try the next.
+                    }
+                }
+
+                // Nothing to launch. Say so rather than failing silently, since
+                // from the web side a missing app looks identical to a broken
+                // stream.
+                android.widget.Toast.makeText(MainActivity.this,
+                        "Vimu Player is not installed", android.widget.Toast.LENGTH_LONG).show();
+            });
+        }
+
+        /** Whether Vimu is installed, so the UI can offer it only when it exists. */
+        @JavascriptInterface
+        public boolean hasVimu() {
+            for (String pkg : new String[]{ "net.gtvbox.videoplayer", "net.gtvbox.vimuhd" }) {
+                try {
+                    getPackageManager().getPackageInfo(pkg, 0);
+                    return true;
+                } catch (Exception ignored) { }
+            }
+            return false;
+        }
+
         @JavascriptInterface
         public void playVideoMx(String url, String title, double startTimeSec,
                                  String subtitleUrls, String subtitleLabels) {
