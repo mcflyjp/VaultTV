@@ -166,6 +166,15 @@ public class VlcPlayerActivity extends Activity {
                 // Episode finished naturally — signal auto-advance
                 runOnUiThread(() -> finishWithProgress(true));
             }
+            // Track the dim countdown against what VLC actually did, not only
+            // against the button that was pressed: playback can pause on its
+            // own, buffering for instance, and a frame left up that way should
+            // dim exactly as a deliberate pause does.
+            if (event.type == MediaPlayer.Event.Playing
+                    || event.type == MediaPlayer.Event.Paused
+                    || event.type == MediaPlayer.Event.Stopped) {
+                runOnUiThread(this::updateDimTimer);
+            }
         });
 
         Media media = new Media(libVLC, Uri.parse(url));
@@ -272,6 +281,47 @@ public class VlcPlayerActivity extends Activity {
         }
     }
 
+    // ── Screen dim while paused ───────────────────────────────────────────────
+    // A paused frame left on a television for hours is both a waste and a risk
+    // on OLED panels, so after a few minutes the backlight drops to almost
+    // nothing. The picture stays exactly where it was: this is a screen saver,
+    // not a stop, so nothing about playback position changes.
+    //
+    // Any key wakes it and still performs its normal job, so pressing play from
+    // a dimmed screen both resumes and restores the brightness rather than
+    // costing a press just to wake up.
+    private static final long DIM_DELAY_MS = 5 * 60_000L;
+    private boolean dimmed = false;
+
+    private final Runnable dimScreen = () -> {
+        dimmed = true;
+        android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+        // Not zero: some devices treat 0 as "use the system value" rather than
+        // fully dark, and a sliver of backlight also makes it obvious the
+        // television is still on rather than broken.
+        lp.screenBrightness = 0.01f;
+        getWindow().setAttributes(lp);
+    };
+
+    private void undim() {
+        mainHandler.removeCallbacks(dimScreen);
+        if (!dimmed) return;
+        dimmed = false;
+        android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+        lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+        getWindow().setAttributes(lp);
+    }
+
+    /** Start the countdown when paused, cancel it the moment playback resumes. */
+    private void updateDimTimer() {
+        mainHandler.removeCallbacks(dimScreen);
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            undim();
+        } else {
+            mainHandler.postDelayed(dimScreen, DIM_DELAY_MS);
+        }
+    }
+
     private void updatePlayPauseLabel() {
         if (mediaPlayer == null) return;
         btnPlayPause.setText(mediaPlayer.isPlaying() ? "⏸  Pause" : "▶  Play");
@@ -290,6 +340,9 @@ public class VlcPlayerActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Wake first, then let the key do what it normally does: a press that
+        // only undimmed would cost the viewer a second press to act.
+        undim();
 
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (controlsVisible) { showControls(false); return true; }
@@ -404,6 +457,7 @@ public class VlcPlayerActivity extends Activity {
             case IDX_SEEKBAR:   // pressing OK on seek bar = play/pause
                 if (mediaPlayer.isPlaying()) mediaPlayer.pause(); else mediaPlayer.play();
                 updatePlayPauseLabel();
+                updateDimTimer();
                 break;
             case IDX_SEEKBACK:
                 seekBy(-SEEK_BTN_MS);
@@ -411,6 +465,7 @@ public class VlcPlayerActivity extends Activity {
             case IDX_PLAYPAUSE:
                 if (mediaPlayer.isPlaying()) mediaPlayer.pause(); else mediaPlayer.play();
                 updatePlayPauseLabel();
+                updateDimTimer();
                 break;
             case IDX_SEEKFWD:
                 seekBy(+SEEK_BTN_MS);
@@ -513,6 +568,10 @@ public class VlcPlayerActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // Leave the screen as we found it: a brightness override that
+        // outlived the player would dim whatever the user opens next.
+        mainHandler.removeCallbacks(dimScreen);
+        undim();
         super.onDestroy();
         mainHandler.removeCallbacks(updateSeek);
         mainHandler.removeCallbacks(hideControls);
