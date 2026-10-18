@@ -101,11 +101,11 @@ export function sortStreamsByCompat(streams) {
  * Used for the Quality sort option.
  */
 const QUALITY_TIERS = [
-  { tier: 5, re: /\b(4k|2160p|uhd)\b/i },
-  { tier: 4, re: /\b(1080p|fhd|full[\s-]?hd)\b/i },
-  { tier: 3, re: /\b(720p|hd)\b/i },
-  { tier: 2, re: /\b(480p|sd)\b/i },
-  { tier: 1, re: /\b(360p|240p)\b/i },
+  { tier: 5, label: '4K', re: /\b(4k|2160p|uhd)\b/i },
+  { tier: 4, label: '1080p', re: /\b(1080p|fhd|full[\s-]?hd)\b/i },
+  { tier: 3, label: '720p', re: /\b(720p|hd)\b/i },
+  { tier: 2, label: '480p', re: /\b(480p|sd)\b/i },
+  { tier: 1, label: '360p', re: /\b(360p|240p)\b/i },
 ]
 
 /**
@@ -115,6 +115,7 @@ const QUALITY_TIERS = [
  *   seeds       — integer seed count or null (Torrentio: "👤 42")
  *   sizeGb      — file size in GB or null  (Torrentio: "💾 15.2 GB")
  *   qualityTier — 0-5 quality tier (5 = 4K, 4 = 1080p, …)
+ *   resolution  — the printable form of that tier, e.g. "1080p", or null
  *   hardsub     — true when the release name marks burned-in subtitles
  */
 export function parseStreamMeta(stream) {
@@ -141,8 +142,12 @@ export function parseStreamMeta(stream) {
 
   // Quality tier
   let qualityTier = 0
-  for (const { tier, re } of QUALITY_TIERS) {
-    if (re.test(text)) { qualityTier = tier; break }
+  // Carried alongside the tier because the UI wants to print it. The rows
+  // already referenced meta.resolution, which was never returned, so the
+  // resolution simply never appeared.
+  let resolution = null
+  for (const { tier, label, re } of QUALITY_TIERS) {
+    if (re.test(text)) { qualityTier = tier; resolution = label; break }
   }
 
   // Burned-in subtitles. These are part of the video frames, so no player can
@@ -153,9 +158,9 @@ export function parseStreamMeta(stream) {
   // Word-boundary matching on HC matters — it appears inside plenty of
   // innocent tokens (HDCAM, "HC" within a group name like ARCHiE), and a
   // false positive here mislabels a perfectly good stream.
-  const hardsub = /(?:HC|HARDSUB(?:BED)?|KORSUB|SUBBED)/i.test(text)
+  const hardsub = /\b(?:HC|HARDSUB(?:BED)?|KORSUB|SUBBED)\b/i.test(text)
 
-  return { seeds, sizeGb, qualityTier, hardsub }
+  return { seeds, sizeGb, qualityTier, resolution, hardsub }
 }
 
 /**

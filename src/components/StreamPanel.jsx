@@ -173,7 +173,7 @@ export function InlineStreamTray({ loading, streams, onSelect, preferredLang }) 
   )
 }
 
-export function StreamPanel({ loading, streams, onSelect, preferredLang }) {
+export function StreamPanel({ loading, streams, onSelect, preferredLang, layout }) {
   const [sortBy,      setSortBy]      = useState('default')
   const [filterLang,  setFilterLang]  = useState('')
   const [compatOnly,  setCompatOnly]  = useState(false)
@@ -205,6 +205,14 @@ export function StreamPanel({ loading, streams, onSelect, preferredLang }) {
           />
           {sorted.length === 0 ? (
             <p style={{ color: 'var(--text-secondary)', margin: 0 }}>No streams match the current filters.</p>
+          ) : layout === 'list' ? (
+            /* Full width rows, for the screen that has a screen to itself.
+               The rail below exists because the panel used to be squeezed into
+               the detail page, where vertical room was the scarce thing; here
+               it is not, and a row can be read from a sofa. */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {sorted.map((s, i) => <StreamPanelRow key={i} stream={s} onSelect={onSelect} preferredLang={preferredLang} companionOnline={companionOnline} large />)}
+            </div>
           ) : IS_FIRETV ? (
             /* overscrollBehavior: contain stops a horizontal scroll that has
                hit the end of the rail from chaining to the page and carrying
@@ -225,7 +233,7 @@ export function StreamPanel({ loading, streams, onSelect, preferredLang }) {
   )
 }
 
-function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = false, horizontal = false }) {
+function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = false, horizontal = false, large = false }) {
   // On FireTV, ExoPlayer handles all codecs natively — treat everything as compatible
   const compat    = IS_FIRETV ? 'compatible' : streamCompat(s)
   const badge     = compatBadge(compat)
@@ -233,6 +241,10 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
   const hasIssue  = compat === 'audio-issue' || compat === 'video-issue' || compat === 'both-issues'
   const langs     = parseStreamLanguages(s)
   const meta      = parseStreamMeta(s)
+  // Shown on the large row: people choose on codec as much as resolution,
+  // since it decides whether a device can play it without transcoding.
+  const { videoCodec } = parseStreamCodecs(s) || {}
+  const codecLabel = videoCodec ? String(videoCodec).toUpperCase() : null
   const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
   const rawTooltip = [s.name, s.title, companionOnline && hasIssue ? '⚡ Auto-transcoding via companion' : badge?.title].filter(Boolean).join('\n─────\n')
 
@@ -290,7 +302,11 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
       onClick={handleClick}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
       style={{
-        padding: '0.65rem 0.75rem', marginBottom: '0.4rem',
+        // Roughly twice the height when this row owns the screen, which is
+        // what makes it legible across a room rather than only at a desk.
+        padding: large ? '1.1rem 1.25rem' : '0.65rem 0.75rem',
+        marginBottom: large ? 0 : '0.4rem',
+        fontSize: large ? '1.05rem' : undefined,
         background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
         borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
         border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' || (hasIssue && companionOnline) ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
@@ -300,11 +316,24 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
       {(
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>{s.name || s.title || 'Stream'}</p>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: large ? '1.05rem' : '0.88rem', lineHeight: 1.35 }}>{s.name || s.title || 'Stream'}</p>
             <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>via {s.addonName}</span>
-              {meta.seeds != null && <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>👤 {meta.seeds}</span>}
-              {meta.sizeGb != null && <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>💾 {meta.sizeGb >= 1 ? `${meta.sizeGb.toFixed(1)} GB` : `${(meta.sizeGb * 1024).toFixed(0)} MB`}</span>}
+              <span style={{ fontSize: large ? '0.92rem' : '0.78rem', color: 'var(--text-secondary)', fontWeight: large ? 600 : 400 }}>{s.addonName}</span>
+              {/* Resolution, codec and source were only ever shown on the
+                  narrow rail. They are the first things anyone actually picks
+                  a stream on, so the large row shows them outright. */}
+              {large && meta.resolution && (
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--accent)' }}>{meta.resolution}</span>
+              )}
+              {large && codecLabel && (
+                <span style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.6)' }}>{codecLabel}</span>
+              )}
+              {meta.seeds != null && <span style={{ fontSize: large ? '0.82rem' : '0.72rem', color: 'rgba(255,255,255,0.45)' }}>👤 {meta.seeds}</span>}
+              {meta.sizeGb != null && <span style={{ fontSize: large ? '0.82rem' : '0.72rem', color: 'rgba(255,255,255,0.45)' }}>💾 {meta.sizeGb >= 1 ? `${meta.sizeGb.toFixed(1)} GB` : `${(meta.sizeGb * 1024).toFixed(0)} MB`}</span>}
+              {large && meta.hardsub && (
+                <span title="Subtitles are burned into the picture and cannot be turned off"
+                      style={{ fontSize: '0.74rem', fontWeight: 700, color: '#fbbf24' }}>HARDSUB</span>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -316,7 +345,17 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
               }}>{LANG_LABELS[code] || code.toUpperCase()}</span>
             ))}
             {effectiveBadge && <span title={effectiveBadge.title} style={{ fontSize: '0.62rem', background: effectiveBadge.color + '22', color: effectiveBadge.color, border: `1px solid ${effectiveBadge.color}55`, borderRadius: 4, padding: '2px 6px', fontWeight: 700 }}>{effectiveBadge.label}</span>}
-            {s.url && <FiPlay size={16} style={{ color: 'var(--accent)' }} />}
+            {s.url && (large ? (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 44, height: 44, borderRadius: '50%', background: '#22c55e', color: '#06240f',
+                marginLeft: '0.4rem', flexShrink: 0,
+              }}>
+                <FiPlay size={22} style={{ marginLeft: 2 }} />
+              </span>
+            ) : (
+              <FiPlay size={16} style={{ color: 'var(--accent)' }} />
+            ))}
           </div>
         </div>
       )}
