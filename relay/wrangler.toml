@@ -1,3 +1,10 @@
 name = "vaulttv-relay"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
+
+# Keep the shared Supabase project from pausing. Free projects pause after about
+# a week of inactivity, and a paused project stops resolving in DNS, which takes
+# sign-in down for every VaultTV user at once. Twice a week leaves plenty of
+# margin against that window without being noisy.
+[triggers]
+crons = ["0 6 * * 1", "0 6 * * 4"]

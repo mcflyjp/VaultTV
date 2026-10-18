@@ -24,6 +24,32 @@ const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 export class StreamErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { err: null } }
   static getDerivedStateFromError(e) { return { err: e } }
+
+  // Report the failure to the Media Server as well as showing it.
+  //
+  // A television has no reachable devtools, so the only way this reached a
+  // developer was somebody reading it off the screen and typing it out, which
+  // loses the stack and is easy to mistranscribe. The build marker matters as
+  // much as the message: it answers "is this even the fixed bundle" instantly,
+  // instead of it being suspected for an hour.
+  componentDidCatch(error, info) {
+    try {
+      const base = window.__companionBase
+      if (!base) return
+      fetch(`${base}/clientlog`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          at: 'streamPanel.error',
+          message: String(error && error.message).slice(0, 300),
+          stack: String((error && error.stack) || '').slice(0, 600),
+          componentStack: String((info && info.componentStack) || '').slice(0, 400),
+          build: 'streams-screen-2',
+        }),
+      }).catch(() => {})
+    } catch { /* diagnostics must never replace the error being shown */ }
+  }
+
   render() {
     if (this.state.err) return (
       <p style={{ margin: 0, fontSize: '0.82rem', color: 'rgba(255,80,80,0.8)' }}>
