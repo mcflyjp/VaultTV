@@ -245,6 +245,16 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
   // since it decides whether a device can play it without transcoding.
   const { videoCodec } = parseStreamCodecs(s) || {}
   const codecLabel = videoCodec ? String(videoCodec).toUpperCase() : null
+
+  // The short label, and separately everything the add-on put in the detail
+  // field. Whichever supplied the headline is dropped from the detail so the
+  // same text is not printed twice.
+  const headline = (s.name || s.title || 'Stream').split('\n')[0].trim()
+  const detail   = (s.name ? (s.title || s.description) : s.description) || ''
+  const detailLines = String(detail)
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l && l !== headline)
   const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
   const rawTooltip = [s.name, s.title, companionOnline && hasIssue ? '⚡ Auto-transcoding via companion' : badge?.title].filter(Boolean).join('\n─────\n')
 
@@ -316,7 +326,18 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
       {(
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontWeight: 700, fontSize: large ? '1.05rem' : '0.88rem', lineHeight: 1.35 }}>{s.name || s.title || 'Stream'}</p>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: large ? '1.05rem' : '0.88rem', lineHeight: 1.35 }}>{headline}</p>
+            {/* Add-ons following Stremio's convention put a short label in
+                name and everything worth knowing in title: the release
+                filename, seeders, size and tracker. Rendering one or the other
+                threw that away, and it survived only in a hover tooltip, which
+                is no use on a television. Line breaks are kept because the
+                add-on uses them to separate those facts. */}
+            {large && detailLines.length > 0 && (
+              <div style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {detailLines.join('\n')}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
               <span style={{ fontSize: large ? '0.92rem' : '0.78rem', color: 'var(--text-secondary)', fontWeight: large ? 600 : 400 }}>{s.addonName}</span>
               {/* Resolution, codec and source were only ever shown on the
