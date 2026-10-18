@@ -18,6 +18,7 @@ import VideoPlayer from './components/VideoPlayer'
 import Home from './pages/Home'
 import Search from './pages/Search'
 import Detail from './pages/Detail'
+import Streams from './pages/Streams'
 import Settings from './pages/Settings'
 import Addons from './pages/Addons'
 import Library from './pages/Library'
@@ -111,6 +112,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/search" element={<Search />} />
           <Route path="/detail/:type/:id" element={<Detail />} />
+          <Route path="/streams/:type/:id" element={<Streams />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/addons" element={<Addons />} />
           <Route path="/library/saved" element={<Navigate to="/library/movies" replace />} />
