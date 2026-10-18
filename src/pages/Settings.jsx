@@ -222,6 +222,40 @@ export default function Settings() {
               </div>
             </label>
           </div>
+          {/* Subtitles off by default.
+              Sits under the auto-download toggle because the two decide the
+              same thing from opposite ends: one controls whether subtitles are
+              fetched, this one whether any are handed to the player at all. */}
+          <div style={{ marginTop: '0.9rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+              <div
+                onClick={() => lang.savePrefs({ subsOffByDefault: !lang.subsOffByDefault })}
+                style={{
+                  width: 44, height: 24, borderRadius: 12,
+                  background: lang.subsOffByDefault ? 'var(--accent)' : 'var(--border)',
+                  position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 2, left: lang.subsOffByDefault ? 22 : 2,
+                  width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 0.2s',
+                }} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontWeight: 600, fontSize: '0.88rem' }}>
+                  Subtitles off by default
+                </p>
+                <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Start playback with no subtitles, rather than whatever the stream or
+                  VaultTV happened to supply. They can still be switched on from the
+                  player. Subtitles built into the file itself are the player&apos;s own
+                  setting and are not affected. This one stays on this device instead of
+                  following your account, since a TV and a phone rarely want the same answer.
+                </p>
+              </div>
+            </label>
+          </div>
+
         </div>
       </Card>
 

@@ -34,6 +34,11 @@ const DEFAULT_PREFS = {
   subLang: 'en',       // ISO 639-1 code for subtitles
   audioLang: 'en',     // ISO 639-1 code for audio — default English
   autoFetchSubs: true, // Auto-download subs from OpenSubtitles when none found
+  // Never hand subtitles to a player unless asked for. Deliberately not synced
+  // to the account, unlike the settings above: whether subtitles should appear
+  // uninvited is a per-room choice, and the television and the phone in a noisy
+  // kitchen rarely want the same answer.
+  subsOffByDefault: false,
 }
 
 const LanguageContext = createContext({ ...DEFAULT_PREFS, savePrefs: () => {} })

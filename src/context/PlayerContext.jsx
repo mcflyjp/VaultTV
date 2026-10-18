@@ -11,6 +11,7 @@
 
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
 import { transcodeUrl } from '../lib/companion'
+import { useLanguage } from './LanguageContext'
 
 const PlayerContext = createContext(null)
 
@@ -57,6 +58,7 @@ function audioSafeUrl(url, opts, player) {
 }
 
 export function PlayerProvider({ children }) {
+  const { subsOffByDefault } = useLanguage()
   const [session, setSession] = useState(null)
   // session = { url, title, year, type, poster, startTime, fileHandle, onProgress }
   const [defaultPlayer, setDefaultPlayerState] = useState(
@@ -65,6 +67,23 @@ export function PlayerProvider({ children }) {
   function setDefaultPlayer(player) {
     localStorage.setItem(DEFAULT_PLAYER_KEY, player)
     setDefaultPlayerState(player)
+  }
+
+  /**
+   * The subtitle tracks a player should be handed.
+   *
+   * Native players load whatever they are given, so the only way to have
+   * subtitles off by default is not to give them any. VaultTV fetches
+   * subtitles on its own and add-ons supply their own, which is why they
+   * appeared uninvited even when nobody asked: three separate sources each
+   * decided independently.
+   *
+   * Only affects what is passed at launch. Subtitles embedded in the file are
+   * the player's business, and can still be turned on from its own menu.
+   */
+  function tracksFor(opts) {
+    if (subsOffByDefault) return []
+    return (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
   }
 
   // Keep last opts so the native player done callback can report progress
@@ -110,7 +129,7 @@ export function PlayerProvider({ children }) {
           // refuse. Offered only when installed, since launching a missing app
           // looks identical to a broken stream from here.
           if (defaultPlayer === 'vimu' && typeof window.vaulttvBridge.playVideoVimu === 'function') {
-            const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
+            const tracks = tracksFor(opts)
             const sub    = tracks.find(t => /^en/i.test(t.lang || '') || /english/i.test(t.label || '')) || tracks[0] || null
             window.vaulttvBridge.playVideoVimu(url, opts.title || '', opts.startTime || 0, sub?.url || '')
             return
@@ -118,7 +137,7 @@ export function PlayerProvider({ children }) {
           if (defaultPlayer === 'mxplayer' && typeof window.vaulttvBridge.playVideoMx === 'function') {
             // MX Player supports multiple subtitle tracks (its own array-based
             // API), unlike ExoPlayer's single subtitleUrl param below.
-            const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
+            const tracks = tracksFor(opts)
             const subUrls  = JSON.stringify(tracks.map(t => t.url))
             const subNames = JSON.stringify(tracks.map(t => t.label || t.lang || 'Subtitle'))
             window.vaulttvBridge.playVideoMx(audioSafeUrl(url, opts, 'mxplayer'), opts.title || '', opts.startTime || 0, subUrls, subNames)
@@ -126,7 +145,7 @@ export function PlayerProvider({ children }) {
           }
           // Pick the best subtitle URL to pass to native ExoPlayer (first English, direct HTTP only)
           // Blob URLs (from companion/createObjectURL) are browser-local and crash ExoPlayer
-          const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
+          const tracks = tracksFor(opts)
           const subTrack = tracks.find(t => /^en/i.test(t.lang || '') || /english/i.test(t.label || '')) || tracks[0] || null
           const subUrl = subTrack?.url || ''
           window.vaulttvBridge.playVideo(url, opts.title || '', opts.startTime || 0, subUrl)
