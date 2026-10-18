@@ -34,7 +34,7 @@ export default function Streams() {
   const { getStreamsBySource, getSubtitles } = useAddons()
   const { audioLang }  = useLanguage()
   const { play, closePlayer } = usePlayer()
-  const { history, startWatching, saveLastStream } = useWatchHistory()
+  const { history, startWatching, saveLastStream, updateProgress, markEpisodeWatched } = useWatchHistory()
   const { getBackdrop } = useArtwork()
 
   const season  = params.get('season')  ? Number(params.get('season'))  : undefined
@@ -122,7 +122,33 @@ export default function Streams() {
     })
   }, [shown.length, activeTab])
 
+  /**
+   * Record playback position while something is playing.
+   *
+   * Without this nothing reaches watch history, so a title played from here
+   * never appeared in Continue Watching and never resumed. Native players
+   * report back through PlayerContext's done callback; the web player reports
+   * continuously.
+   *
+   * An episode is marked watched past 90%, the same threshold the detail page
+   * uses, and only once per session so a scrub near the end does not fire it
+   * repeatedly.
+   */
+  const watchSynced = useRef(false)
+  function makeProgressHandler(poster) {
+    return (t, d) => {
+      updateProgress(Number(id), type, t, d, title, poster)
+      if (!watchSynced.current && d > 0 && t / d >= 0.9) {
+        watchSynced.current = true
+        if (type === 'tv' && season != null && episode != null) {
+          markEpisodeWatched(Number(id), season, episode)
+        }
+      }
+    }
+  }
+
   function handleSelect(url, stream) {
+    watchSynced.current = false
     const langs = stream ? parseStreamLanguages(stream) : []
     const { videoCodec, audioCodec } = stream ? parseStreamCodecs(stream) : {}
     const needsVideoTranscode = videoCodec && !['h264', 'avc', 'x264'].includes(String(videoCodec).toLowerCase())
@@ -142,6 +168,7 @@ export default function Streams() {
       audioCodec,
       transcodeVideo: !!needsVideoTranscode,
       startTime: savedProgress(),
+      onProgress: makeProgressHandler(poster),
       onPlaybackEnded: () => closePlayer(),
     })
     startWatching({ id: Number(id), type, title, poster })
