@@ -148,6 +148,61 @@ export function AddonsProvider({ children }) {
     return results
   }
 
+  /**
+   * Query every eligible add-on, reporting each one as it answers.
+   *
+   * getStreams waits for all of them, so one slow add-on holds up every fast
+   * one and the screen shows nothing until the slowest finishes. Add-ons differ
+   * enormously here: a cached debrid lookup returns in well under a second
+   * while a scraper can take the full eight second timeout.
+   *
+   * onUpdate receives the complete current picture each time anything changes,
+   * so a caller can render the list, the per-source status, and which sources
+   * are still working without tracking any of it itself.
+   *
+   * Returns a cancel function. Leaving a page mid-query is normal, and an
+   * update landing afterwards would set state on something unmounted.
+   */
+  function getStreamsBySource(type, imdbId, season, episode, onUpdate) {
+    const stremioType = type === 'tv' ? 'series' : type
+    const id = season != null ? `${imdbId}:${season}:${episode}` : imdbId
+    const eligible = addons.filter(a => a.resources?.includes('stream') && a.types?.includes(stremioType))
+
+    let cancelled = false
+    const controllers = []
+    const sources = eligible.map(a => ({ name: a.name, status: 'loading', streams: [] }))
+
+    const emit = () => { if (!cancelled) onUpdate(sources.map(s => ({ ...s }))) }
+    emit()
+
+    eligible.forEach((addon, i) => {
+      const base = addon.manifestUrl.replace('/manifest.json', '')
+      const ctrl = new AbortController()
+      controllers.push(ctrl)
+      const timer = setTimeout(() => ctrl.abort(), 8000)
+
+      fetch(`${base}/stream/${stremioType}/${id}.json`, { signal: ctrl.signal })
+        .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then(data => {
+          sources[i].streams = (data.streams || []).map(s => ({ ...s, addonName: addon.name }))
+          sources[i].status  = 'done'
+        })
+        .catch(e => {
+          // A timeout is the common case and not worth distinguishing: either
+          // way this source produced nothing and the user wants to know it is
+          // finished rather than still working.
+          sources[i].status = 'error'
+          sources[i].error  = e.name === 'AbortError' ? 'timed out' : e.message
+        })
+        .finally(() => { clearTimeout(timer); emit() })
+    })
+
+    return () => {
+      cancelled = true
+      controllers.forEach(c => { try { c.abort() } catch { /* already settled */ } })
+    }
+  }
+
   // Query addons for subtitles in parallel
   async function getSubtitles(type, imdbId, season, episode) {
     const stremioType = type === 'tv' ? 'series' : type
@@ -180,7 +235,7 @@ export function AddonsProvider({ children }) {
   }
 
   return (
-    <AddonsContext.Provider value={{ addons, addAddon, removeAddon, importFromUrl, getStreams, getSubtitles, saveAddons, syncing, syncError }}>
+    <AddonsContext.Provider value={{ addons, addAddon, removeAddon, importFromUrl, getStreams, getStreamsBySource, getSubtitles, saveAddons, syncing, syncError }}>
       {children}
     </AddonsContext.Provider>
   )

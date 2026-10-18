@@ -31,7 +31,7 @@ import { parseStreamLanguages, parseStreamCodecs } from '../lib/streamCompat'
 export default function Streams() {
   const { type, id }   = useParams()
   const [params]       = useSearchParams()
-  const { getStreams, getSubtitles } = useAddons()
+  const { getStreamsBySource, getSubtitles } = useAddons()
   const { audioLang }  = useLanguage()
   const { play, closePlayer } = usePlayer()
   const { history, startWatching, saveLastStream } = useWatchHistory()
@@ -61,8 +61,9 @@ export default function Streams() {
   }
 
   const panelRef = useRef(null)
-  const [streams, setStreams] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [sources, setSources]     = useState([])
+  const [subs,    setSubs]        = useState([])
+  const [activeTab, setActiveTab] = useState('All')
 
   const { data: detail } = useQuery({
     queryKey: ['detail', type, id],
@@ -80,24 +81,38 @@ export default function Streams() {
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    Promise.all([
-      getStreams(type, imdbId, season, episode),
-      getSubtitles(type, imdbId, season, episode).catch(() => []),
-    ])
-      .then(([results, subs]) => {
-        if (cancelled) return
-        setStreams(results.map(s => ({ ...s, _subtitles: subs })))
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    setActiveTab('All')
+    // Each source reports as it answers, so the list fills in rather than
+    // appearing all at once when the slowest finishes.
+    const cancel = getStreamsBySource(type, imdbId, season, episode, next => {
+      if (!cancelled) setSources(next)
+    })
+    getSubtitles(type, imdbId, season, episode)
+      .then(r => { if (!cancelled) setSubs(r || []) })
+      .catch(() => { if (!cancelled) setSubs([]) })
+    return () => { cancelled = true; cancel() }
   }, [type, id, imdbId, season, episode])
+
+  const anyLoading = sources.some(s => s.status === 'loading')
+  // Subtitles ride along on each stream, the shape the player expects.
+  const withSubs   = list => list.map(s => ({ ...s, _subtitles: subs }))
+  const allStreams = withSubs(sources.flatMap(s => s.streams))
+  const shown      = activeTab === 'All'
+    ? allStreams
+    : withSubs(sources.find(s => s.name === activeTab)?.streams || [])
+  // Nothing yet and still working is "loading"; nothing left to wait for is
+  // genuinely empty, which the panel words differently.
+  const loading    = anyLoading && allStreams.length === 0
 
   // Put the remote on the first stream as soon as there is one. Doing it here
   // rather than leaving it to the browser is what makes the screen usable from
   // a sofa: focus has somewhere obvious to start, and never falls to the body.
+  // Only once per tab. Re-focusing every time a slow source answers would
+  // snatch the highlight back while someone was already choosing.
+  const focusedFor = useRef(null)
   useEffect(() => {
-    if (loading || !streams?.length) return
+    if (!shown.length || focusedFor.current === activeTab) return
+    focusedFor.current = activeTab
     requestAnimationFrame(() => {
       const first = panelRef.current?.querySelector('[data-card]')
       if (first) {
@@ -105,7 +120,7 @@ export default function Streams() {
         first.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       }
     })
-  }, [loading, streams])
+  }, [shown.length, activeTab])
 
   function handleSelect(url, stream) {
     const langs = stream ? parseStreamLanguages(stream) : []
@@ -192,11 +207,57 @@ export default function Streams() {
           </p>
         )}
 
+        {/* Per-source tabs. Add-ons differ enormously in what they return and
+            how fast: a cached debrid lookup answers instantly, a scraper can
+            take the full timeout. Grouping by source lets a choice be made
+            from whichever has answered rather than waiting for the slowest,
+            and a count on each tab says what is behind it before it is opened. */}
+        {sources.length > 1 && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '0 0 0.9rem' }}>
+            {[{ name: 'All', count: allStreams.length, status: anyLoading ? 'loading' : 'done' },
+              ...sources.map(s => ({ name: s.name, count: s.streams.length, status: s.status }))
+            ].map(tab => {
+              const active = tab.name === activeTab
+              return (
+                <button
+                  key={tab.name}
+                  data-card
+                  onClick={() => setActiveTab(tab.name)}
+                  style={{
+                    padding: '0.5rem 0.9rem', borderRadius: 999, cursor: 'pointer',
+                    fontSize: '0.88rem', fontWeight: active ? 700 : 500,
+                    background: active ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
+                    border: `1px solid ${active ? 'var(--accent)' : 'rgba(255,255,255,0.14)'}`,
+                    color: active ? '#fff' : 'var(--text-secondary)',
+                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  }}
+                >
+                  {tab.name}
+                  {tab.status === 'loading'
+                    ? <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>…</span>
+                    : tab.status === 'error'
+                      ? <span title="This source failed or timed out" style={{ color: '#f87171', fontSize: '0.78rem' }}>!</span>
+                      : <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>{tab.count}</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Named individually rather than as a count, because when a wanted
+            source is the slow one, knowing which is still working is the
+            difference between waiting and giving up. */}
+        {anyLoading && (
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            {sources.filter(s => s.status === 'loading').map(s => s.name).join(', ')} still loading…
+          </p>
+        )}
+
         <div ref={panelRef}>
           <StreamErrorBoundary>
             <StreamPanel
               loading={loading}
-              streams={streams}
+              streams={shown}
               preferredLang={audioLang}
               onSelect={handleSelect}
               layout="list"
