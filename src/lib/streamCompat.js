@@ -29,13 +29,16 @@ const AUDIO_PATTERNS = [
   // Dolby TrueHD / Atmos (TrueHD is effectively AC3 family, unsupported)
   { codec: 'truehd', re: /\b(truehd|true[-\s]?hd|atmos)\b/i },
   // EAC3 / Dolby Digital Plus / DD+
-  { codec: 'eac3',   re: /\b(eac[-\s]?3|dd\+|dolby\s*digital\s*plus|ddplus)\b/i },
+  // DDP is how most WEB-DL releases label Dolby Digital Plus, and the
+  // trailing boundary has to allow a channel count: DDP5.1 is the common
+  // form and matched nothing, so those streams looked codec-free.
+  { codec: 'eac3',   re: /\b(eac[-\s]?3|e-ac-3|dd\+|ddp|dolby\s*digital\s*plus|ddplus)/i },
   // AC3 / Dolby Digital / DD (must come after eac3 check)
   { codec: 'ac3',    re: /\b(ac[-\s]?3|dolby\s*digital(?!\s*plus)|\bdd\b|dolby\s*5\.1|dolby\s*7\.1)\b/i },
   // DTS variants
   { codec: 'dts',    re: /\b(dts[-\s]?(hd|ma|x|hdma)?)\b/i },
   // AAC
-  { codec: 'aac',    re: /\baac\b/i },
+  { codec: 'aac',    re: /\baac(?:\d|\b)/i },
   // MP3
   { codec: 'mp3',    re: /\bmp3\b/i },
 ]

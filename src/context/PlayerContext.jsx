@@ -10,6 +10,7 @@
  */
 
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
+import { transcodeUrl } from '../lib/companion'
 
 const PlayerContext = createContext(null)
 
@@ -21,6 +22,33 @@ const IS_FIRETV = /VaultTV-FireTV/i.test(navigator.userAgent)
 // tried first. Some users prefer starting on VLC directly for titles ExoPlayer
 // struggles with generally (audio delay control, certain HEVC/Atmos sources).
 const DEFAULT_PLAYER_KEY = 'vt-default-player'
+
+// Audio MX Player cannot decode.
+//
+// MX Player dropped its built-in AC3, E-AC3 and DTS decoders over patent
+// licensing, so those tracks play silent unless the user installs a separate
+// codec pack. Nothing on screen says so: the video plays perfectly and the
+// sound is simply absent, which reads as a broken stream rather than a missing
+// decoder. Releases carrying these formats are extremely common.
+//
+// The companion already transcodes audio for the web player, and doing it for
+// MX costs little: the video is copied through untouched and only the audio is
+// re-encoded to stereo AAC.
+const MX_UNSUPPORTED_AUDIO = new Set(['ac3', 'eac3', 'dts', 'truehd', 'mlp'])
+
+/**
+ * Swap a stream for its transcoded form when the chosen player cannot decode
+ * its audio. Returns the original URL whenever there is nothing to fix, no
+ * companion to do it, or the codec is unknown, so a wrong guess costs nothing.
+ */
+function audioSafeUrl(url, opts, player) {
+  if (player !== 'mxplayer') return url
+  const codec = (opts.audioCodec || '').toLowerCase()
+  if (!MX_UNSUPPORTED_AUDIO.has(codec)) return url
+  if (!window.__companionBase) return url
+  // transcodeVideo false: copy the video, re-encode only the audio.
+  return transcodeUrl(opts.rawStreamUrl || url, 0, false)
+}
 
 export function PlayerProvider({ children }) {
   const [session, setSession] = useState(null)
@@ -87,7 +115,7 @@ export function PlayerProvider({ children }) {
             const tracks = (opts.subtitleTracks || []).filter(t => t.url && !t.url.startsWith('blob:'))
             const subUrls  = JSON.stringify(tracks.map(t => t.url))
             const subNames = JSON.stringify(tracks.map(t => t.label || t.lang || 'Subtitle'))
-            window.vaulttvBridge.playVideoMx(url, opts.title || '', opts.startTime || 0, subUrls, subNames)
+            window.vaulttvBridge.playVideoMx(audioSafeUrl(url, opts, 'mxplayer'), opts.title || '', opts.startTime || 0, subUrls, subNames)
             return
           }
           // Pick the best subtitle URL to pass to native ExoPlayer (first English, direct HTTP only)

@@ -124,7 +124,7 @@ export default function Streams() {
 
   function handleSelect(url, stream) {
     const langs = stream ? parseStreamLanguages(stream) : []
-    const { videoCodec } = stream ? parseStreamCodecs(stream) : {}
+    const { videoCodec, audioCodec } = stream ? parseStreamCodecs(stream) : {}
     const needsVideoTranscode = videoCodec && !['h264', 'avc', 'x264'].includes(String(videoCodec).toLowerCase())
     const poster = IMG(detail?.poster_path, 'w780')
 
@@ -138,6 +138,8 @@ export default function Streams() {
       mediaType: type,
       streamLangs: langs,
       rawStreamUrl: stream?.url || null,
+      // Lets the player layer swap in a transcode when it cannot decode this.
+      audioCodec,
       transcodeVideo: !!needsVideoTranscode,
       startTime: savedProgress(),
       onPlaybackEnded: () => closePlayer(),
