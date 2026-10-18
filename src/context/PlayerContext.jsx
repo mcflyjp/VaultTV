@@ -46,8 +46,14 @@ function audioSafeUrl(url, opts, player) {
   const codec = (opts.audioCodec || '').toLowerCase()
   if (!MX_UNSUPPORTED_AUDIO.has(codec)) return url
   if (!window.__companionBase) return url
-  // transcodeVideo false: copy the video, re-encode only the audio.
-  return transcodeUrl(opts.rawStreamUrl || url, 0, false)
+  // Re-encode the video too when it is not already H.264.
+  //
+  // Copying it through is cheaper, but the result is HEVC inside a fragmented
+  // MP4, which MX Player cannot hardware decode: it warns that the hardware
+  // decoder is unsupported and falls back to software, where 1080p HEVC
+  // stutters on a streaming stick. The caller has already worked out whether
+  // the video needs converting, so reuse that rather than guessing again.
+  return transcodeUrl(opts.rawStreamUrl || url, 0, !!opts.transcodeVideo)
 }
 
 export function PlayerProvider({ children }) {
