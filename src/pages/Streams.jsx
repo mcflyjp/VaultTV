@@ -175,13 +175,20 @@ export default function Streams() {
             position: 'absolute', inset: 0,
             backgroundImage: `url(${backdrop})`,
             backgroundSize: 'cover', backgroundPosition: 'center top',
-            opacity: 0.35,
-            filter: 'blur(1px) brightness(0.5)',
+            // Brighter and sharper than the detail page's treatment. There the
+            // artwork is a background to a page of its own text; here it is the
+            // only thing identifying what is being chosen for, since the rows
+            // below carry no poster of their own.
+            opacity: 0.6,
+            filter: 'brightness(0.65)',
           }} />
         )}
         <div style={{
           position: 'absolute', inset: 0,
-          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, var(--bg-primary) 78%)',
+          // Reaches a darkened wash rather than the page colour. The original
+          // became fully opaque at 78%, which painted the artwork out exactly
+          // where the stream list sits, leaving a flat panel on a blank field.
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.72) 100%)',
         }} />
       </div>
 

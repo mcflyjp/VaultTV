@@ -184,7 +184,11 @@ export function StreamPanel({ loading, streams, onSelect, preferredLang, layout 
     : null
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(12px)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' }}>
+    // In list layout the panel is the page, so it adds no card of its own:
+    // another filled surface over the artwork is exactly what was hiding it.
+    <div style={layout === 'list'
+      ? { padding: 0 }
+      : { background: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(12px)', borderRadius: 'var(--radius)', padding: '1.25rem', border: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
         <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Available Streams</h3>
         {streams?.length > 0 && (
@@ -317,9 +321,15 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
         padding: large ? '1.1rem 1.25rem' : '0.65rem 0.75rem',
         marginBottom: large ? 0 : '0.4rem',
         fontSize: large ? '1.05rem' : undefined,
-        background: langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)',
+        // Translucent over the artwork rather than a solid fill. The blur is
+        // what keeps the text readable against whatever is behind it, so the
+        // poster stays visible without the rows becoming hard to read.
+        background: large
+          ? (langMatch ? 'rgba(251,191,36,0.14)' : 'rgba(12,12,16,0.55)')
+          : (langMatch ? 'rgba(251,191,36,0.05)' : 'var(--bg-secondary)'),
+        backdropFilter: large ? 'blur(10px)' : undefined,
         borderRadius: 'var(--radius)', cursor: s.url ? 'pointer' : 'default',
-        border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' || (hasIssue && companionOnline) ? 'rgba(74,222,128,0.25)' : 'var(--border)'}`,
+        border: `1px solid ${langMatch ? 'rgba(251,191,36,0.35)' : compat === 'compatible' || (hasIssue && companionOnline) ? 'rgba(74,222,128,0.25)' : 'rgba(255,255,255,0.14)'}`,
         opacity: dimmed ? 0.5 : 1,
       }}
     >
