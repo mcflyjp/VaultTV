@@ -199,7 +199,10 @@ export default function Settings() {
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
               <div
+                role="switch"
+                tabIndex={0}
                 onClick={() => lang.savePrefs({ autoFetchSubs: !lang.autoFetchSubs })}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (() => lang.savePrefs({ autoFetchSubs: !lang.autoFetchSubs }))() } }}
                 style={{
                   width: 44, height: 24, borderRadius: 12,
                   background: lang.autoFetchSubs ? 'var(--accent)' : 'var(--border)',
@@ -229,7 +232,10 @@ export default function Settings() {
           <div style={{ marginTop: '0.9rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
               <div
+                role="switch"
+                tabIndex={0}
                 onClick={() => lang.savePrefs({ subsOffByDefault: !lang.subsOffByDefault })}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (() => lang.savePrefs({ subsOffByDefault: !lang.subsOffByDefault }))() } }}
                 style={{
                   width: 44, height: 24, borderRadius: 12,
                   background: lang.subsOffByDefault ? 'var(--accent)' : 'var(--border)',
@@ -265,7 +271,10 @@ export default function Settings() {
           {/* Toggle */}
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', cursor: 'pointer' }}>
             <div
+              role="switch"
+              tabIndex={0}
               onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (() => setForm(f => ({ ...f, enabled: !f.enabled })))() } }}
               style={{
                 width: 44, height: 24, borderRadius: 12, background: form.enabled ? 'var(--accent)' : 'var(--border)',
                 position: 'relative', cursor: 'pointer', transition: 'background 0.2s',
