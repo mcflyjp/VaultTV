@@ -13,6 +13,7 @@
  */
 
 import { useState } from 'react'
+import { FiPlay } from 'react-icons/fi'
 import { Component } from 'react'
 import { useLocalLibrary } from '../context/LocalLibraryContext'
 import { sortAndFilterStreams, streamCompat, compatBadge, parseStreamLanguages, parseStreamMeta, parseStreamCodecs, LANG_LABELS } from '../lib/streamCompat'
@@ -99,7 +100,7 @@ function StreamSortBar({ streams, sortBy, setSortBy, filterLang, setFilterLang, 
 }
 
 /** Horizontal stream tray that slides in below a clicked episode row */
-function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
+export function InlineStreamTray({ loading, streams, onSelect, preferredLang }) {
   const [sortBy,      setSortBy]      = useState('default')
   const [filterLang,  setFilterLang]  = useState('')
   const [compatOnly,  setCompatOnly]  = useState(false)
@@ -294,5 +295,163 @@ function StreamPanelRow({ stream: s, onSelect, preferredLang, companionOnline = 
         </div>
       )}
     </div>
+  )
+}
+
+function streamLangOptions(streams) {
+  const seen = new Set()
+  for (const s of streams) {
+    for (const code of parseStreamLanguages(s)) {
+      if (code !== 'MULTI' && code !== 'DUAL') seen.add(code)
+    }
+  }
+  return [...seen].sort()
+}
+
+function StreamCard({ stream: s, onSelect, preferredLang, companionOnline = false }) {
+  // On FireTV, ExoPlayer handles all codecs natively — treat everything as compatible
+  const compat    = IS_FIRETV ? 'compatible' : streamCompat(s)
+  const badge     = compatBadge(compat)
+  const hasIssue  = compat === 'audio-issue' || compat === 'video-issue' || compat === 'both-issues'
+  const dimmed    = compat === 'both-issues' && !companionOnline
+  const langs     = parseStreamLanguages(s)
+  const meta      = parseStreamMeta(s)
+  const langMatch = preferredLang && langs.length > 0 && !['MULTI','DUAL'].includes(langs[0]) && langs.includes(preferredLang)
+  const qualMatch = (s.name || '').match(/4K|\d{3,4}p|HD|SD/i)
+  const effectiveBadge = hasIssue && companionOnline
+    ? { label: '⚡ Auto', color: '#4ade80', title: 'Will be transcoded automatically via companion' }
+    : badge
+  const baseBorder = langMatch ? 'rgba(251,191,36,0.45)'
+                   : compat === 'compatible' || (hasIssue && companionOnline) ? 'rgba(74,222,128,0.35)'
+                   : 'var(--border)'
+
+  const rawTooltip = [s.name, s.title, companionOnline && hasIssue ? '⚡ Auto-transcoding via companion' : effectiveBadge?.title].filter(Boolean).join('\n─────\n')
+
+  function handleClick() {
+    if (!s.url) return
+    if (hasIssue && companionOnline) {
+      const { videoCodec } = parseStreamCodecs(s)
+      const needsVideoTranscode = videoCodec && !['h264','avc','x264'].includes(videoCodec.toLowerCase())
+      const al = preferredLang && langs.includes(preferredLang) ? preferredLang : ''
+      onSelect(transcodeUrl(s.url, 0, needsVideoTranscode, al), s)
+    } else {
+      onSelect(s.url, s)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={!s.url}
+      title={rawTooltip}
+      style={{
+        flexShrink: 0, width: 176, opacity: dimmed ? 0.45 : 1,
+        background: langMatch ? 'rgba(251,191,36,0.04)' : 'var(--bg-card)',
+        border: `1px solid ${baseBorder}`,
+        borderRadius: 'var(--radius)', padding: '0.65rem 0.75rem',
+        cursor: s.url ? 'pointer' : 'default', textAlign: 'left',
+        transition: 'border-color 0.15s, background 0.15s',
+      }}
+      onMouseEnter={e => { if (!dimmed) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'rgba(124,58,237,0.12)' }}}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = baseBorder; e.currentTarget.style.background = langMatch ? 'rgba(251,191,36,0.04)' : 'var(--bg-card)' }}
+    >
+      {/* Top row: play icon + quality/compat badges */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <FiPlay size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <div style={{ display: 'flex', gap: 3, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {qualMatch && (
+            <span style={{ fontSize: '0.58rem', background: 'var(--accent)', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>
+              {qualMatch[0]}
+            </span>
+          )}
+          {effectiveBadge && (
+            <span style={{ fontSize: '0.58rem', background: effectiveBadge.color + '22', color: effectiveBadge.color, border: `1px solid ${effectiveBadge.color}55`, borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>
+              {effectiveBadge.label}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Stream name */}
+      <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+        {s.name || s.title || 'Stream'}
+      </p>
+
+      {/* Torrent / file name */}
+      {(() => {
+        const nameLower = (s.name || '').toLowerCase()
+        const addonLower = (s.addonName || '').toLowerCase()
+        const firstLine = str => str?.split('\n').map(l => l.trim()).find(l => l.length > 3) || ''
+        // looks like a real filename/torrent name: has a video extension, or has dots/dots+year pattern, or is long (>25 chars)
+        const looksLikeFilename = str => /\.(mkv|mp4|avi|mov|ts|m2ts|webm)$/i.test(str) || str.length > 25
+        // looksLikeSource: short string that's just a rehash of the addon/cache source
+        const looksLikeSource = str => {
+          const l = str.toLowerCase()
+          return str.length < 20 && (
+            l.includes(addonLower) || (addonLower && addonLower.includes(l.split(' ')[0]))
+          )
+        }
+
+        // behaviorHints.filename is the most reliable — always use if present
+        const hintFile = firstLine(s.behaviorHints?.filename)
+        if (hintFile && !nameLower.includes(hintFile.toLowerCase())) {
+          return <p style={{ margin: '1px 0 0', fontSize: '0.66rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{hintFile}</p>
+        }
+
+        // Fall back to first line of title/description only if it looks like a real filename
+        const candidate = firstLine(s.title) || firstLine(s.description)
+        if (!candidate) return null
+        if (nameLower.includes(candidate.toLowerCase())) return null
+        if (looksLikeSource(candidate)) return null
+        if (!looksLikeFilename(candidate)) return null
+
+        return <p style={{ margin: '1px 0 0', fontSize: '0.66rem', color: 'rgba(255,255,255,0.38)', lineHeight: 1.35,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{candidate}</p>
+      })()}
+
+      {/* Addon name + seeds + size */}
+      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', margin: '2px 0 4px', flexWrap: 'wrap' }}>
+        {s.addonName && !(s.name || '').toLowerCase().includes(s.addonName.toLowerCase()) && (
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1 }}>
+            {s.addonName}
+          </span>
+        )}
+        {meta.seeds != null && (
+          <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>👤{meta.seeds}</span>
+        )}
+        {meta.sizeGb != null && (
+          <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
+            💾{meta.sizeGb >= 1 ? `${meta.sizeGb.toFixed(1)}G` : `${(meta.sizeGb * 1024).toFixed(0)}M`}
+          </span>
+        )}
+      </div>
+
+      {/* Language badges row */}
+      {langs.length > 0 && (
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+          {langs.map(code => (
+            <span
+              key={code}
+              style={{
+                fontSize: '0.58rem', borderRadius: 3, padding: '1px 5px', fontWeight: 700,
+                background: code === 'MULTI' ? 'rgba(99,102,241,0.18)'
+                           : langMatch && code === preferredLang ? 'rgba(251,191,36,0.2)'
+                           : 'rgba(255,255,255,0.07)',
+                color: code === 'MULTI' ? '#818cf8'
+                     : langMatch && code === preferredLang ? '#fbbf24'
+                     : 'rgba(255,255,255,0.5)',
+                border: `1px solid ${code === 'MULTI' ? 'rgba(99,102,241,0.35)'
+                          : langMatch && code === preferredLang ? 'rgba(251,191,36,0.45)'
+                          : 'rgba(255,255,255,0.1)'}`,
+              }}
+            >
+              {LANG_LABELS[code] || code.toUpperCase()}
+            </span>
+          ))}
+        </div>
+      )}
+
+    </button>
   )
 }
