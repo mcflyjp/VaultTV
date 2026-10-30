@@ -570,6 +570,23 @@ export function transcodeUrl(sourceUrl, startSec = 0, transcodeVideo = false, au
 }
 
 /**
+ * URL that keeps the video as-is and converts only the audio.
+ *
+ * For a player that can already decode the video, re-encoding it is waste, and
+ * at 4K it is worse than waste: a 2160p 10-bit HEVC source cannot be re-encoded
+ * in real time, so playback starves and the player gives up. This copies the
+ * video through and hands back Matroska, which Android players decode natively.
+ */
+export function remuxAudioUrl(sourceUrl, startSec = 0, audioIndex = 0) {
+  const params = new URLSearchParams({ url: unwrapTranscode(sourceUrl), rx: '1' })
+  if (startSec > 0)   params.set('t', String(Math.floor(startSec)))
+  if (audioIndex > 0) params.set('ai', String(audioIndex))
+  const token = localStorage.getItem('vt-companion-token')
+  if (token) params.set('token', token)
+  return `${BASE}/transcode?${params}`
+}
+
+/**
  * Subscribe to file-system change events from the companion.
  *
  * @param {(event: { sourceId, sourceName, type, action, filename, timestamp }) => void} onChanged

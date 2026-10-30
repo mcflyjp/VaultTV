@@ -10,7 +10,7 @@
  */
 
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
-import { transcodeUrl } from '../lib/companion'
+import { remuxAudioUrl } from '../lib/companion'
 import { useLanguage } from './LanguageContext'
 
 const PlayerContext = createContext(null)
@@ -47,14 +47,15 @@ function audioSafeUrl(url, opts, player) {
   const codec = (opts.audioCodec || '').toLowerCase()
   if (!MX_UNSUPPORTED_AUDIO.has(codec)) return url
   if (!window.__companionBase) return url
-  // Re-encode the video too when it is not already H.264.
+  // Convert the audio and leave the video alone.
   //
-  // Copying it through is cheaper, but the result is HEVC inside a fragmented
-  // MP4, which MX Player cannot hardware decode: it warns that the hardware
-  // decoder is unsupported and falls back to software, where 1080p HEVC
-  // stutters on a streaming stick. The caller has already worked out whether
-  // the video needs converting, so reuse that rather than guessing again.
-  return transcodeUrl(opts.rawStreamUrl || url, 0, !!opts.transcodeVideo)
+  // An earlier version re-encoded the video too, because HEVC inside a
+  // fragmented MP4 made MX Player fall back to software decoding. The
+  // container was the problem, not the codec: MX hardware decodes HEVC
+  // perfectly well from Matroska. Re-encoding it instead was ruinous at 4K,
+  // where a 2160p 10-bit source cannot be converted in real time, so playback
+  // starved and the player gave up after a few seconds.
+  return remuxAudioUrl(opts.rawStreamUrl || url, 0)
 }
 
 export function PlayerProvider({ children }) {

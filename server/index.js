@@ -1895,7 +1895,7 @@ app.get('/probe', (req, res) => {
 
 // ── Transcode ─────────────────────────────────────────────────────────────────
 app.get('/transcode', (req, res) => {
-  const { url: rawUrlParam, t, tv, al, ai } = req.query
+  const { url: rawUrlParam, t, tv, al, ai, rx } = req.query
   if (!rawUrlParam) return res.status(400).json({ error: 'url required' })
   try { new URL(rawUrlParam) } catch { return res.status(400).json({ error: 'Invalid URL' }) }
   // Unwrap a transcode URL handed back to us. When that happened, ffmpeg was
@@ -1909,7 +1909,10 @@ app.get('/transcode', (req, res) => {
   if (sourceUrl !== rawSourceUrl) console.log('[transcode] source localized to loopback')
 
   const startSec       = parseFloat(t)  || 0
-  const transcodeVideo = tv === '1'
+  // Remux wins over any request to re-encode the video: the whole point is to
+  // leave it untouched.
+  const remux          = rx === '1'
+  const transcodeVideo = !remux && tv === '1'
   // `ai` (audio stream index) is authoritative. `al` is only still accepted so
   // an older cached client doesn't break; it can't be resolved to an index
   // here without another ffprobe, so it degrades to the first track — the
@@ -1964,11 +1967,31 @@ app.get('/transcode', (req, res) => {
   // <video> element stalls on it forever — no loadedmetadata, no error, just a
   // spinner — which is indistinguishable from a network hang. Dropping
   // chapters leaves a clean h264+aac pair.
-  args.push('-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-dn', '-map_chapters', '-1',
-            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-            '-f', 'mp4', 'pipe:1')
+  if (remux) {
+    // Remux: keep the video exactly as it is and convert only the audio.
+    //
+    // For a player that can already decode the video, re-encoding it is pure
+    // waste, and at 4K it is worse than waste: a 2160p 10-bit HEVC source
+    // cannot be re-encoded in real time, so playback starves and the client
+    // gives up after a few seconds. Copying the video costs almost nothing.
+    //
+    // Matroska rather than fragmented MP4 deliberately. Fragmented MP4 is what
+    // browsers need, but it is also what made MX Player refuse to hardware
+    // decode HEVC and fall back to software. Matroska carries the same copied
+    // stream in a container every Android player handles natively.
+    //
+    // Seeking is not possible in either form: both are produced on the fly
+    // into a pipe with no index, so a player can only move within what it has
+    // already buffered.
+    args.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-dn', '-map_chapters', '-1',
+              '-f', 'matroska', 'pipe:1')
+  } else {
+    args.push('-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-dn', '-map_chapters', '-1',
+              '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+              '-f', 'mp4', 'pipe:1')
+  }
 
-  res.setHeader('Content-Type', 'video/mp4')
+  res.setHeader('Content-Type', remux ? 'video/x-matroska' : 'video/mp4')
   res.setHeader('Cache-Control', 'no-cache')
   const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
   ff.stdout.pipe(res)
