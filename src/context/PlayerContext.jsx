@@ -37,6 +37,11 @@ const DEFAULT_PLAYER_KEY = 'vt-default-player'
 // re-encoded to stereo AAC.
 const MX_UNSUPPORTED_AUDIO = new Set(['ac3', 'eac3', 'dts', 'truehd', 'mlp'])
 
+// Audio MX decodes natively, and so the only case worth sending it untouched.
+// Everything else, including a stream that says nothing about its audio, goes
+// through the remux.
+const MX_SAFE_AUDIO = new Set(['aac', 'mp3', 'opus', 'vorbis', 'flac', 'pcm'])
+
 /**
  * Swap a stream for its transcoded form when the chosen player cannot decode
  * its audio. Returns the original URL whenever there is nothing to fix, no
@@ -44,9 +49,21 @@ const MX_UNSUPPORTED_AUDIO = new Set(['ac3', 'eac3', 'dts', 'truehd', 'mlp'])
  */
 function audioSafeUrl(url, opts, player) {
   if (player !== 'mxplayer') return url
-  const codec = (opts.audioCodec || '').toLowerCase()
-  if (!MX_UNSUPPORTED_AUDIO.has(codec)) return url
   if (!window.__companionBase) return url
+
+  // Assume MX cannot decode the audio unless the name says otherwise.
+  //
+  // This used to work the other way round, routing only when the release name
+  // advertised AC3, E-AC-3, DTS or TrueHD. Plenty of streams say nothing about
+  // their audio at all, and those went straight to MX and played silent, with
+  // no track even listed, since MX hides formats it has no decoder for. A name
+  // is a guess either way; this is the guess that fails safely.
+  //
+  // Remuxing is cheap enough to be the default: the video is copied through
+  // untouched and only the audio is converted, which runs about ten times
+  // faster than playback needs.
+  const codec = (opts.audioCodec || '').toLowerCase()
+  if (MX_SAFE_AUDIO.has(codec)) return url
   // Convert the audio and leave the video alone.
   //
   // An earlier version re-encoded the video too, because HEVC inside a
