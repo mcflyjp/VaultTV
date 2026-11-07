@@ -46,7 +46,10 @@ public class MainActivity extends Activity {
 
     // ── Change this to your VaultTV URL ──────────────────────────────────
     // Option A: hosted URL (works anywhere, companion via LAN for local files)
-    private static final String VAULTTV_URL = "https://vaulttv.pages.dev";
+    // Set per build type in build.gradle: the real app loads production, the
+    // beta loads the preview deployment. Hardcoding it here meant the URL had
+    // to be edited and reverted around every test.
+    private static final String VAULTTV_URL = BuildConfig.VAULTTV_URL;
     // Option B: LAN dev server (same network as host machine)
     // private static final String VAULTTV_URL = "http://192.168.1.232:5174";
     // ─────────────────────────────────────────────────────────────────────

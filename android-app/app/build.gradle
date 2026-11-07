@@ -12,12 +12,36 @@ android {
         targetSdk       34
         versionCode     32
         versionName     '0.31.0'
+
+        // Which build of the web app this APK loads. Overridden per build type
+        // below so a beta build can point at a preview deployment without the
+        // URL being edited by hand before every test.
+        buildConfigField 'String', 'VAULTTV_URL', '"https://vaulttv.pages.dev"'
+        resValue 'string', 'app_name', 'VaultTV'
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {
         release {
             minifyEnabled   false
             signingConfig   signingConfigs.debug  // swap for keystore in production
+        }
+
+        // Installs alongside the real app rather than replacing it.
+        //
+        // The household watches on the same televisions this gets tested on, so
+        // a beta that overwrote the working app would take the living room down
+        // every time something half finished was tried. A separate application
+        // id means both sit in the launcher and the real one is never touched.
+        beta {
+            initWith debug
+            applicationIdSuffix '.beta'
+            versionNameSuffix   '-beta'
+            buildConfigField 'String', 'VAULTTV_URL', '"https://v2-watch-providers.vaulttv.pages.dev"'
+            resValue 'string', 'app_name', 'VaultTV Beta'
         }
     }
 
