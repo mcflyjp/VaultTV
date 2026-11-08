@@ -20,8 +20,8 @@
     "icons": "node scripts/generate-icons.js",
     "defaults": "node scripts/make-defaults.cjs",
     "seed-env": "node scripts/seed-env-from-config.cjs",
-    "deploy:preview": "vite build && wrangler pages deploy dist --project-name=vaulttv --branch=v2-watch-providers --commit-dirty=true",
-    "deploy:prod": "vite build && wrangler pages deploy dist --project-name=vaulttv --branch=main --commit-dirty=true"
+    "deploy:preview": "vite build && npx --yes wrangler pages deploy dist --project-name=vaulttv --branch=v2-watch-providers --commit-dirty=true",
+    "deploy:prod": "vite build && npx --yes wrangler pages deploy dist --project-name=vaulttv --branch=main --commit-dirty=true"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
