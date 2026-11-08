@@ -33,6 +33,7 @@ import { platformLabel, IS_ANDROID } from '../lib/platform'
 import { transcodeUrl } from '../lib/companion'
 import { useModalBackTrap } from '../hooks/useModalBackTrap'
 import { StreamPanel, StreamErrorBoundary, InlineStreamTray } from '../components/StreamPanel'
+import WatchProviders from '../components/WatchProviders'
 import { findImdbIdByTitle } from '../lib/cinemeta'
 
 export default function Detail() {
@@ -1070,6 +1071,11 @@ export default function Detail() {
             </StreamErrorBoundary>
           </div>
         )}
+
+        {/* Where the title exists elsewhere. Deliberately after the user's own
+            sources and visually distinct from them, because almost none of it
+            is something VaultTV can play. */}
+        <WatchProviders type={type} id={id} />
 
         {/* ── Similar ── */}
         {similar?.results?.length > 0 && (

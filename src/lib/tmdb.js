@@ -35,6 +35,20 @@ export const getSeason     = (id, season) => tmdb(`/tv/${id}/season/${season}`)
 export const getSimilar    = (type, id) => tmdb(`/${type}/${id}/similar`)
 export const getVideos     = (type, id) => tmdb(`/${type}/${id}/videos`)
 
+/**
+ * Where a title can legally be watched, by region.
+ *
+ * The data is JustWatch's, supplied through TMDB, and both require credit: the
+ * UI shows a JustWatch attribution and links back to TMDB's own page. That
+ * link matters practically as well as legally, because the API returns only
+ * which services carry a title, never a deep link into them, so TMDB's page is
+ * the only route onward that we are given.
+ *
+ * Categories are returned separately: free and ads are watchable at no cost,
+ * flatrate needs a subscription, rent and buy cost money per title.
+ */
+export const getWatchProviders = (type, id) => tmdb(`/${type}/${id}/watch/providers`)
+
 export const YT_EMBED = 'https://www.youtube-nocookie.com/embed'
 
 /** Pick the best background trailer key from a videos result */
