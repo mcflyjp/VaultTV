@@ -964,6 +964,14 @@ export default function Detail() {
           </div>
         )}
 
+        {/* Where the title exists elsewhere, on services VaultTV cannot play
+            through. Sits high on the page because buried under Cast & Crew and
+            Reviews it was effectively invisible, especially on a TV where
+            getting this far means a lot of D-pad presses. The dashed container
+            rather than position does the work of separating it from the user's
+            own sources. */}
+        <WatchProviders type={type} id={id} />
+
         {/* ── Cast & Crew ── */}
         {detail?.credits?.cast?.length > 0 && (
           <div style={{ padding: '0 2rem 2rem' }}>
@@ -1071,11 +1079,6 @@ export default function Detail() {
             </StreamErrorBoundary>
           </div>
         )}
-
-        {/* Where the title exists elsewhere. Deliberately after the user's own
-            sources and visually distinct from them, because almost none of it
-            is something VaultTV can play. */}
-        <WatchProviders type={type} id={id} />
 
         {/* ── Similar ── */}
         {similar?.results?.length > 0 && (
